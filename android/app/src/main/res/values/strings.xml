@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Tiefgang</string>
+    <string name="title_activity_main">Tiefgang</string>
+    <string name="package_name">nl.maanhuis.tiefganga</string>
+    <string name="custom_url_scheme">nl.maanhuis.tiefganga</string>
+</resources>

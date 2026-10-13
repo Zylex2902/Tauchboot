@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dev-dist/
+*.log
+.DS_Store
+ios/App/Pods/
+ios/App/App/public/
+ios/DerivedData/
+android/app/src/main/assets/public/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
