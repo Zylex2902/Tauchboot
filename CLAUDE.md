@@ -3,7 +3,7 @@
 Landscape-only pixel-art WW2-style submarine station sim. iOS + Android (Capacitor), PWA for testing. Fictional 1940s regime; never real Nazi symbols. 9 hand-operated stations, 44-man crew runs the rest. Single-player, offline, free + one unlock.
 
 GDD + build plan: https://claude.ai/code/artifact/1bff9637-acf4-4053-9c8a-9a09e4b62e39
-Status: chunk 0.1 (app shell) done. Work one chunk at a time, then stop and report.
+Status: chunks 0.1 (shell) and 0.2 (control kit) done; next 0.3 station framework. Work one chunk at a time, then stop and report.
 
 ## Standing rules
 - Everything that changes on screen animates (tween); nothing snaps.
@@ -27,7 +27,9 @@ Status: chunk 0.1 (app shell) done. Work one chunk at a time, then stop and repo
 - src/core/display.ts: integer scaler, bleed, safe-area rect, portrait detection
 - src/core/lockdown.ts: zoom/scroll/selection/gesture blocking
 - src/core/haptics.ts, audio.ts, settings.ts, tween.ts, font.ts, pixels.ts, palette.ts
-- src/stations/test-station.ts: placeholder panel, strip stub, test button
+- src/controls/: data-driven control kit (lever, crank, hold, switch, button+cover, drag), createControl(spec), hitPolicy (44 pt min touch target, recomputed per layout), odometer display
+- src/stations/panel-art.ts: shared plating/plate/strip art; kit-panel.ts: 0.2 test panel (KIT_PANEL specs)
+- Playtest link: `npm run build:single` -> dist-single/tiefgang.html, published as artifact https://claude.ai/artifact/Sss2vfG49S3UZXYkCwJ46K
 - Never edit ios/ or android/ by hand except Info.plist / AndroidManifest.xml orientation keys.
 
 ## Palette (32, index order is canonical)

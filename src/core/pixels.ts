@@ -64,6 +64,22 @@ export class Pix {
       for (let i = -r; i <= r; i++) if (i * i + j * j <= r * r + r * 0.6) this.set(cx + i, cy + j, c);
   }
 
+  /** Bresenham line, optional thickness (square brush). */
+  line(x0: number, y0: number, x1: number, y1: number, c: ColorIndex, t = 1): void {
+    x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    const dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    const dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy;
+    const o = Math.floor((t - 1) / 2);
+    for (;;) {
+      this.rect(x0 - o, y0 - o, t, t, c);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+  }
+
   blit(src: Pix, dx: number, dy: number): void {
     for (let j = 0; j < src.h; j++)
       for (let i = 0; i < src.w; i++) {

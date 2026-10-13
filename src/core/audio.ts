@@ -1,5 +1,10 @@
 import { settings } from './settings';
 
+export interface LoopHandle {
+  stop(fadeMs?: number): void;
+  setRate(rate: number): void;
+}
+
 export type Bus = 'ui' | 'machinery' | 'sensors' | 'voices' | 'music';
 const BUSES: Bus[] = ['ui', 'machinery', 'sensors', 'voices', 'music'];
 
@@ -114,6 +119,36 @@ class Mixer {
     }
     node.connect(this.bus[bus]);
     src.start();
+  }
+
+  /** Start a looping sound (hiss while a valve is held, motor whine). Fades in and out. */
+  loop(name: string, bus: Bus, o: PlayOpts & { fadeMs?: number } = {}): LoopHandle {
+    const ctx = this.ctx;
+    const buf = this.buffers.get(name);
+    if (!ctx || ctx.state !== 'running' || !buf) return { stop: () => {}, setRate: () => {} };
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.playbackRate.value = o.rate ?? 1;
+    const g = ctx.createGain();
+    const fade = (o.fadeMs ?? 60) / 1000;
+    g.gain.setValueAtTime(0, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(o.gain ?? 1, ctx.currentTime + fade);
+    src.connect(g).connect(this.bus[bus]);
+    src.start();
+    let stopped = false;
+    return {
+      stop: (ms = 120) => {
+        if (stopped) return;
+        stopped = true;
+        const t = ctx.currentTime;
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(g.gain.value, t);
+        g.gain.linearRampToValueAtTime(0, t + ms / 1000);
+        src.stop(t + ms / 1000 + 0.02);
+      },
+      setRate: (r) => src.playbackRate.setTargetAtTime(r, ctx.currentTime, 0.03),
+    };
   }
 
   private render(name: string): void {

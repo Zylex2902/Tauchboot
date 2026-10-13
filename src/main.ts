@@ -12,7 +12,7 @@ import { RotatePrompt } from './core/rotate-prompt';
 import { loadSettings } from './core/settings';
 import { defineSounds } from './core/sfx';
 import { Tweens } from './core/tween';
-import { TestStation } from './stations/test-station';
+import { KitPanel } from './stations/kit-panel';
 
 /** Bleed art: darker hull plating on the same art grid, shown outside the 480x270 frame. */
 function bleedTile(): Pix {
@@ -75,7 +75,7 @@ async function boot(): Promise<void> {
   const tweens = new Tweens(app.ticker);
   const bleed = new TilingSprite({ texture: bleedTile().toTexture(), width: 1, height: 1 });
   const world = new Container();
-  const station = new TestStation(tweens);
+  const station = new KitPanel(tweens, { tw: tweens, ticker: app.ticker });
   world.addChild(station.root);
   const prompt = new RotatePrompt(tweens);
   app.stage.addChild(bleed, world, prompt.root);
