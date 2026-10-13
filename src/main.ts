@@ -1,3 +1,4 @@
+import 'pixi.js/unsafe-eval'; // CSP-safe shader/UBO sync (no new Function), needed for strict hosts
 import { Application, Container, TextureSource, TilingSprite } from 'pixi.js';
 import { Capacitor } from '@capacitor/core';
 import { ScreenOrientation } from '@capacitor/screen-orientation';
@@ -40,7 +41,7 @@ async function lockLandscape(): Promise<void> {
 }
 
 async function registerServiceWorker(): Promise<void> {
-  if (Capacitor.isNativePlatform() || !import.meta.env.PROD || !('serviceWorker' in navigator)) return;
+  if (Capacitor.isNativePlatform() || !import.meta.env.PROD || import.meta.env.VITE_SINGLEFILE || !('serviceWorker' in navigator)) return;
   const { registerSW } = await import('virtual:pwa-register');
   registerSW({ immediate: true });
 }

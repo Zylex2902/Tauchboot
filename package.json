@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "cap:sync": "npm run build && cap sync",
     "ios": "npm run cap:sync && cap open ios",
-    "android": "npm run cap:sync && cap open android"
+    "android": "npm run cap:sync && cap open android",
+    "build:single": "tsc --noEmit && vite build -c vite.singlefile.config.ts && node scripts/artifact.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
@@ -25,6 +26,7 @@
     "@capacitor/cli": "^8.5.3",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",
-    "vite-plugin-pwa": "^2.0.0"
+    "vite-plugin-pwa": "^2.0.0",
+    "vite-plugin-singlefile": "^2.3.3"
   }
 }
