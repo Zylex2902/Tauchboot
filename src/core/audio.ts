@@ -3,10 +3,15 @@ import { settings } from './settings';
 export interface LoopHandle {
   stop(fadeMs?: number): void;
   setRate(rate: number): void;
+  /** Smoothed gain change (time constant in ms). */
+  setGain(gain: number, tauMs?: number): void;
+  /** -1 left .. 1 right, smoothed. */
+  setPan(pan: number, tauMs?: number): void;
 }
 
-export type Bus = 'ui' | 'machinery' | 'sensors' | 'voices' | 'music';
-const BUSES: Bus[] = ['ui', 'machinery', 'sensors', 'voices', 'music'];
+/** bed: the boat's ambience; sensors: what comes through headphones (dry, no room). */
+export type Bus = 'ui' | 'machinery' | 'bed' | 'sensors' | 'voices' | 'music';
+const BUSES: Bus[] = ['ui', 'machinery', 'bed', 'sensors', 'voices', 'music'];
 
 export interface PlayOpts {
   gain?: number;
@@ -70,7 +75,7 @@ class Mixer {
       for (const b of BUSES) {
         const g = ctx.createGain();
         g.connect(this.master);
-        if (b !== 'music') {
+        if (b !== 'music' && b !== 'sensors') {
           const send = ctx.createGain();
           send.gain.value = b === 'voices' ? 0.5 : 1;
           g.connect(send).connect(room);
@@ -109,8 +114,25 @@ class Mixer {
     if (this.master && this.ctx) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
   }
 
-  setBusVolume(b: Bus, v: number): void {
-    if (this.ctx) this.bus[b].gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
+  setBusVolume(b: Bus, v: number, tau = 0.02): void {
+    if (this.ctx) this.bus[b].gain.setTargetAtTime(v, this.ctx.currentTime, tau);
+  }
+
+  private ducks = new Map<string, Partial<Record<Bus, number>>>();
+  /**
+   * Named ducks (pause, hydrophone headset): each bus plays at the lowest level any
+   * active duck asks for, so overlapping ducks never fight.
+   */
+  duck(key: string, levels: Partial<Record<Bus, number>> | null): void {
+    if (levels) this.ducks.set(key, levels);
+    else this.ducks.delete(key);
+    this.whenRunning(() => {
+      for (const b of BUSES) {
+        let v = 1;
+        for (const d of this.ducks.values()) v = Math.min(v, d[b] ?? 1);
+        this.setBusVolume(b, v, 0.12);
+      }
+    });
   }
 
   play(name: string, bus: Bus, o: PlayOpts = {}): void {
@@ -147,7 +169,7 @@ class Mixer {
   loop(name: string, bus: Bus, o: PlayOpts & { fadeMs?: number } = {}): LoopHandle {
     const ctx = this.ctx;
     const buf = this.buffers.get(name);
-    if (!ctx || ctx.state !== 'running' || !buf) return { stop: () => {}, setRate: () => {} };
+    if (!ctx || ctx.state !== 'running' || !buf) return { stop: () => {}, setRate: () => {}, setGain: () => {}, setPan: () => {} };
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.loop = true;
@@ -156,7 +178,9 @@ class Mixer {
     const fade = (o.fadeMs ?? 60) / 1000;
     g.gain.setValueAtTime(0, ctx.currentTime);
     g.gain.linearRampToValueAtTime(o.gain ?? 1, ctx.currentTime + fade);
-    src.connect(g).connect(this.bus[bus]);
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = o.pan ?? 0;
+    src.connect(g).connect(pan).connect(this.bus[bus]);
     src.start();
     let stopped = false;
     return {
@@ -170,6 +194,8 @@ class Mixer {
         src.stop(t + ms / 1000 + 0.02);
       },
       setRate: (r) => src.playbackRate.setTargetAtTime(r, ctx.currentTime, 0.03),
+      setGain: (v, tau = 60) => !stopped && g.gain.setTargetAtTime(v, ctx.currentTime, tau / 1000),
+      setPan: (p, tau = 40) => pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, p)), ctx.currentTime, tau / 1000),
     };
   }
 

@@ -34,16 +34,6 @@ export const PLACEHOLDERS: Record<number, PlaceholderSpec> = {
     papers: [{ x: 200, y: 60, w: 180, h: 140, title: 'ORDERS' }],
     stencil: [404, 150],
   },
-  2: {
-    controls: [
-      { kind: 'crank', id: 'bearing', x: 110, y: 124, radius: 34, mass: 0.8, friction: 3, ticksPerTurn: 36, label: 'BEARING' },
-      { kind: 'switch', id: 'set', x: 236, y: 92, lamp: true, label: 'SET' },
-      { kind: 'switch', id: 'speaker', x: 236, y: 168, lamp: true, label: 'SPEAKER' },
-      { kind: 'lever', id: 'gain', x: 340, y: 70, axis: 'x', length: 90, detents: ['LOW', '', '', 'HIGH'], initial: 1, weight: 40 },
-    ],
-    captions: [['GAIN', 375, 50]],
-    stencil: [404, 150],
-  },
   4: {
     controls: [
       { kind: 'lever', id: 'time', x: 44, y: 58, axis: 'x', length: 180, detents: ['1X', '8X', '32X', '128X', '1024X'], initial: 0, weight: 50 },

@@ -147,7 +147,7 @@ export class Pause {
       haptic(paused ? 'press' : 'release');
     }
     // Duck the boat while paused; the UI bus stays live.
-    for (const b of ['machinery', 'sensors', 'voices'] as const) mixer.setBusVolume(b, paused ? 0.12 : 1);
+    mixer.duck('pause', paused ? { machinery: 0.12, bed: 0.12, sensors: 0.12, voices: 0.12 } : null);
     this.catcher.eventMode = paused ? 'static' : 'none';
     if (paused) {
       this.veil.visible = true;

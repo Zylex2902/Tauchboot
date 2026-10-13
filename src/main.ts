@@ -52,7 +52,7 @@ async function boot(): Promise<void> {
   mixer.install();
   defineSounds();
   // The boat is never silent: motors, mains hum and ventilation under everything.
-  mixer.whenRunning(() => mixer.loop(SFX.hull, 'machinery', { gain: 0.3, fadeMs: 2500 }));
+  mixer.whenRunning(() => mixer.loop(SFX.hull, 'bed', { gain: 0.3, fadeMs: 2500 }));
   await loadSettings();
   hapticsInit();
   void lockLandscape();

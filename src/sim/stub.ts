@@ -27,12 +27,60 @@ const TEST_ALARMS: [number, AlarmLevel, string][] = [
   [6, 1, 'LOOKOUT REPORTS SMOKE ON THE HORIZON, BEARING 300.'],
 ];
 
+function mulberry(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 interface Timer {
   at: number;
   fn: () => void;
 }
 
+/** Wrap to -180..180. */
+const wrap = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
+
+/**
+ * One merchant on a slowly drifting relative bearing. The hydrophone's beam is narrow:
+ * level falls off as cos(err/2)^40 (about -1.3 dB at 10 degrees off, -5 dB at 20), and
+ * the balance swings hard toward the side the sound is on. Range is not observable.
+ */
+function hydroModel(r: () => number) {
+  const ship = { bearing: 0, drift: 0, rpm: 0 };
+  let trained = 0;
+  let marks = 0;
+  const fresh = () => {
+    ship.bearing = Math.floor(r() * 360);
+    ship.drift = (r() - 0.5) * 0.24; // degrees per second as she passes
+    ship.rpm = 64 + Math.floor(r() * 41);
+  };
+  fresh();
+  return {
+    fresh,
+    train: (b: number) => (trained = ((b % 360) + 360) % 360),
+    mark: () => ({ n: ++marks, trained: Math.round(trained), truth: Math.round(((ship.bearing % 360) + 360) % 360), rpm: ship.rpm }),
+    tick(dt: number) {
+      ship.bearing += ship.drift * (dt / 1000);
+      const err = (wrap(ship.bearing - trained) * Math.PI) / 180;
+      const beam = Math.abs(Math.cos(err / 2)) ** 40;
+      const flutter = 1 + (r() - 0.5) * 0.04; // sea and flow noise on the reading
+      const h = obs.hydro;
+      h.trained = trained;
+      h.level = Math.min(1, beam * flutter);
+      h.pan = Math.max(-1, Math.min(1, Math.sin(err) * 2.5));
+      h.rpm = ship.rpm;
+    },
+  };
+}
+
 export function startSimStub(ticker: Ticker): void {
+  const hydro = hydroModel(mulberry(4711));
   let now = 0; // game ms, frozen while paused
   let timers: Timer[] = [];
   let nextTest = 0;
@@ -47,6 +95,7 @@ export function startSimStub(ticker: Ticker): void {
   ticker.add((t) => {
     if (obs.paused) return;
     now += t.deltaMS;
+    hydro.tick(t.deltaMS);
     const due = timers.filter((x) => x.at <= now);
     if (!due.length) return;
     timers = timers.filter((x) => x.at > now);
@@ -65,6 +114,15 @@ export function startSimStub(ticker: Ticker): void {
       }
       case 'acknowledge':
         if (obs.alarms[c.station].level > 0) after(700, () => alarm(c.station, 0, QUIET));
+        break;
+      case 'hydroTrain':
+        hydro.train(c.bearing);
+        break;
+      case 'hydroMark':
+        obs.publish({ type: 'hydroMark', mark: hydro.mark() });
+        break;
+      case 'hydroNew':
+        hydro.fresh();
         break;
       case 'debugAlarm': {
         const [s, l, text] = TEST_ALARMS[nextTest++ % TEST_ALARMS.length];

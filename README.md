@@ -39,5 +39,11 @@ In the Control Room, tap the CONTROL ROOM plate (top left) to slide out the read
 - ALARM TEST (Control Room) raises the next canned alarm somewhere in the boat.
 - Desktop: arrow keys or 1-9 travel, V voice pipe, Esc or P pause.
 
+## Hydrophone (chunk 0.4, Radio and Sound Room, compartment 3)
+Headphones recommended. Turn the TRAIN wheel until the screws sit dead centre and loudest; the LEVEL meter shows the same signal. Tap COUNT on each heavy beat for RPM and knots. Grey-box test plate: PHONES off = meter alone, METER off = ear alone (a blind covers the dial), MARK logs your bearing against the truth, NEW SHIP moves the contact.
+
+## Sound test
+`npm run build:sounds` -> dist-sounds/sound-test.html: every sound by name.
+
 ## Icons
 `node scripts/make-icons.mjs` regenerates the PWA icons from in-house pixel art. Native app icons are still the Capacitor defaults.

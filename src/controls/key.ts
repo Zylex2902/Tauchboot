@@ -15,6 +15,8 @@ export interface KeySpec extends BaseSpec {
   style?: KeyStyle;
   /** Up to two lines, centred on the key face. */
   text: string | [string, string];
+  /** 'down' fires on touch (rhythm taps, counting); default 'up' fires on release inside. */
+  fireOn?: 'down' | 'up';
 }
 
 const STYLE: Record<KeyStyle, { face: ColorIndex; hi: ColorIndex; lo: ColorIndex; ink: ColorIndex }> = {
@@ -26,6 +28,8 @@ const STYLE: Record<KeyStyle, { face: ColorIndex; hi: ColorIndex; lo: ColorIndex
 /** Rectangular push key (order chits, RESUME): sinks 2 px and springs back. Value counts presses. */
 export class Key extends Control<number> {
   private face: Container;
+  /** Timestamp of the touch that fired last (the event's own time, not frame time). */
+  firedAt = 0;
 
   constructor(readonly s: KeySpec, ctx: KitContext) {
     super(s, ctx, 0);
@@ -53,10 +57,14 @@ export class Key extends Control<number> {
     this.root.addChild(this.face);
 
     this.track({
-      down: () => {
+      down: (e) => {
         void ctx.tw.to(this.face, { y: 0 }, { duration: 40 });
         this.sfx('press', SFX.press, { gain: 0.6, rate: 1.5 });
         this.buzz('press', 'press');
+        if (s.fireOn === 'down') {
+          this.firedAt = (e.nativeEvent as { timeStamp?: number } | undefined)?.timeStamp ?? performance.now();
+          this.emit(this.value + 1);
+        }
       },
       up: (e, cancelled) => {
         const l = e.getLocalPosition(this.target);
@@ -64,7 +72,10 @@ export class Key extends Control<number> {
         void ctx.tw.to(this.face, { y: -2 }, { duration: 160, ease: ease.outBack });
         this.sfx('release', SFX.click);
         this.buzz('release', 'release');
-        if (!cancelled && inside) this.emit(this.value + 1);
+        if (!cancelled && inside && s.fireOn !== 'down') {
+          this.firedAt = (e.nativeEvent as { timeStamp?: number } | undefined)?.timeStamp ?? performance.now();
+          this.emit(this.value + 1);
+        }
       },
     });
     this.finish();

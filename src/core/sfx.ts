@@ -165,7 +165,14 @@ export const SFX = {
   mumble2: 'mumble2',
   /** Ambient loop: motors, mains hum, ventilation. */
   hull: 'hull',
+  /** Hydrophone: one screw revolution at SCREW_RPM (loop; rate = rpm / SCREW_RPM). */
+  screw: 'screw',
+  /** Hydrophone background: sea, flow noise, distant crackle (loop). */
+  sea: 'sea',
 } as const;
+
+/** Turns per minute the screw loop is rendered at. */
+export const SCREW_RPM = 90;
 
 /** What each sound is, for the sound test page. */
 export const SFX_NOTES: Record<string, string> = {
@@ -198,6 +205,8 @@ export const SFX_NOTES: Record<string, string> = {
   mumble1: 'crew voice through the pipe, placeholder',
   mumble2: 'crew voice through the pipe, placeholder',
   hull: 'boat ambience, loops',
+  screw: 'merchant screw in the hydrophone, loops',
+  sea: 'hydrophone sea noise, loops',
 };
 
 /** A small hard contact (switch blade, pawl, type bar tip). */
@@ -426,6 +435,44 @@ export function defineSounds(): void {
   }, 0.55);
 
   [SFX.mumble0, SFX.mumble1, SFX.mumble2].forEach((n, k) => d(n, (sr) => mumble(sr, 300 + k * 17), 0.7));
+
+  d(SFX.screw, (sr) => {
+    // One revolution: a heavy chuff as the big blade passes, three lighter blade chops,
+    // and churning water between them. Rendered with a periodic tail so it loops clean.
+    const L = 60 / SCREW_RPM;
+    const X = 0.06;
+    const out = len(sr, L + X);
+    for (let k = 0; k * (L / 4) < L + X; k++) {
+      const t = k * (L / 4);
+      const big = k % 4 === 0;
+      const chuff = strike(sr, 0.3, big ? 40 : 22, 270 + (k % 4), 0.85, cluster(275 + (k % 4), 45, 220, 8, big ? 0.07 : 0.04));
+      add(out, chuff, big ? 1 : 0.4, t, sr);
+    }
+    const r = rng(281);
+    let n1 = 0;
+    let n2 = 0;
+    for (let i = 0; i < out.length; i++) {
+      const ph = ((i / sr) / (L / 4)) % 1;
+      n1 += (r() * 2 - 1 - n1) * 0.08;
+      n2 += (n1 - n2) * 0.08;
+      out[i] += n2 * 2.2 * (0.35 + 0.65 * Math.exp(-ph * 4)); // churn swells behind each blade
+    }
+    return loopable(lowpass(out, 1600, sr), sr, X);
+  }, 0.8);
+
+  d(SFX.sea, (sr) => {
+    const dur = 4;
+    const out = len(sr, dur + 0.1);
+    const r = rng(291);
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < out.length; i++) {
+      a += (r() * 2 - 1 - a) * 0.01; // swell rumble
+      b += (r() * 2 - 1 - b) * 0.35; // flow hiss
+      out[i] = a * 6 + b * 0.12 + (r() < 0.0006 ? (r() - 0.5) * 0.6 : 0); // distant crackle
+    }
+    return loopable(lowpass(out, 3200, sr), sr, 0.1);
+  }, 0.5);
 
   d(SFX.hull, (sr) => {
     // Seamless 8 s: every tone completes whole cycles (multiples of 1/8 Hz).
