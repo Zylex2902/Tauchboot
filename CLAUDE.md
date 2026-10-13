@@ -22,6 +22,7 @@ Status: chunks 0.1 (shell), 0.2 (control kit), 0.3 (station framework) done; nex
 - Fictional names everywhere; nothing from UBOAT, IRON NEST, Silent Hunter or Das Boot.
 - Art stays on the palette: no alpha fades on art; fade via ordered-dither frames or palette swaps.
 - Sounds are synthesized or recorded in-house; fonts are in-house bitmap faces (src/core/font.ts).
+- Sounds are mechanical foley (struck/scraped steel, brass, wood, relays, air) through a steel-room reverb; never bare sine tones or UI blips. Audition with `npm run build:sounds` (tools/soundboard).
 
 ## Code map
 - src/core/display.ts: integer scaler, bleed, safe-area rect, portrait detection

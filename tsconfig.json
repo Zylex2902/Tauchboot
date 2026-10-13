@@ -13,5 +13,5 @@
     "verbatimModuleSyntax": true,
     "types": ["vite/client", "vite-plugin-pwa/client"]
   },
-  "include": ["src", "vite.config.ts", "capacitor.config.ts"]
+  "include": ["src", "tools", "vite.config.ts", "capacitor.config.ts"]
 }

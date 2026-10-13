@@ -60,9 +60,21 @@ class Mixer {
       this.master = ctx.createGain();
       this.master.gain.value = settings().volume;
       this.master.connect(comp);
+      // Every sound happens inside a small steel compartment: a short, dense, metallic
+      // room on all diegetic buses.
+      const room = ctx.createConvolver();
+      room.buffer = steelRoom(ctx);
+      const wet = ctx.createGain();
+      wet.gain.value = 0.32;
+      room.connect(wet).connect(this.master);
       for (const b of BUSES) {
         const g = ctx.createGain();
         g.connect(this.master);
+        if (b !== 'music') {
+          const send = ctx.createGain();
+          send.gain.value = b === 'voices' ? 0.5 : 1;
+          g.connect(send).connect(room);
+        }
         this.bus[b] = g;
       }
       for (const name of this.makers.keys()) this.render(name);
@@ -75,12 +87,22 @@ class Mixer {
       s.buffer = b;
       s.connect(ctx.destination);
       s.start(0);
-      void ctx.resume().then(() => {
-        const p = this.pending;
-        this.pending = [];
-        p.forEach((f) => f());
-      }).catch(() => {});
-    }
+      void ctx.resume().then(() => this.flush()).catch(() => {});
+    } else this.flush();
+  }
+
+  private running: (() => void)[] = [];
+  private flush(): void {
+    const p = [...this.pending, ...this.running];
+    this.pending = [];
+    this.running = [];
+    p.forEach((f) => f());
+  }
+
+  /** Run once audio is actually running (after the first touch); now if it already is. */
+  whenRunning(fn: () => void): void {
+    if (this.unlocked) fn();
+    else this.running.push(fn);
   }
 
   setMasterVolume(v: number): void {
@@ -158,6 +180,33 @@ class Mixer {
     buf.copyToChannel(data as Float32Array<ArrayBuffer>, 0);
     this.buffers.set(name, buf);
   }
+}
+
+/**
+ * Impulse response of a small steel compartment: tight early reflections off close
+ * plating, a short dense tail that darkens as it dies, and a faint metallic flutter.
+ */
+function steelRoom(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const n = Math.floor(sr * 0.55);
+  const buf = ctx.createBuffer(2, n, sr);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    let s = 1234 + ch * 777;
+    const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1;
+    const early = ch ? [3.4, 5.1, 7.9, 9.6, 12.8, 15.5] : [2.7, 4.6, 6.8, 10.2, 11.9, 16.3];
+    early.forEach((ms, k) => (d[Math.floor((ms / 1000) * sr)] += (k % 2 ? -1 : 1) * 0.55 * 0.8 ** k));
+    let lp = 0;
+    for (let i = Math.floor(sr * 0.008); i < n; i++) {
+      const t = i / sr;
+      const a = 0.25 + 0.7 * Math.min(1, t / 0.25); // darker as it decays
+      lp += (rnd() - lp) * (1 - a);
+      d[i] += lp * 0.5 * Math.exp(-t / 0.11);
+    }
+    const D = Math.floor(sr * 0.0023); // plating flutter
+    for (let i = D; i < n; i++) d[i] += d[i - D] * 0.35;
+  }
+  return buf;
 }
 
 export const mixer = new Mixer();

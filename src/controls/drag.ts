@@ -142,7 +142,7 @@ export class Drag extends Control<DragValue> {
     const to = slots[seat];
     this.settling = true;
     const moved = seat !== this.value.slot;
-    if (!moved) this.sfx('return', SFX.travel, { gain: 0.4, rate: 1.5 });
+    if (!moved) this.sfx('return', SFX.slide, { gain: 0.4, rate: 1.5 });
     void this.ctx.tw.to(this.root, { x: to.x, y: to.y }, { duration: moved ? 140 : 220, ease: ease.outBack }).then(() => {
       this.settling = false;
       lower();

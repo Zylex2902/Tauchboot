@@ -123,7 +123,7 @@ export class ControlRoom extends StationScene {
     if (this.debugOpen) this.renderDebug();
     this.debug.visible = true;
     mixer.play(SFX.plate, 'ui', { gain: 0.7 });
-    mixer.play(SFX.travel, 'ui', { gain: 0.35, rate: 1.4 });
+    mixer.play(SFX.slide, 'ui', { gain: 0.35, rate: 1.4 });
     haptic('tick');
     void this.ctx.tw.to(
       this.debug,

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>Tiefgang sound test</title>
+    <style>
+      :root { --hull: #0b0c0e; --plate: #16181b; --edge: #6e5a2c; --brass: #9c7e3e; --hot: #c9a85a; --ink: #383d43; }
+      html, body { margin: 0; background: var(--hull); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+      body { padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left)); }
+      canvas { image-rendering: pixelated; display: block; }
+      #head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+      #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+      .key { background: var(--plate); border: 3px solid var(--edge); border-top-color: var(--brass); border-left-color: var(--brass); padding: 10px 12px; cursor: pointer; transition: transform 60ms, border-color 120ms; min-height: 44px; }
+      .key:active, .key.on { transform: translateY(3px); border-color: var(--hot); }
+      .key canvas:first-child { margin-bottom: 8px; } .key canvas + canvas { margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="head"></div>
+    <div id="grid"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

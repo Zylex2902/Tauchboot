@@ -11,6 +11,7 @@
     "cap:sync": "npm run build && cap sync",
     "ios": "npm run cap:sync && cap open ios",
     "android": "npm run cap:sync && cap open android",
+    "build:sounds": "vite build -c vite.soundboard.config.ts && node scripts/artifact.mjs dist-sounds/index.html dist-sounds/sound-test.html \"Tiefgang sound test\"",
     "build:single": "tsc --noEmit && vite build -c vite.singlefile.config.ts && node scripts/artifact.mjs"
   },
   "dependencies": {

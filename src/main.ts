@@ -10,7 +10,7 @@ import { C, hexNum } from './core/palette';
 import { Pix, rng } from './core/pixels';
 import { RotatePrompt } from './core/rotate-prompt';
 import { loadSettings } from './core/settings';
-import { defineSounds } from './core/sfx';
+import { defineSounds, SFX } from './core/sfx';
 import { Tweens } from './core/tween';
 import { Hull } from './hull/hull';
 import { startSimStub } from './sim/stub';
@@ -51,6 +51,8 @@ async function boot(): Promise<void> {
   lockdown();
   mixer.install();
   defineSounds();
+  // The boat is never silent: motors, mains hum and ventilation under everything.
+  mixer.whenRunning(() => mixer.loop(SFX.hull, 'machinery', { gain: 0.3, fadeMs: 2500 }));
   await loadSettings();
   hapticsInit();
   void lockLandscape();
@@ -79,7 +81,7 @@ async function boot(): Promise<void> {
   const hull = new Hull(tweens, { tw: tweens, ticker: app.ticker });
   startSimStub(app.ticker);
   world.addChild(hull.root);
-  if (new URLSearchParams(location.search).has('test')) Object.assign(window, { __hull: hull, __app: app });
+  if (new URLSearchParams(location.search).has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer });
   const prompt = new RotatePrompt(tweens);
   // Bleed drawn again over everything outside the art frame: clips sliding panels,
   // the travelling hull and pull-down boards for free (no stencil masks). Not interactive,

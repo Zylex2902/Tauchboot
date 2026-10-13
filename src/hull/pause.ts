@@ -143,7 +143,7 @@ export class Pause {
     this.onChange(paused);
     if (!quiet) {
       mixer.play(paused ? SFX.hatch : SFX.plate, 'ui', { gain: 0.6, rate: paused ? 0.7 : 1 });
-      mixer.play(SFX.travel, 'ui', { gain: 0.4, rate: paused ? 0.7 : 1.1 });
+      mixer.play(SFX.slide, 'ui', { gain: 0.4, rate: paused ? 0.7 : 1.1 });
       haptic(paused ? 'press' : 'release');
     }
     // Duck the boat while paused; the UI bus stays live.

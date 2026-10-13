@@ -177,7 +177,6 @@ export class Hull {
     const st = this.begin(i, 'strip');
     const dist = Math.abs(i - this.current);
     const ms = Math.min(MAX_TRAVEL_MS, 360 + (dist - 1) * 10);
-    mixer.play(SFX.travel, 'ui', { gain: 0.45, rate: 1.15 - Math.min(dist, 8) * 0.03 });
     haptic('tick');
     this.runTo(st, 1, ms, ease.inOutSine);
   }
@@ -338,7 +337,6 @@ export class Hull {
         }
         sw.dragging = true;
         sw.x0 = p.x;
-        mixer.play(SFX.travel, 'ui', { gain: 0.3, rate: 1.2 });
         this.begin(to, 'swipe');
         return;
       }
@@ -359,7 +357,6 @@ export class Hull {
       const p = st.prog.p;
       if (p > 0.3 || (v > 0.35 && p > 0.02)) {
         const ms = Math.max(110, Math.min(320, ((1 - p) * st.D) / Math.max(v, 1.4)));
-        mixer.play(SFX.travel, 'ui', { gain: 0.3, rate: 1.3 });
         this.runTo(st, 1, ms, ease.outCubic);
       } else this.runTo(st, 0, 180, ease.outCubic);
     };
@@ -379,7 +376,7 @@ export class Hull {
       mixer.play(SFX.bell, 'machinery', { gain: 0.7 });
       haptic('heavy');
     } else {
-      mixer.play(SFX.chime, 'ui', { gain: 0.6 });
+      mixer.play(SFX.buzzer, 'machinery', { gain: 0.6 });
       haptic('tick');
     }
     // Raised where you stand: the crewman tells you to your face.

@@ -59,7 +59,7 @@ export class RotatePrompt {
     this.root.visible = true;
     this.inner.y = 24;
     void this.tw.to(this.inner, { y: 0 }, { duration: 360, ease: ease.outBack });
-    mixer.play(SFX.travel, 'ui', { gain: 0.5 });
+    mixer.play(SFX.slide, 'ui', { gain: 0.5 });
     this.loop();
   }
 

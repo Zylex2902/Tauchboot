@@ -142,7 +142,7 @@ export class VoicePipe {
     this.openState = false;
     this.scrim.eventMode = 'none';
     this.keyLayer.eventMode = 'none';
-    mixer.play(SFX.travel, 'ui', { gain: 0.35, rate: 1.3 });
+    mixer.play(SFX.slide, 'ui', { gain: 0.35, rate: 1.3 });
     void this.tw.to(this.board, { y: -BH }, { duration: 220, ease: ease.inOutCubic }).then(() => {
       if (this.openState) return;
       mixer.play(SFX.coverClose, 'ui', { gain: 0.5, rate: 1.2 });
