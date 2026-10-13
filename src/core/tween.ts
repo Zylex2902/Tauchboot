@@ -6,6 +6,8 @@ export const ease = {
   linear: (t: number) => t,
   outCubic: (t: number) => 1 - (1 - t) ** 3,
   inOutCubic: (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2),
+  /** Gentlest peak speed of the in-out curves (1.57x average): long camera moves. */
+  inOutSine: (t: number) => -(Math.cos(Math.PI * t) - 1) / 2,
   /** Mechanical: overshoot then settle (needles, levers). */
   outBack: (t: number) => {
     const c1 = 1.70158;

@@ -1,4 +1,4 @@
-import { Container, Graphics, Sprite, type Ticker } from 'pixi.js';
+import { Container, Rectangle, Sprite, Texture, type Ticker } from 'pixi.js';
 import { mixer } from '../core/audio';
 import { drawText } from '../core/font';
 import { C, type ColorIndex } from '../core/palette';
@@ -15,6 +15,7 @@ const CELL = 10; // vertical pitch of one digit on the drum
 export class Odometer {
   readonly root = new Container();
   private drums: Sprite[] = [];
+  private frames: Texture[];
   private shown: number;
   private target: number;
   private lastWhole: number;
@@ -29,14 +30,13 @@ export class Odometer {
     const strip = new Pix(5, CELL * 11);
     for (let d = 0; d <= 10; d++) drawText(strip, String(d % 10), 0, d * CELL + 2, color);
     const tex = strip.toTexture();
+    // One window texture per drum position (whole art px): the drum rolls by moving
+    // the window, never through a mask.
+    this.frames = Array.from({ length: CELL * 10 + 1 }, (_, y) => new Texture({ source: tex.source, frame: new Rectangle(0, y, 5, CELL) }));
     for (let i = 0; i < digits; i++) {
-      const win = new Container();
-      win.position.set(i * 7, 0);
-      const s = new Sprite(tex);
-      const m = new Graphics().rect(0, 0, 5, CELL).fill(0xffffff);
-      s.mask = m;
-      win.addChild(s, m);
-      this.root.addChild(win);
+      const s = new Sprite(this.frames[0]);
+      s.position.set(i * 7, 0);
+      this.root.addChild(s);
       this.drums.push(s);
     }
     this.shown = this.target = this.lastWhole = initial;
@@ -75,7 +75,7 @@ export class Odometer {
         const whole = Math.floor(unit) % 10;
         pos = whole + Math.max(0, (v % place) - (place - 1));
       }
-      this.drums[i].y = -Math.round(pos * CELL);
+      this.drums[i].texture = this.frames[Math.round(pos * CELL) % (CELL * 10)];
     }
   }
 }

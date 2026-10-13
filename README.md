@@ -29,7 +29,15 @@ npm run android        # build, sync, open Android Studio
 Enable USB debugging on the device, pick it in the toolbar, Run. Foldables: test folded and unfolded without restarting; the activity handles fold changes live.
 
 ## Checks per device
-Tap the title plate (top left) to slide out the readout: integer scale, backing size, DPR and safe-area insets in device pixels. Expect scale 3 to 5 on phones, 4+ on tablets, and SAFE values that match the notch side.
+In the Control Room, tap the CONTROL ROOM plate (top left) to slide out the readout (integer scale, backing size, DPR, safe-area insets in device pixels, touch minimum) and outline every touch target. Expect scale 3 to 5 on phones, 4+ on tablets, and SAFE values that match the notch side.
+
+## Moving around (chunk 0.3)
+- Strip (bottom): tap a compartment to travel; tap again mid-travel to hurry it. Long-press a compartment for the crewman's report.
+- Swipe left/right on bare plating to walk to the next station.
+- Voice pipe (brass tab, top centre): pull down or tap, pick an order.
+- Pause tab (right end of the strip): resume, haptics, volume. The app also pauses when it goes to the background or the phone is turned upright.
+- ALARM TEST (Control Room) raises the next canned alarm somewhere in the boat.
+- Desktop: arrow keys or 1-9 travel, V voice pipe, Esc or P pause.
 
 ## Icons
 `node scripts/make-icons.mjs` regenerates the PWA icons from in-house pixel art. Native app icons are still the Capacitor defaults.

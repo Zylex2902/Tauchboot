@@ -92,7 +92,109 @@ export const SFX = {
   pickup: 'pickup',
   drop: 'drop',
   peg: 'peg',
+  step: 'step',
+  bell: 'bell',
+  chime: 'chime',
+  type: 'type',
+  whistle: 'whistle',
+  mumble0: 'mumble0',
+  mumble1: 'mumble1',
+  mumble2: 'mumble2',
 } as const;
+
+/** Electric alarm bell: a clapper striking a gong ~18 times a second, then ringing out. */
+function bell(sr: number, seconds: number, ringFor: number): Float32Array {
+  const out = buffer(sr, seconds);
+  const modes: Mode[] = [[1180, 1, 0.22], [2950, 0.55, 0.12], [3460, 0.35, 0.08], [5200, 0.15, 0.04]];
+  const period = Math.floor(sr / 18);
+  for (let s0 = 0; s0 < ringFor * sr; s0 += period) {
+    const amp = 0.55 + 0.45 * ((s0 / period) % 2);
+    for (let i = s0; i < out.length; i++) {
+      const t = (i - s0) / sr;
+      let v = 0;
+      for (const [f, a, d] of modes) v += a * Math.sin(2 * Math.PI * f * t) * Math.exp(-t / d);
+      if (t > 0.6) break;
+      out[i] += v * amp * 0.3;
+    }
+  }
+  return normalize(out, 0.8);
+}
+
+/** Two-tone attention chime (ding-dong), struck bar with soft harmonics. */
+function chime(sr: number): Float32Array {
+  const out = buffer(sr, 1.1);
+  const notes: [number, number][] = [[784, 0], [622, 0.22]];
+  for (const [f, start] of notes)
+    for (let i = Math.floor(start * sr); i < out.length; i++) {
+      const t = i / sr - start;
+      const env = Math.min(1, t / 0.004) * Math.exp(-t / 0.35);
+      out[i] += env * (Math.sin(2 * Math.PI * f * t) + 0.35 * Math.sin(2 * Math.PI * f * 2.76 * t) * Math.exp(-t / 0.08));
+    }
+  return normalize(out, 0.7);
+}
+
+/** Voice-pipe whistle: a breathy tone through a long brass tube. */
+function whistle(sr: number): Float32Array {
+  const out = buffer(sr, 0.45);
+  const r = rng(211);
+  let n = 0;
+  let ph = 0;
+  for (let i = 0; i < out.length; i++) {
+    const t = i / sr;
+    const env = Math.min(1, t / 0.04) * Math.min(1, (0.45 - t) / 0.12);
+    const f = 1420 + 40 * Math.sin(2 * Math.PI * 6 * t) + 60 * Math.min(1, t / 0.08);
+    ph += (2 * Math.PI * f) / sr;
+    n += (r() * 2 - 1 - n) * 0.3;
+    out[i] = env * (Math.sin(ph) * 0.7 + Math.sin(ph * 2) * 0.12 + n * 0.25);
+  }
+  return normalize(out, 0.6);
+}
+
+/**
+ * Placeholder crew voice: gibberish syllables (the GDD's voices are gibberish barks)
+ * from a glottal pulse train through two formant resonators, muffled by the pipe.
+ */
+function mumble(sr: number, seed: number): Float32Array {
+  const r = rng(seed);
+  const vowels: [number, number][] = [[730, 1090], [270, 2290], [300, 870], [530, 1840], [570, 840], [440, 1020]];
+  const syllables = 4 + Math.floor(r() * 3);
+  const lens = Array.from({ length: syllables }, () => 0.08 + r() * 0.1);
+  const total = lens.reduce((a, b) => a + b, 0) + 0.15;
+  const out = buffer(sr, total);
+  const res = (f: number, bw: number) => {
+    const rr = Math.exp((-Math.PI * bw) / sr);
+    return { a1: 2 * rr * Math.cos((2 * Math.PI * f) / sr), a2: -rr * rr, y1: 0, y2: 0 };
+  };
+  let i = 0;
+  let ph = 0;
+  let f0 = 105 + r() * 25;
+  let lp = 0;
+  for (let s = 0; s < syllables; s++) {
+    const [F1, F2] = vowels[Math.floor(r() * vowels.length)];
+    const r1 = res(F1, 90);
+    const r2 = res(F2, 120);
+    const n = Math.floor(lens[s] * sr);
+    const drift = (r() - 0.5) * 30;
+    for (let k = 0; k < n && i < out.length; k++, i++) {
+      const p = k / n;
+      const env = Math.sin(Math.PI * Math.min(1, p * 1.15)) ** 0.7;
+      ph += (f0 + drift * p) / sr;
+      const pulse = ph % 1 < 0.08 ? 1 : 0;
+      const x = pulse * env;
+      const y1 = x + r1.a1 * r1.y1 + r1.a2 * r1.y2;
+      r1.y2 = r1.y1;
+      r1.y1 = y1;
+      const y2 = x + r2.a1 * r2.y1 + r2.a2 * r2.y2;
+      r2.y2 = r2.y1;
+      r2.y1 = y2;
+      lp += (y1 + y2 * 0.6 - lp) * 0.25; // the pipe takes the top off
+      out[i] = lp;
+    }
+    f0 += (r() - 0.6) * 12;
+    i += Math.floor(sr * 0.02);
+  }
+  return normalize(out, 0.7);
+}
 
 /** Seamless filtered noise for loops (compressed air, flow). */
 function noiseLoop(sr: number, seconds: number, k: number, seed: number): Float32Array {
@@ -170,5 +272,11 @@ export function defineSounds(): void {
   mixer.define(SFX.pickup, (sr) => rustle(sr, 0.16, 137));
   mixer.define(SFX.drop, (sr) => metal(sr, 0.12, [[880, 0.3, 0.02], [210, 0.6, 0.03]], 10, 0.9, 139));
   mixer.define(SFX.peg, (sr) => metal(sr, 0.2, [[430, 0.7, 0.04], [1100, 0.4, 0.025]], 5, 0.7, 149));
+  mixer.define(SFX.step, (sr) => metal(sr, 0.16, [[82, 1, 0.03], [176, 0.5, 0.02], [1260, 0.1, 0.02]], 14, 0.9, 151));
+  mixer.define(SFX.bell, (sr) => bell(sr, 1.1, 0.6));
+  mixer.define(SFX.chime, (sr) => chime(sr));
+  mixer.define(SFX.type, (sr) => metal(sr, 0.04, [[1750, 0.5, 0.005], [620, 0.4, 0.008]], 3, 1, 157));
+  mixer.define(SFX.whistle, (sr) => whistle(sr));
+  [SFX.mumble0, SFX.mumble1, SFX.mumble2].forEach((n, k) => mixer.define(n, (sr) => mumble(sr, 300 + k * 17)));
   mixer.define(SFX.plate, (sr) => metal(sr, 0.18, [[1240, 0.6, 0.05], [3020, 0.3, 0.03]], 6, 0.6, 89));
 }

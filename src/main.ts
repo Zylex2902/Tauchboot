@@ -12,7 +12,8 @@ import { RotatePrompt } from './core/rotate-prompt';
 import { loadSettings } from './core/settings';
 import { defineSounds } from './core/sfx';
 import { Tweens } from './core/tween';
-import { KitPanel } from './stations/kit-panel';
+import { Hull } from './hull/hull';
+import { startSimStub } from './sim/stub';
 
 /** Bleed art: darker hull plating on the same art grid, shown outside the 480x270 frame. */
 function bleedTile(): Pix {
@@ -75,10 +76,20 @@ async function boot(): Promise<void> {
   const tweens = new Tweens(app.ticker);
   const bleed = new TilingSprite({ texture: bleedTile().toTexture(), width: 1, height: 1 });
   const world = new Container();
-  const station = new KitPanel(tweens, { tw: tweens, ticker: app.ticker });
-  world.addChild(station.root);
+  const hull = new Hull(tweens, { tw: tweens, ticker: app.ticker });
+  startSimStub(app.ticker);
+  world.addChild(hull.root);
+  if (new URLSearchParams(location.search).has('test')) Object.assign(window, { __hull: hull, __app: app });
   const prompt = new RotatePrompt(tweens);
-  app.stage.addChild(bleed, world, prompt.root);
+  // Bleed drawn again over everything outside the art frame: clips sliding panels,
+  // the travelling hull and pull-down boards for free (no stencil masks). Not interactive,
+  // so touch targets that grow into the bleed still work.
+  const covers = [0, 1, 2, 3].map(() => {
+    const c = new TilingSprite({ texture: bleed.texture, width: 1, height: 1 });
+    c.eventMode = 'none';
+    return c;
+  });
+  app.stage.addChild(bleed, world, ...covers, prompt.root);
 
   watchSize(host, (w, h) => {
     app.renderer.resize(w, h);
@@ -88,10 +99,27 @@ async function boot(): Promise<void> {
     world.visible = !l.portrait;
     world.scale.set(l.scale);
     world.position.set(l.frameX, l.frameY);
-    station.setLayout(l);
+    hull.setLayout(l);
     const grid = prompt.apply(l) ?? { scale: l.scale, x: l.frameX, y: l.frameY };
     bleed.tileScale.set(grid.scale);
     bleed.tilePosition.set(grid.x, grid.y); // plates line up with the art grid in use
+    const fw = 480 * l.scale;
+    const fh = 270 * l.scale;
+    const rects = [
+      [0, 0, w, l.frameY],
+      [0, l.frameY + fh, w, h - l.frameY - fh],
+      [0, l.frameY, l.frameX, fh],
+      [l.frameX + fw, l.frameY, w - l.frameX - fw, fh],
+    ];
+    covers.forEach((c, i) => {
+      const [x, y, cw, ch] = rects[i];
+      c.visible = !l.portrait && cw > 0 && ch > 0;
+      c.position.set(x, y);
+      c.width = Math.max(1, cw);
+      c.height = Math.max(1, ch);
+      c.tileScale.set(grid.scale);
+      c.tilePosition.set(grid.x - x, grid.y - y);
+    });
   });
 }
 

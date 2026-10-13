@@ -31,8 +31,16 @@ export const hitPolicy = {
   update(scale: number, dpr: number): void {
     this.minArt = Math.ceil((44 * dpr) / scale);
     for (const c of registry) c.applyHitPolicy();
+    for (const w of watchers) w(this.minArt);
+  },
+  /** Non-control touch targets (strip compartments, tabs) resize themselves here too. */
+  watch(fn: (minArt: number) => void): void {
+    watchers.add(fn);
+    fn(this.minArt);
   },
 };
+
+const watchers = new Set<(minArt: number) => void>();
 
 const registry = new Set<Control<unknown>>();
 
