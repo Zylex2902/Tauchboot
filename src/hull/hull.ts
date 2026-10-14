@@ -10,12 +10,20 @@ import { createStation, STATIONS, type StationScene } from '../stations';
 import { PANEL_H } from '../stations/panel-art';
 import { Pause } from './pause';
 import { DrillCard } from './drill-card';
+import { stepScale, TimePlate } from './time-plate';
 import { ReportSlips } from './report';
 import { compMid, StationStrip } from './strip';
 import { BULKHEAD_W, PASSAGE_W, bulkheadTexture, passageTexture } from './transit-art';
 import { VoicePipe } from './voice-pipe';
 
 const W = 480;
+
+/** The UI half of a save: where you stand and how every wheel, lever and switch is set. */
+export interface UiState {
+  station: number;
+  controls: Record<string, unknown>;
+  extra: Record<string, unknown>;
+}
 /** Strip travel takes about 0.4 s for a neighbour and never more than this. */
 export const MAX_TRAVEL_MS = 430;
 const SKIP_MS = 90;
@@ -87,7 +95,8 @@ export class Hull {
     this.voice = new VoicePipe(tw, ctx);
     this.pause = new Pause(tw, ctx);
     this.card = new DrillCard(tw, ctx);
-    this.root.addChild(this.viewport, this.voice.root, this.slips.root, this.strip.root, this.card.root, this.pause.root);
+    const plate = new TimePlate(tw);
+    this.root.addChild(this.viewport, plate.root, this.voice.root, this.slips.root, this.strip.root, this.card.root, this.pause.root);
 
     this.strip.onTap = (i) => this.goTo(i);
     this.strip.onLongPress = (i) => {
@@ -118,7 +127,42 @@ export class Hull {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') this.pause.set(true, true);
     });
+    if (obs.paused) this.pause.set(true, true); // a patrol saved while paused comes back paused
     this.prebuild();
+  }
+
+  /** Everything the player set by hand, for the save. */
+  uiState(): UiState {
+    const controls: Record<string, unknown> = {};
+    const extra: Record<string, unknown> = {};
+    this.scenes.forEach((sc, i) => {
+      if (!sc) return;
+      for (const [id, c] of sc.controls) if (c.persistent && !sc.noSave.has(id)) controls[`${i}:${id}`] = c.value;
+      const x = sc.saveExtra();
+      if (x !== undefined) extra[i] = x;
+    });
+    return { station: this.travel?.to ?? this.current, controls, extra };
+  }
+
+  /** Back where the save left you: the station on screen and every control as it was. */
+  restoreUi(u: UiState): void {
+    for (let i = 0; i < 9; i++) this.scene(i);
+    for (const [key, v] of Object.entries(u.controls ?? {})) {
+      const [i, id] = [Number(key.slice(0, key.indexOf(':'))), key.slice(key.indexOf(':') + 1)];
+      const c = this.scenes[i]?.controls.get(id);
+      if (c && c.persistent && !this.scenes[i]!.noSave.has(id)) (c.restore as (v: unknown) => void)(v);
+    }
+    for (const [i, x] of Object.entries(u.extra ?? {})) this.scenes[Number(i)]?.restoreExtra(x);
+    const st = Math.max(0, Math.min(8, Math.round(u.station ?? 3)));
+    if (st !== this.current) {
+      const from = this.scene(this.current);
+      this.transit.removeChild(from.root);
+      from.leave();
+      this.current = st;
+      this.transit.addChild(this.scene(st).root);
+      this.strip.setCursor(st, st, 0);
+    }
+    this.scene(st).enter();
   }
 
   get station(): number {
@@ -398,6 +442,7 @@ export class Hull {
         return;
       }
       if (k === 'v' || k === 'V') return this.voice.toggle();
+      if (k === ']' || k === '[') return send({ type: 'timeScale', scale: stepScale(k === ']' ? 1 : -1) });
       if (k === 'ArrowLeft' || k === 'ArrowRight') {
         const to = (this.travel?.to ?? this.current) + (k === 'ArrowRight' ? 1 : -1);
         return to < 0 || to > 8 ? this.knock(k === 'ArrowRight' ? 1 : -1) : this.goTo(to);

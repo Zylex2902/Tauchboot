@@ -176,6 +176,17 @@ export class Lever extends Control<number> {
       });
   }
 
+  override get persistent(): boolean {
+    return true;
+  }
+
+  override restore(i: number): void {
+    this.pos = this.targetPos = this.detentPos(i);
+    this.lastNearest = i;
+    this.place();
+    super.restore(i);
+  }
+
   private place(): void {
     const p = Math.round(this.pos);
     if (this.s.axis === 'y') this.grip.position.set(-Math.floor(GRIP_LONG / 2) + SLOT / 2, p - Math.floor(GRIP_SHORT / 2));

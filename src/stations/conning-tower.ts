@@ -179,11 +179,15 @@ export class ConningTower extends StationScene {
     c('markRange').onChange(() => send({ type: 'scopeMark', range: this.range(), mast: SHIP_CLASSES[this.cls].mast }));
     c('newDrill').onChange(() => send({ type: 'drillNew' }));
 
+    const slipFor = (d: typeof obs.drill) => (d.reported === null ? '' : `BRG ${String(d.reported).padStart(3, '0')}`);
     obs.on((e) => {
       if (e.type !== 'drill') return;
-      const txt = e.drill.reported === null ? '' : `BRG ${String(e.drill.reported).padStart(3, '0')}`;
+      // A new drill starts with the scope housed: the crew runs it down.
+      if (e.drill.phase === 'brief' && this.height > 0) this.hoist.drain(0.9);
+      const txt = slipFor(e.drill);
       if (txt !== this.sent) this.writeSlip(txt);
     });
+    if (slipFor(obs.drill)) this.writeSlip(slipFor(obs.drill), false); // resumed patrol: already written
     ctx.ticker.add((t) => this.update(t.deltaMS));
   }
 
@@ -222,14 +226,15 @@ export class ConningTower extends StationScene {
     }).then(() => (this.view.blink = 0));
   }
 
-  private writeSlip(text: string): void {
+  private writeSlip(text: string, type = true): void {
     this.sent = text;
     const old = this.slip.children.slice();
     old.forEach((ch) => ch.destroy({ children: true }));
     if (!text) return;
     const t = new TypedText([{ text, color: C.ink0 }]);
     this.slip.addChild(t.root);
-    void t.play(this.ctx.tw, 14, 'machinery');
+    if (type) void t.play(this.ctx.tw, 14, 'machinery');
+    else t.reveal(text.length);
   }
 
   override enter(): void {

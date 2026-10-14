@@ -152,6 +152,17 @@ export class Drag extends Control<DragValue> {
     });
   }
 
+  override get persistent(): boolean {
+    return true;
+  }
+
+  override restore(v: DragValue): void {
+    this.root.position.set(v.x, v.y);
+    this.fx = this.tx = v.x;
+    this.fy = this.ty = v.y;
+    super.restore(v);
+  }
+
   protected coreRect(): Rectangle {
     return new Rectangle(-2, -4, this.size.w + 4, this.size.h + 6);
   }

@@ -253,6 +253,25 @@ export class RadioRoom extends StationScene {
     this.knDrum.set(Math.min(999, Math.round((rpm / RPM_PER_KNOT) * 10)));
   }
 
+  override saveExtra(): unknown {
+    return this.rows.map((r) => r.text.text);
+  }
+
+  /** Log lines come back already written. */
+  override restoreExtra(x: unknown): void {
+    if (!Array.isArray(x)) return;
+    for (const text of x.slice(-LOG_ROWS)) {
+      if (typeof text !== 'string') continue;
+      const root = new Container();
+      const t = new TypedText([{ text, color: C.ink0 }]);
+      t.reveal(text.length);
+      root.addChild(t.root);
+      root.y = this.rows.length * 8;
+      this.log.addChild(root);
+      this.rows.push({ root, text: t, len: text.length });
+    }
+  }
+
   /** Type a line into the log pad; older lines roll up off the top when it is full. */
   private addLog(text: string): void {
     const root = new Container();

@@ -1,4 +1,5 @@
-import type { ControlSpec, KitContext } from '../controls';
+import type { ControlSpec, KitContext, Lever } from '../controls';
+import { obs, send, TIME_SCALES } from '../obs';
 import { drawText, measure } from '../core/font';
 import { C } from '../core/palette';
 import { BAYER4, Pix } from '../core/pixels';
@@ -14,6 +15,22 @@ interface PlaceholderSpec {
   /** Paper sheets (chart, desk pad) drawn under loose objects. */
   papers?: { x: number; y: number; w: number; h: number; title?: string }[];
   stencil: [x: number, y: number];
+  /** Hook a grey-box control to the sim. */
+  wire?: (st: StationScene) => void;
+}
+
+/** Chart table watch clock: the time compression lever. It follows the sim (drops to 1X on events). */
+function wireTime(st: StationScene): void {
+  const lever = st.controls.get('time') as Lever;
+  const idx = () => Math.max(0, (TIME_SCALES as readonly number[]).indexOf(obs.timeScale));
+  st.noSave.add('time');
+  lever.restore(idx());
+  lever.onChange((i) => {
+    if (TIME_SCALES[i as number] !== obs.timeScale) send({ type: 'timeScale', scale: TIME_SCALES[i as number] });
+  });
+  obs.on((e) => {
+    if (e.type === 'timeScale' && lever.value !== idx()) lever.set(idx());
+  });
 }
 
 const SHUT_OPEN = ['SHUT', 'OPEN'];
@@ -40,6 +57,7 @@ export const PLACEHOLDERS: Record<number, PlaceholderSpec> = {
       { kind: 'drag', id: 'pencil', x: 160, y: 160, item: 'pencil', bounds: { x: 32, y: 102, w: 266, h: 124 } },
     ],
     captions: [['WATCH CLOCK', 32, 38]],
+    wire: wireTime,
     papers: [{ x: 30, y: 100, w: 270, h: 128, title: 'QU 47' }],
     stencil: [404, 150],
   },
@@ -108,5 +126,6 @@ export class PlaceholderStation extends StationScene {
     for (const [t, x, y] of spec.captions ?? []) drawText(p, t, x, y, C.paper1);
     this.addFurniture(p);
     this.addControls(spec.controls);
+    spec.wire?.(this);
   }
 }

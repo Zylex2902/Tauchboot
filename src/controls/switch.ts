@@ -106,6 +106,17 @@ export class Switch extends Control<boolean> {
     this.emit(next);
   }
 
+  override get persistent(): boolean {
+    return true;
+  }
+
+  override restore(on: boolean): void {
+    this.bat.texture = this.frames[on ? 2 : 0];
+    this.lampLevel = on ? 4 : 0;
+    if (this.lamp) this.lamp.texture = this.lampTex[this.lampLevel];
+    super.restore(on);
+  }
+
   protected coreRect(): Rectangle {
     return new Rectangle(-9, -14, 18 + (this.s.lamp ? 16 : 0), 28);
   }

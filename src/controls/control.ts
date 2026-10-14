@@ -68,6 +68,20 @@ export abstract class Control<V> {
   /** Visual extent of the operable part, in root-local art pixels. */
   protected abstract coreRect(): Rectangle;
 
+  /** Whether this control's value is part of a save (wheels, levers, switches; not keys). */
+  get persistent(): boolean {
+    return false;
+  }
+
+  /**
+   * Put the control where a save left it, without sound or animation (loading is the
+   * starting state, not a change), then tell listeners so stations re-derive from it.
+   */
+  restore(v: V): void {
+    this.value = v;
+    for (const l of this.listeners) l(v);
+  }
+
   onChange(cb: Listener<V>): this {
     this.listeners.push(cb);
     return this;

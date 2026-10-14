@@ -37,6 +37,11 @@ export class TypedText {
   private rows: { line: TypedLine; full: Texture; sprite: Sprite; shown: number }[] = [];
   private total = 0;
 
+  /** The full text, lines joined (what a save keeps). */
+  get text(): string {
+    return this.rows.map((r) => r.line.text).join(' ');
+  }
+
   constructor(lines: TypedLine[]) {
     lines.forEach((line, i) => {
       const full = textTexture(line.text, line.color, line.shadow ?? -1);

@@ -32,6 +32,8 @@ export abstract class StationScene {
   /** Bare plating. Pointer-downs that land here (not on a control) are swipes. */
   readonly bg: Sprite;
   readonly controls = new Map<string, AnyControl>();
+  /** Controls whose position mirrors the sim (restored from the sim, not from the UI save). */
+  readonly noSave = new Set<string>();
 
   constructor(
     readonly index: number,
@@ -68,6 +70,13 @@ export abstract class StationScene {
     // Loose objects (pencils, pegs) always sit on top of fixed controls.
     for (const spec of specs) if (spec.kind === 'drag') this.root.addChild(this.controls.get(spec.id)!.root);
   }
+
+  /** Station-specific UI state worth keeping in a save (log pads, slips). */
+  saveExtra(): unknown {
+    return undefined;
+  }
+
+  restoreExtra(_x: unknown): void {}
 
   /** Called when the camera has arrived here. */
   enter(): void {}

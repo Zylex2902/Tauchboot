@@ -5,6 +5,9 @@
 
 import type { ShipClassKey } from './ships';
 
+/** Time compression steps, real time first. */
+export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
+
 export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassKey } from './ships';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
@@ -98,7 +101,8 @@ export type ObsEvent =
   | { type: 'voice'; line: VoiceLine }
   | { type: 'paused'; paused: boolean }
   | { type: 'hydroMark'; mark: HydroMark }
-  | { type: 'drill'; drill: DrillObs };
+  | { type: 'drill'; drill: DrillObs }
+  | { type: 'timeScale'; scale: number; dropped: boolean };
 
 export type Command =
   | { type: 'pause'; on: boolean }
@@ -107,6 +111,7 @@ export type Command =
   | { type: 'debugAlarm' }
   | { type: 'hydroTrain'; bearing: number }
   | { type: 'hydroMark' }
+  | { type: 'timeScale'; scale: number }
   | { type: 'drillBegin' }
   | { type: 'drillNew' }
   | { type: 'scopeSet'; height: number; trained: number; high: boolean }
@@ -121,6 +126,8 @@ class Observation {
   readonly hydro: HydroObs = { trained: 0, level: 0, pan: 0, rpm: 0 };
   readonly scope: ScopeObs = { height: 0, awash: 1, trained: 0, high: false, swell: 0, sights: [] };
   drill: DrillObs = { phase: 'brief', t: 0, reported: null, result: null };
+  /** Time compression: sim seconds per real second (1, 8, 32, 128, 1024). */
+  timeScale = 1;
   private listeners = new Set<Listener>();
 
   on(cb: Listener): () => void {
@@ -133,6 +140,7 @@ class Observation {
     if (e.type === 'alarm') this.alarms[e.station] = e.obs;
     if (e.type === 'paused') this.paused = e.paused;
     if (e.type === 'drill') this.drill = e.drill;
+    if (e.type === 'timeScale') this.timeScale = e.scale;
     for (const l of this.listeners) l(e);
   }
 }

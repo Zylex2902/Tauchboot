@@ -14,7 +14,10 @@ import { defineSounds, SFX } from './core/sfx';
 import { Tweens } from './core/tween';
 import { Hull } from './hull/hull';
 import { obs } from './obs';
-import { startSimStub } from './sim/stub';
+import { runSim, Sim, type Snapshot } from './sim/core';
+import { newSeed } from './sim/rng';
+import { readStore, writeStore } from './core/store';
+import type { UiState } from './hull/hull';
 
 /** Bleed art: darker hull plating on the same art grid, shown outside the 480x270 frame. */
 function bleedTile(): Pix {
@@ -48,6 +51,42 @@ async function registerServiceWorker(): Promise<void> {
   registerSW({ immediate: true });
 }
 
+const PATROL_KEY = 'tiefgang.patrol.v1';
+
+interface PatrolSave {
+  sim: Snapshot;
+  ui: UiState;
+  savedAt: number;
+}
+
+async function loadPatrol(): Promise<PatrolSave | null> {
+  const raw = await readStore(PATROL_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as PatrolSave;
+  } catch {
+    return null;
+  }
+}
+
+function savePatrol(sim: Sim, hull: Hull): void {
+  if ((window as { __noSave?: boolean }).__noSave) return; // test hook: compare runs without writing
+  const save: PatrolSave = { sim: sim.snapshot(), ui: hull.uiState(), savedAt: Date.now() };
+  writeStore(PATROL_KEY, JSON.stringify(save));
+}
+
+/**
+ * The patrol is saved as you play: every few seconds, when the drill changes phase, and
+ * the moment the app is hidden or closed (the hull pauses first, so it resumes paused).
+ */
+function startAutosave(sim: Sim, hull: Hull): void {
+  const save = () => savePatrol(sim, hull);
+  window.setInterval(save, 4000);
+  obs.on((e) => e.type === 'drill' && save());
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && save());
+  window.addEventListener('pagehide', save);
+}
+
 async function boot(): Promise<void> {
   lockdown();
   mixer.install();
@@ -79,10 +118,18 @@ async function boot(): Promise<void> {
   const tweens = new Tweens(app.ticker);
   const bleed = new TilingSprite({ texture: bleedTile().toTexture(), width: 1, height: 1 });
   const world = new Container();
+  // The patrol: resume the save if there is one, else a fresh seed. The sim is up (and has
+  // published the boat's state) before the UI is built, so the UI starts from it.
+  const params = new URLSearchParams(location.search);
+  const saved = params.has('fresh') ? null : await loadPatrol();
+  const restored = saved ? Sim.load(saved.sim) : null;
+  const sim = restored ?? Sim.fresh(newSeed());
+  runSim(sim, app.ticker);
   const hull = new Hull(tweens, { tw: tweens, ticker: app.ticker });
-  const sim = startSimStub(app.ticker);
+  if (restored && saved?.ui) hull.restoreUi(saved.ui);
   world.addChild(hull.root);
-  if (new URLSearchParams(location.search).has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer, __drill: sim.drill, __obs: obs });
+  startAutosave(sim, hull);
+  if (params.has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer, __sim: sim, __obs: obs, __save: () => savePatrol(sim, hull) });
   const prompt = new RotatePrompt(tweens);
   // Bleed drawn again over everything outside the art frame: clips sliding panels,
   // the travelling hull and pull-down boards for free (no stencil masks). Not interactive,

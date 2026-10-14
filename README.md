@@ -49,6 +49,9 @@ The game boots into a 5-minute drill: one merchant crossing ahead. Orders card -
 3. Swing MAG to 6X, set her type on the recognition card (mast height), turn the STADIMETER until the lifted right half's horizon/waterline sits on her masthead, then MARK. The range drum reads metres.
 Keep looks short: the UP counter shows seconds the glass is out of the water; too long and she sees the scope and runs. After about 5.5 minutes she has crossed. The drill report grades bearing, range, type and scope time; AGAIN starts a new ship. Keyboard: Enter/Space presses the card's key.
 
+## Saving and time (chunk 1.1)
+The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
+
 ## Sound test
 `npm run build:sounds` -> dist-sounds/sound-test.html: every sound by name.
 

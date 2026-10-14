@@ -171,6 +171,19 @@ export class Crank extends Control<number> {
     }
   };
 
+  override get persistent(): boolean {
+    return true;
+  }
+
+  override restore(turns: number): void {
+    this.angle = this.finger = turns * TAU;
+    this.vel = 0;
+    this.lastTick = Math.floor(turns * (this.s.ticksPerTurn ?? 12));
+    this.emitted = turns;
+    this.draw();
+    super.restore(turns);
+  }
+
   private draw(): void {
     const f = ((Math.round((this.angle / TAU) * FRAMES) % FRAMES) + FRAMES) % FRAMES;
     this.wheel.texture = this.frames[f];

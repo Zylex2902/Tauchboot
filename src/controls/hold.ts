@@ -127,6 +127,18 @@ export class Hold extends Control<number> {
     this.drawGauge();
   };
 
+  override get persistent(): boolean {
+    return true;
+  }
+
+  override restore(v: number): void {
+    this.full = v >= 1;
+    this.forced = 0;
+    this.value = v;
+    this.drawGauge();
+    super.restore(v);
+  }
+
   private get decayRate(): number {
     return this.forced > 0 ? this.forced : (this.s.decay ?? 0);
   }
