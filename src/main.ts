@@ -13,6 +13,7 @@ import { loadSettings } from './core/settings';
 import { defineSounds, SFX } from './core/sfx';
 import { Tweens } from './core/tween';
 import { Hull } from './hull/hull';
+import { obs } from './obs';
 import { startSimStub } from './sim/stub';
 
 /** Bleed art: darker hull plating on the same art grid, shown outside the 480x270 frame. */
@@ -79,9 +80,9 @@ async function boot(): Promise<void> {
   const bleed = new TilingSprite({ texture: bleedTile().toTexture(), width: 1, height: 1 });
   const world = new Container();
   const hull = new Hull(tweens, { tw: tweens, ticker: app.ticker });
-  startSimStub(app.ticker);
+  const sim = startSimStub(app.ticker);
   world.addChild(hull.root);
-  if (new URLSearchParams(location.search).has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer });
+  if (new URLSearchParams(location.search).has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer, __drill: sim.drill, __obs: obs });
   const prompt = new RotatePrompt(tweens);
   // Bleed drawn again over everything outside the art frame: clips sliding panels,
   // the travelling hull and pull-down boards for free (no stencil masks). Not interactive,

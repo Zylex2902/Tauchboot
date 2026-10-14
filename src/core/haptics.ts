@@ -71,6 +71,8 @@ export function haptic(kind: HapticKind, level: HapticLevel = settings().haptics
     }
     const pat = WEB[level][kind];
     if (!pat) return;
+    // Browsers refuse (and log) vibration before the first touch: skip it quietly.
+    if ((navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive === false) return;
     if (canVibrate) navigator.vibrate(pat);
     else if (/iP(hone|ad|od)|Macintosh/.test(navigator.userAgent) && 'ontouchend' in document) iosTap();
   } catch {

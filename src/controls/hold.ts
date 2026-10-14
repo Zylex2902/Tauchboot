@@ -14,6 +14,8 @@ export interface HoldSpec extends BaseSpec {
   /** Gauge drain per second when released; 0 keeps the level. */
   decay?: number;
   segments?: number;
+  /** Gain of the drain loop (default quiet). */
+  drainGain?: number;
   color?: CapColor;
   radius?: number;
 }
@@ -42,6 +44,7 @@ export class Hold extends Control<number> {
   private loopSnd: LoopHandle | null = null;
   private drainSnd: LoopHandle | null = null;
   private full = false;
+  private forced = 0;
 
   constructor(readonly s: HoldSpec, ctx: KitContext) {
     super(s, ctx, 0);
@@ -76,6 +79,7 @@ export class Hold extends Control<number> {
 
     this.track({
       down: () => {
+        this.forced = 0;
         void ctx.tw.to(this.cap, { y: this.capY + 2 }, { duration: 50 });
         this.sfx('press', SFX.press, { gain: 0.7, rate: 1.2 });
         this.buzz('press', 'press');
@@ -108,11 +112,12 @@ export class Hold extends Control<number> {
         this.sfx('full', SFX.full);
         this.buzz('full', 'lock');
       }
-    } else if (!this.held && v > 0 && (this.s.decay ?? 0) > 0) {
-      if (!this.drainSnd) this.drainSnd = mixer.loop(this.s.sounds?.drain ?? SFX.hiss, this.s.bus ?? 'machinery', { gain: 0.18, rate: 0.5 });
-      v = Math.max(0, v - (this.s.decay ?? 0) * dt);
+    } else if (!this.held && v > 0 && this.decayRate > 0) {
+      if (!this.drainSnd) this.drainSnd = mixer.loop(this.s.sounds?.drain ?? SFX.hiss, this.s.bus ?? 'machinery', { gain: this.s.drainGain ?? 0.18, rate: 0.5 });
+      v = Math.max(0, v - this.decayRate * dt);
       this.full = false;
       if (v === 0) {
+        this.forced = 0;
         this.drainSnd?.stop(200);
         this.drainSnd = null;
         this.sfx('empty', SFX.lampOff, { gain: 0.4 });
@@ -121,6 +126,16 @@ export class Hold extends Control<number> {
     this.emit(v);
     this.drawGauge();
   };
+
+  private get decayRate(): number {
+    return this.forced > 0 ? this.forced : (this.s.decay ?? 0);
+  }
+
+  /** Run the gauge down to empty at this rate per second (DOWN SCOPE), unless pressed again. */
+  drain(rate: number): void {
+    if (this.held || this.value <= 0) return;
+    this.forced = rate;
+  }
 
   private drawGauge(): void {
     const n = this.segs.length;

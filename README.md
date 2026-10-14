@@ -40,7 +40,14 @@ In the Control Room, tap the CONTROL ROOM plate (top left) to slide out the read
 - Desktop: arrow keys or 1-9 travel, V voice pipe, Esc or P pause.
 
 ## Hydrophone (chunk 0.4, Radio and Sound Room, compartment 3)
-Headphones recommended. Turn the TRAIN wheel until the screws sit dead centre and loudest; the LEVEL meter shows the same signal. Tap COUNT on each heavy beat for RPM and knots. Grey-box test plate: PHONES off = meter alone, METER off = ear alone (a blind covers the dial), MARK logs your bearing against the truth, NEW SHIP moves the contact.
+Headphones recommended. Turn the TRAIN wheel until the screws sit dead centre and loudest; the LEVEL meter shows the same signal. Tap COUNT on each heavy beat for RPM and knots. Grey-box test plate: PHONES off = meter alone, METER off = ear alone (a blind covers the dial), MARK logs your bearing against the truth and reports it to the tower, NEW DRILL restarts the drill.
+
+## Periscope drill (chunk 0.5, Conning Tower, compartment 6)
+The game boots into a 5-minute drill: one merchant crossing ahead. Orders card -> BEGIN.
+1. Sound room (3): find her bearing by ear or needle, MARK. The bearing appears on the tower's slip.
+2. Conning tower (6): hold RAISE (DOWN drops the scope), TRAIN to the bearing, find her at 1.5X.
+3. Swing MAG to 6X, set her type on the recognition card (mast height), turn the STADIMETER until the lifted right half's horizon/waterline sits on her masthead, then MARK. The range drum reads metres.
+Keep looks short: the UP counter shows seconds the glass is out of the water; too long and she sees the scope and runs. After about 5.5 minutes she has crossed. The drill report grades bearing, range, type and scope time; AGAIN starts a new ship. Keyboard: Enter/Space presses the card's key.
 
 ## Sound test
 `npm run build:sounds` -> dist-sounds/sound-test.html: every sound by name.

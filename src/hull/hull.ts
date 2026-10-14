@@ -9,6 +9,7 @@ import { obs, send, type AlarmLevel } from '../obs';
 import { createStation, STATIONS, type StationScene } from '../stations';
 import { PANEL_H } from '../stations/panel-art';
 import { Pause } from './pause';
+import { DrillCard } from './drill-card';
 import { ReportSlips } from './report';
 import { compMid, StationStrip } from './strip';
 import { BULKHEAD_W, PASSAGE_W, bulkheadTexture, passageTexture } from './transit-art';
@@ -69,6 +70,7 @@ export class Hull {
   private voice: VoicePipe;
   private pause: Pause;
   private slips: ReportSlips;
+  private card: DrillCard;
   /** Test hook: durations of completed strip travels (ms). */
   readonly travelLog: { from: number; to: number; ms: number; tickMs: number }[] = [];
 
@@ -84,7 +86,8 @@ export class Hull {
     this.slips = new ReportSlips(tw);
     this.voice = new VoicePipe(tw, ctx);
     this.pause = new Pause(tw, ctx);
-    this.root.addChild(this.viewport, this.voice.root, this.slips.root, this.strip.root, this.pause.root);
+    this.card = new DrillCard(tw, ctx);
+    this.root.addChild(this.viewport, this.voice.root, this.slips.root, this.strip.root, this.card.root, this.pause.root);
 
     this.strip.onTap = (i) => this.goTo(i);
     this.strip.onLongPress = (i) => {
@@ -158,7 +161,7 @@ export class Hull {
 
   /** Tap on the strip (or a key): travel there, or skip / redirect a travel in flight. */
   goTo(i: number): void {
-    if (this.pause.isPaused || i < 0 || i > 8) return;
+    if (this.pause.isPaused || this.card.isOpen || i < 0 || i > 8) return;
     this.slips.dismiss();
     this.voice.close();
     const t = this.travel;
@@ -310,7 +313,7 @@ export class Hull {
     const bg = scene.bg;
     // The plating is the touch target: a press that lands on it (not on a control) can swipe.
     bg.on('pointerdown', (e) => {
-      if (scene.index !== this.current || this.travel || this.swipe || this.pause.isPaused || this.voice.isOpen) return;
+      if (scene.index !== this.current || this.travel || this.swipe || this.pause.isPaused || this.voice.isOpen || this.card.isOpen) return;
       const p = at(e);
       this.swipe = { id: e.pointerId, x0: p.x, y0: p.y, dragging: false, dead: false, samples: [{ x: p.x, t: performance.now() }] };
       this.slips.dismiss();
@@ -390,6 +393,10 @@ export class Hull {
       const k = e.key;
       if (k === 'Escape' || k === 'p' || k === 'P') return this.pause.set(!this.pause.isPaused);
       if (this.pause.isPaused) return;
+      if (this.card.isOpen) {
+        if (k === 'Enter' || k === ' ') this.card.pressKey();
+        return;
+      }
       if (k === 'v' || k === 'V') return this.voice.toggle();
       if (k === 'ArrowLeft' || k === 'ArrowRight') {
         const to = (this.travel?.to ?? this.current) + (k === 'ArrowRight' ? 1 : -1);

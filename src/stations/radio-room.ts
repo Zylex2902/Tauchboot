@@ -32,7 +32,7 @@ export const RADIO_ROOM: ControlSpec[] = [
   { kind: 'switch', id: 'phones', x: 362, y: 190, states: ['OFF', 'ON'], initial: true, label: 'PHONES' },
   { kind: 'switch', id: 'meterOn', x: 396, y: 190, states: ['OFF', 'ON'], initial: true, label: 'METER' },
   { kind: 'key', id: 'mark', x: 420, y: 156, w: 48, h: 28, style: 'iron', text: 'MARK' },
-  { kind: 'key', id: 'newShip', x: 420, y: 196, w: 48, h: 28, style: 'iron', text: ['NEW', 'SHIP'] },
+  { kind: 'key', id: 'newDrill', x: 420, y: 196, w: 48, h: 28, style: 'iron', text: ['NEW', 'DRILL'] },
 ];
 
 function furniture(p: Pix): void {
@@ -148,9 +148,9 @@ export class RadioRoom extends StationScene {
     });
     c('meterOn').onChange((on) => this.rollBlind(!(on as boolean)));
     c('mark').onChange(() => send({ type: 'hydroMark' }));
-    c('newShip').onChange(() => {
-      send({ type: 'hydroNew' });
-      this.addLog('-- NEW SHIP --');
+    c('newDrill').onChange(() => send({ type: 'drillNew' }));
+    obs.on((e) => {
+      if (e.type === 'drill' && e.drill.phase === 'brief' && this.rows.length) this.addLog('-- NEW DRILL --');
     });
     obs.on((e) => {
       if (e.type !== 'hydroMark') return;

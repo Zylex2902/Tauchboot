@@ -3,6 +3,10 @@
  * publishes here; the UI sends commands back through `send`. The UI never imports src/sim.
  */
 
+import type { ShipClassKey } from './ships';
+
+export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassKey } from './ships';
+
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
 export type AlarmLevel = 0 | 1 | 2;
 
@@ -38,11 +42,63 @@ export interface HydroMark {
   rpm: number;
 }
 
+/** One thing the periscope glass can see: where it is and how big it looks. */
+export interface Sight {
+  /** Relative bearing, degrees 0..360. */
+  bearing: number;
+  /** Angle on the bow, -180..180; positive = her starboard side faces us (bow points right). */
+  aob: number;
+  /** Apparent size: degrees subtended by one metre at her range. */
+  degPerM: number;
+  /** Ship class key (src/obs/ships.ts): what the silhouette looks like. */
+  cls: ShipClassKey;
+  /** 0 crisp .. 1 lost in haze. */
+  haze: number;
+}
+
+/** What the attack periscope delivers: tube position, water on the glass, and sights. */
+export interface ScopeObs {
+  /** Hoist position 0..1 (lens breaks the surface near SCOPE_SURFACE). */
+  height: number;
+  /** 0 clear glass .. 1 head under water. */
+  awash: number;
+  trained: number;
+  high: boolean;
+  /** Own boat's roll/pitch at periscope depth, as a vertical offset of the horizon in degrees. */
+  swell: number;
+  sights: Sight[];
+}
+
+export type DrillPhase = 'brief' | 'listen' | 'scope' | 'over';
+
+export interface DrillResult {
+  outcome: 'ranged' | 'seen' | 'lost';
+  cls: ShipClassKey;
+  /** Sound room's last reported bearing and the truth at that moment. */
+  heard: { reported: number; truth: number } | null;
+  /** Drill seconds when she was first on the glass (in the field of view, lens clear). */
+  foundAt: number | null;
+  ranged: { estimate: number; truth: number; mast: number } | null;
+  /** Seconds the lens was above water. */
+  scopeUp: number;
+  seconds: number;
+}
+
+export interface DrillObs {
+  phase: DrillPhase;
+  /** Drill clock, seconds. */
+  t: number;
+  /** Bearing the sound room last reported (null until MARK). */
+  reported: number | null;
+  result: DrillResult | null;
+}
+
 export type ObsEvent =
   | { type: 'alarm'; station: number; obs: AlarmObs }
   | { type: 'voice'; line: VoiceLine }
   | { type: 'paused'; paused: boolean }
-  | { type: 'hydroMark'; mark: HydroMark };
+  | { type: 'hydroMark'; mark: HydroMark }
+  | { type: 'drill'; drill: DrillObs };
 
 export type Command =
   | { type: 'pause'; on: boolean }
@@ -51,7 +107,10 @@ export type Command =
   | { type: 'debugAlarm' }
   | { type: 'hydroTrain'; bearing: number }
   | { type: 'hydroMark' }
-  | { type: 'hydroNew' };
+  | { type: 'drillBegin' }
+  | { type: 'drillNew' }
+  | { type: 'scopeSet'; height: number; trained: number; high: boolean }
+  | { type: 'scopeMark'; range: number; mast: number };
 
 type Listener = (e: ObsEvent) => void;
 
@@ -60,6 +119,8 @@ class Observation {
   paused = false;
   /** Updated every sim tick (polled by the UI, not evented). */
   readonly hydro: HydroObs = { trained: 0, level: 0, pan: 0, rpm: 0 };
+  readonly scope: ScopeObs = { height: 0, awash: 1, trained: 0, high: false, swell: 0, sights: [] };
+  drill: DrillObs = { phase: 'brief', t: 0, reported: null, result: null };
   private listeners = new Set<Listener>();
 
   on(cb: Listener): () => void {
@@ -71,6 +132,7 @@ class Observation {
   publish(e: ObsEvent): void {
     if (e.type === 'alarm') this.alarms[e.station] = e.obs;
     if (e.type === 'paused') this.paused = e.paused;
+    if (e.type === 'drill') this.drill = e.drill;
     for (const l of this.listeners) l(e);
   }
 }

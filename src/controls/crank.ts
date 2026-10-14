@@ -17,6 +17,8 @@ export interface CrankSpec extends BaseSpec {
   min?: number;
   max?: number;
   initial?: number;
+  /** Output steps per turn (default 100). Fine instruments need more. */
+  resolution?: number;
 }
 
 const FRAMES = 48;
@@ -161,7 +163,8 @@ export class Crank extends Control<number> {
       this.lastTick = tickNow;
     }
     this.draw();
-    const turns = Math.round((this.angle / TAU) * 100) / 100;
+    const res = this.s.resolution ?? 100;
+    const turns = Math.round((this.angle / TAU) * res) / res;
     if (turns !== this.emitted) {
       this.emitted = turns;
       this.emit(turns);

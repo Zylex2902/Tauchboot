@@ -3,7 +3,7 @@
 Landscape-only pixel-art WW2-style submarine station sim. iOS + Android (Capacitor), PWA for testing. Fictional 1940s regime; never real Nazi symbols. 9 hand-operated stations, 44-man crew runs the rest. Single-player, offline, free + one unlock.
 
 GDD + build plan: https://claude.ai/code/artifact/1bff9637-acf4-4053-9c8a-9a09e4b62e39
-Status: chunks 0.1-0.4 done (shell, control kit, station framework, grey-box hydrophone); next 0.5 grey-box periscope. Work one chunk at a time, then stop and report.
+Status: chunks 0.1-0.5 done (shell, control kit, station framework, grey-box hydrophone, grey-box periscope drill); next Gate 1 (five cold testers), then 1.1 sim core. Work one chunk at a time, then stop and report.
 
 ## Standing rules
 - Everything that changes on screen animates (tween); nothing snaps.
@@ -30,12 +30,14 @@ Status: chunks 0.1-0.4 done (shell, control kit, station framework, grey-box hyd
 - src/core/haptics.ts, audio.ts, settings.ts, tween.ts, font.ts, pixels.ts, palette.ts
 - src/controls/: data-driven control kit (lever, crank, hold, switch, button+cover, drag), createControl(spec), hitPolicy (44 pt min touch target, recomputed per layout), odometer display
 - src/obs/: observation layer (alarms, voice lines, paused) + send(command). The UI imports only this, never src/sim.
-- src/sim/stub.ts: placeholder sim (pausable clock, canned alarms/replies) until chunk 1.1
+- src/sim/stub.ts: placeholder sim (pausable clock, canned alarms/replies) until chunk 1.1; src/sim/drill.ts: 0.5 drill (one merchant, own boat at origin heading 000; exposure while the lens is up; phases brief/listen/scope/over)
+- src/obs/ships.ts: recognition manual (classes, mast heights), SCOPE_FOV, SCOPE_SURFACE: shared by sim and UI
+- src/hull/drill-card.ts: drill orders/report clipboard (blocks input while up)
 - src/hull/: hull.ts (one station on screen, travel <0.5 s via bulkheads, swipe, skip, keys), strip.ts (compartments, alarm lamps, long-press), report.ts (report slips), voice-pipe.ts (pull-down orders + subtitles), pause.ts (pause tab/card: haptics, volume), transit-art.ts
-- src/stations/: station.ts (StationScene base: shared plating, name plate, addControls), control-room.ts (0.2 kit panel), radio-room.ts (0.4 hydrophone: 120 deg per wheel turn, beam cos(err/2)^40, pan sin(err)*2.5, COUNT taps -> RPM/KN), placeholders.ts (data-driven grey boxes), panel-art.ts
+- src/stations/: station.ts (StationScene base: shared plating, name plate, addControls), control-room.ts (0.2 kit panel), radio-room.ts (0.4 hydrophone: 120 deg per wheel turn, beam cos(err/2)^40, pan sin(err)*2.5, COUNT taps -> RPM/KN), conning-tower.ts (0.5 attack periscope: 45 deg/turn, stadimeter 0.5 deg/turn, range = mast/tan(split)), scope-view.ts (CPU palette-buffer eyepiece at 30 Hz: cached sky, perspective sea, split image), ship-art.ts (profile silhouettes), placeholders.ts (data-driven grey boxes), panel-art.ts
 - src/controls/meter.ts (spring needle meter), tape.ts (bearing tape); audio buses: bed (ambience), sensors (headset, dry), named ducks via mixer.duck()
 - Layout rules: stations keep top centre (VOICE_TAB_ZONE) free; strip right end is the pause tab. No stencil masks on frame-level layers: main.ts redraws the bleed over everything outside the frame instead.
-- Test hook: `?test` exposes window.__hull and window.__app
+- Test hook: `?test` exposes window.__hull, __app, __mixer, __drill (sim), __obs
 - Playtest link: `npm run build:single` -> dist-single/tiefgang.html, published as artifact https://claude.ai/artifact/Sss2vfG49S3UZXYkCwJ46K
 - Never edit ios/ or android/ by hand except Info.plist / AndroidManifest.xml orientation keys.
 

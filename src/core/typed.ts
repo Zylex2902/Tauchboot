@@ -59,7 +59,7 @@ export class TypedText {
       left -= line.text.length;
       if (k === row.shown) continue;
       row.shown = k;
-      const w = Math.min(full.width, k >= line.text.length ? full.width : measure(line.text.slice(0, k)) + 1);
+      const w = k === 0 ? 0 : Math.min(full.width, k >= line.text.length ? full.width : measure(line.text.slice(0, k)) + 1);
       sprite.visible = w > 0;
       if (sprite.texture !== Texture.EMPTY && sprite.texture !== full) sprite.texture.destroy(false);
       sprite.texture = w >= full.width ? full : w > 0 ? new Texture({ source: full.source, frame: new Rectangle(0, 0, w, full.height) }) : Texture.EMPTY;

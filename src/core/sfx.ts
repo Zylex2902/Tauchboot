@@ -169,6 +169,12 @@ export const SFX = {
   screw: 'screw',
   /** Hydrophone background: sea, flow noise, distant crackle (loop). */
   sea: 'sea',
+  /** Periscope hoist: motor, gear mesh, cable through its guides (loop). */
+  hoist: 'hoist',
+  /** Sea breaking over the scope head, draining off the glass. */
+  wash: 'wash',
+  /** Magnification lever swings the prism over. */
+  prism: 'prism',
 } as const;
 
 /** Turns per minute the screw loop is rendered at. */
@@ -207,6 +213,9 @@ export const SFX_NOTES: Record<string, string> = {
   hull: 'boat ambience, loops',
   screw: 'merchant screw in the hydrophone, loops',
   sea: 'hydrophone sea noise, loops',
+  hoist: 'periscope hoist motor and cable, loops',
+  wash: 'sea washing over the scope head',
+  prism: 'magnification prism swinging over',
 };
 
 /** A small hard contact (switch blade, pawl, type bar tip). */
@@ -473,6 +482,56 @@ export function defineSounds(): void {
     }
     return loopable(lowpass(out, 3200, sr), sr, 0.1);
   }, 0.5);
+
+  d(SFX.hoist, (sr) => {
+    // Motor through a gearbox: a mesh pulse train ringing the casing, a cable rattle in
+    // its guides, and the motor's own rumble. 160 Hz mesh, 1.25 s: whole cycles, clean loop.
+    const dur = 1.25;
+    const X = 0.08;
+    const out = len(sr, dur + X);
+    const mesh = buzz(sr, dur + X, 160, 0.06, () => 1);
+    add(out, resonate(sr, mesh, cluster(321, 320, 2600, 14, 0.012, 0.6)), 0.5);
+    const rattle = scrape(sr, dur + X, 140, 322, () => 1);
+    add(out, resonate(sr, rattle, cluster(323, 600, 3000, 12, 0.015)), 0.3);
+    const r = rng(324);
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < out.length; i++) {
+      a += (r() * 2 - 1 - a) * 0.03;
+      b += (a - b) * 0.03;
+      out[i] += b * 5 * (1 + 0.3 * Math.sin((TAU * 8 * i) / sr)); // brush rumble, slight hunting
+    }
+    return loopable(lowpass(grit(highpass(out, 50, sr), 1.6), 1900, sr), sr, X);
+  }, 0.55);
+
+  d(SFX.wash, (sr) => {
+    const dur = 1.1;
+    const out = len(sr, dur);
+    const r = rng(331);
+    let lp = 0;
+    let lp2 = 0;
+    for (let i = 0; i < out.length; i++) {
+      const t = i / sr;
+      const env = Math.min(1, t / 0.06) * Math.exp(-t / 0.38);
+      lp += (r() * 2 - 1 - lp) * 0.12;
+      lp2 += (lp - lp2) * 0.2;
+      out[i] = lp2 * env * 3;
+    }
+    // Gurgle: small air pockets ringing as the water drains off the head.
+    for (let k = 0; k < 18; k++) {
+      const at = 0.12 + r() * 0.8;
+      const f = 260 + r() * 900;
+      add(out, strike(sr, 0.12, 1.5, 332 + k, 0.4, [[f, 0.012, 1], [f * 1.9, 0.006, 0.3]]), 0.25 * Math.exp(-at / 0.6), at, sr);
+    }
+    return lowpass(highpass(out, 70, sr), 1700, sr);
+  }, 0.6);
+
+  d(SFX.prism, (sr) => {
+    const out = resonate(sr, scrape(sr, 0.4, 700, 341, (p) => (p < 0.35 ? Math.sin((Math.PI * p) / 0.35) : 0)), cluster(342, 500, 2800, 10, 0.02));
+    add(out, strike(sr, 0.4, 7, 343, 0.55, [...cluster(344, 150, 700, 10, 0.07), ...cluster(345, 900, 3000, 6, 0.02, 0.4)]), 1, 0.13, sr);
+    add(out, contact(sr, 0.4, 346, 3800, 9000, 0.004), 0.3, 0.135, sr); // the glass in its cell
+    return grit(out, 1.7);
+  }, 0.8);
 
   d(SFX.hull, (sr) => {
     // Seamless 8 s: every tone completes whole cycles (multiples of 1/8 Hz).
