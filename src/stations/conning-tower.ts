@@ -91,8 +91,8 @@ function furniture(p: Pix): void {
     const c = SHIP_CLASSES[k];
     const y = CARD.y + 22 + i * 18;
     drawText(p, c.name, CARD.x + 28, y - 3, C.ink0);
-    const sil = silhouette(k, 0.26, 1, -1, C.ink0, C.ink1);
-    const sx = CARD.x + 72;
+    const sil = silhouette(k, 0.3, 1, -1, C.ink0, C.ink1);
+    const sx = CARD.x + 67;
     const sy = y + 4 - sil.h;
     for (let j = 0; j < sil.h; j++)
       for (let q = 0; q < sil.w; q++) {

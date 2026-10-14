@@ -24,7 +24,7 @@ function orders(): TypedLine[] {
   L.push({ text: '', color: C.ink0 });
   para('1  HEAR HER IN THE SOUND ROOM (3). TRAIN THE WHEEL UNTIL HER SCREWS ARE LOUD AND CENTRED, THEN MARK.', C.ink0);
   para('2  FIND HER FROM THE CONNING TOWER (6). HOLD RAISE, TRAIN TO THE BEARING.', C.ink0);
-  para('3  RANGE HER AT 6X. SET HER MAST HEIGHT FROM THE CARD, TURN THE STADIMETER UNTIL THE LIFTED WATERLINE SITS ON HER MASTHEAD, THEN MARK.', C.ink0);
+  para('3  RANGE HER AT 6X. MATCH HER SHAPE ON THE RECOGNITION CARD (THIS SETS HER MAST HEIGHT). TURN THE STADIMETER: AN AMBER COPY OF HER RISES. STOP WHEN ITS KEEL SITS ON TOP OF HER TALLEST MAST, THEN MARK.', C.ink0);
   L.push({ text: '', color: C.ink0 });
   para('SHORT LOOKS. IF SHE SEES THE SCOPE, SHE RUNS. HEADPHONES HELP.', C.red0);
   return L;
@@ -60,6 +60,7 @@ function report(r: DrillResult): TypedLine[] {
 function verdict(r: DrillResult): string {
   if (r.outcome === 'seen') return 'VERDICT: SPOTTED. LOWER SOONER, LOOK AGAIN LATER.';
   if (r.outcome === 'lost' || !r.ranged) return 'VERDICT: TOO SLOW. SHE WILL NOT WAIT.';
+  if (r.ranged.mast !== SHIP_CLASSES[r.cls].mast) return 'VERDICT: WRONG TYPE ON THE CARD, SO THE WRONG MAST HEIGHT.';
   const pct = Math.abs(r.ranged.estimate - r.ranged.truth) / r.ranged.truth;
   if (pct <= 0.07) return 'VERDICT: GOOD. A SOLUTION YOU CAN FIRE ON.';
   if (pct <= 0.15) return 'VERDICT: FAIR. A WIDE SPREAD MIGHT HIT.';

@@ -46,7 +46,7 @@ Headphones recommended. Turn the TRAIN wheel until the screws sit dead centre an
 The game boots into a 5-minute drill: one merchant crossing ahead. Orders card -> BEGIN.
 1. Sound room (3): find her bearing by ear or needle, MARK. The bearing appears on the tower's slip.
 2. Conning tower (6): hold RAISE (DOWN drops the scope), TRAIN to the bearing, find her at 1.5X.
-3. Swing MAG to 6X, set her type on the recognition card (mast height), turn the STADIMETER until the lifted right half's horizon/waterline sits on her masthead, then MARK. The range drum reads metres.
+3. Swing MAG to 6X, match her shape on the recognition card (sets her mast height), turn the STADIMETER: an amber copy of her rises; stop when its keel sits on her tallest masthead, then MARK. The range drum reads metres.
 Keep looks short: the UP counter shows seconds the glass is out of the water; too long and she sees the scope and runs. After about 5.5 minutes she has crossed. The drill report grades bearing, range, type and scope time; AGAIN starts a new ship. Keyboard: Enter/Space presses the card's key.
 
 ## Saving and time (chunk 1.1)

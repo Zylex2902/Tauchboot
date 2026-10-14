@@ -65,7 +65,7 @@ const wrapDeg = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
 /**
  * The attack periscope's eyepiece: a grainy, dithered circle of sea and sky drawn on the
  * CPU into a palette buffer each frame (no masks, no filters, always on the palette).
- * Split-image stadimeter: the right half shows the scene lifted by the stadimeter angle.
+ * Stadimeter: an amber second image of the ship, lifted by the stadimeter angle.
  */
 export class ScopeView {
   readonly sprite: Sprite;
@@ -144,8 +144,7 @@ export class ScopeView {
     const W = VIEW_D;
     const hy = Math.round(R + s.swell * ppd);
     const shift = Math.round(s.trained * ppd);
-    const d = Math.min(MAXD, Math.round(this.stadDeg * ppd));
-    const rows = W + d;
+    const rows = W;
     for (let x = 0; x < W; x++) this.az[x] = (shift + x - R) / ppd;
     const t = this.t;
     this.drawSky(shift, ppd);
@@ -180,6 +179,10 @@ export class ScopeView {
       }
     }
     for (const sight of s.sights) this.drawShip(sight, hy, shift, rows);
+    // Stadimeter: a second, amber image of her, lifted by the split angle. Bring its keel
+    // up onto the real masthead and the drum reads the range.
+    const lift = Math.min(MAXD, Math.round(this.stadDeg * ppd));
+    if (lift >= 1) for (const sight of s.sights) this.drawShip(sight, hy, shift, rows, lift);
     return hy;
   }
 
@@ -202,7 +205,7 @@ export class ScopeView {
     }
   }
 
-  private drawShip(sight: (typeof obs.scope.sights)[number], hy: number, shift: number, rows: number): void {
+  private drawShip(sight: (typeof obs.scope.sights)[number], hy: number, shift: number, rows: number, ghost = 0): void {
     const ppd = this.ppd;
     const dx = wrapDeg(sight.bearing - obs.scope.trained) * ppd;
     if (Math.abs(dx) > R + 200) return;
@@ -210,7 +213,7 @@ export class ScopeView {
     const k = Math.round(Math.abs(Math.sin((sight.aob * Math.PI) / 180)) * 40) / 40;
     const sil = silhouette(sight.cls, sc, k, sight.aob >= 0 ? 1 : -1);
     const x0 = Math.round(R + dx) - sil.cx;
-    const y0 = hy - sil.h + 1;
+    const y0 = hy - sil.h + 1 - ghost;
     const hazeLvl = sight.haze * 12;
     // Waves near her waterline: she bobs in and out of them.
     const occ = Math.max(1, Math.round(sc * 0.9));
@@ -223,6 +226,11 @@ export class ScopeView {
         if (c < 0) continue;
         const x = x0 + i;
         if (x < 0 || x >= VIEW_D) continue;
+        if (ghost) {
+          // The lifted image: clean amber, its keel line brightest (the edge you range with).
+          this.world[y * VIEW_D + x] = j === sil.h - 1 ? C.amber1 : C.amber0;
+          continue;
+        }
         if (BAYER4[y & 3][(shift + x) & 3] < hazeLvl) continue;
         if (sil.h - 1 - j < occ && noise((shift + x) * 0.35, t * 2.2 + j * 3) > 0.55) continue;
         this.world[y * VIEW_D + x] = c;
@@ -230,9 +238,9 @@ export class ScopeView {
     }
   }
 
-  /** Left half as seen; right half lifted by the stadimeter split. */
+  /** Scene to the eyepiece buffer. */
   private compose(_hy: number): void {
-    const d = Math.min(MAXD, Math.round(this.stadDeg * this.ppd));
+    const d = 0;
     const W = VIEW_D;
     for (let y = 0; y < W; y++) {
       const o = y * W;
