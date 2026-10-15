@@ -347,6 +347,8 @@ export class Hull {
     mixer.play(SFX.hatch, 'machinery', { gain: 0.8 });
     haptic('lock');
     from.leave();
+    // Its crew carry on from where the captain left things (depth, speed).
+    if (st.from !== st.to) send({ type: 'leave', station: st.from });
     to.enter();
     if (obs.alarms[st.to].level > 0) send({ type: 'acknowledge', station: st.to });
     const q = this.queued;

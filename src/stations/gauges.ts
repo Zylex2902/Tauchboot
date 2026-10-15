@@ -3,7 +3,10 @@ import { drawText, measure } from '../core/font';
 import { C, type ColorIndex } from '../core/palette';
 import { Pix } from '../core/pixels';
 import { approach, type KitContext } from '../controls/control';
+import { lampBezel, lampFrames } from '../controls/art';
 import { meterFace, NeedleMeter } from '../controls/meter';
+import { mixer } from '../core/audio';
+import { SFX } from '../core/sfx';
 import { Odometer } from '../controls/odometer';
 import { art } from './boards';
 import { plate } from './panel-art';
@@ -380,5 +383,38 @@ export function drumPlate(ticker: KitContext['ticker'], w: number, caption: stri
   drum.root.position.set(4, 12);
   root.addChild(drum.root);
   return { root, drum };
+}
+
+
+/** A panel lamp: brass bezel, glass stepping through dither frames, a relay click. */
+export class PanelLamp {
+  readonly root = new Container();
+  private glassS: Sprite;
+  private frames: Texture[];
+  private k = 0;
+  private want = 0;
+  private acc = 0;
+
+  constructor(ticker: KitContext['ticker'], on: ColorIndex = C.red0, hot: ColorIndex = C.red1) {
+    const R = 3;
+    this.root.addChild(Object.assign(art(R * 2 + 8, R * 2 + 8, (p) => lampBezel(p, R + 3, R + 3, R)), { x: -R - 3, y: -R - 3 }));
+    this.frames = lampFrames(R, on, hot, C.rust0);
+    this.glassS = new Sprite(this.frames[0]);
+    this.glassS.position.set(-R, -R);
+    this.root.addChild(this.glassS);
+    ticker.add((t) => {
+      if (this.k === this.want) return;
+      this.acc += t.deltaMS;
+      if (this.acc < 35) return;
+      this.acc = 0;
+      this.k += Math.sign(this.want - this.k);
+      this.glassS.texture = this.frames[this.k];
+      if (this.k === this.want) mixer.play(this.want ? SFX.lampOn : SFX.lampOff, 'ui', { gain: 0.18 });
+    });
+  }
+
+  set(on: boolean): void {
+    this.want = on ? 4 : 0;
+  }
 }
 

@@ -9,7 +9,7 @@ import type { ShipClassKey } from './ships';
 export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
 
 export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassKey } from './ships';
-export { CHARGE_HOURS, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type PowerObs } from './power';
+export { CHARGE_HOURS, DIESEL_RPM, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type EngineSet, type PowerObs } from './power';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
@@ -149,6 +149,11 @@ export type Command =
   | { type: 'drillBegin' }
   | { type: 'drillNew'; kind?: DrillKind }
   | { type: 'boatSet'; set: Partial<BoatSet> }
+  | { type: 'engineSet'; set: Partial<import('./power').EngineSet> }
+  /** Start air into the diesels, or fuel racks to stop (engine room by hand). */
+  | { type: 'diesels'; run: boolean }
+  /** The captain has left a station: its crew carry on from where things stand. */
+  | { type: 'leave'; station: number }
   | { type: 'scopeSet'; height: number; trained: number; high: boolean }
   | { type: 'scopeMark'; range: number; mast: number };
 

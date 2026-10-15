@@ -1,5 +1,6 @@
-import { BOAT, connectSim, DIVE_DRILL, obs, TIME_SCALES, type AlarmLevel, type AlarmObs, type Command, type DrillKind } from '../obs';
-import { boat, boatAtPeriscopeDepth, boatSurfaced, type BoatHost, type BoatState } from './boat';
+import { BOAT, connectSim, DIVE_DRILL, obs, TELEGRAPH, TIME_SCALES, type AlarmLevel, type AlarmObs, type Command, type DrillKind } from '../obs';
+import { boat, boatAtPeriscopeDepth, boatSurfaced, isSurfaced, type BoatHost, type BoatState } from './boat';
+import { power } from './power';
 import { dive, newDiveState, type DiveState } from './dive';
 import { bearingOf, drill, newDrillState, sea, wrap, type DrillHost, type DrillState, type Effect } from './drill';
 import { Rng } from './rng';
@@ -251,6 +252,15 @@ export class Sim {
       case 'boatSet':
         boat.set(this.s.boat, this.boatHost, c.set);
         break;
+      case 'engineSet':
+        power.setHand(this.s.boat.power, this.boatHost, c.set, this.s.boat.answered);
+        break;
+      case 'diesels':
+        if (this.s.boat.power.set.hand) this.s.boat.power.req = c.run ? 'start' : 'stop';
+        break;
+      case 'leave':
+        this.leave(c.station);
+        break;
       case 'acknowledge':
         if (this.s.alarms[c.station].level > 0) this.host.later(0.7, [{ kind: 'alarm', station: c.station, level: 0, report: QUIET }]);
         break;
@@ -296,6 +306,25 @@ export class Sim {
         this.effect({ kind: 'alarm', station: st, level: l, report: text });
         break;
       }
+    }
+  }
+
+  /**
+   * The captain has left a station: its crew take over from where things stand. The chief
+   * keeps the depth she is at (or keeps her up, surfaced); the engine room keeps the speed
+   * the shafts are making, which becomes the standing order.
+   */
+  private leave(station: number): void {
+    const b = this.s.boat;
+    if (b.lost) return;
+    if (station === 3 && b.set.hand) {
+      boat.set(b, this.boatHost, { ordered: isSurfaced(b) ? 0 : Math.round(b.depth), hand: false });
+    }
+    if (station === 7 && b.power.set.hand) {
+      const keep = b.answered;
+      power.setHand(b.power, this.boatHost, { hand: false }, keep);
+      b.set.telegraph = keep;
+      this.effect({ kind: 'voice', from: 'ENGINE ROOM', text: `ENGINE CREW HAS THE ENGINES. KEEPING ${TELEGRAPH[keep]}.` });
     }
   }
 

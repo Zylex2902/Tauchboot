@@ -232,7 +232,11 @@ export const boat = {
     const flow = b.flow;
 
     // The engine room answers the telegraph a moment after it rings, then the shafts change.
-    if (b.answered !== s.telegraph) {
+    // With the captain in the engine room, what he answers is what the shafts do.
+    if (b.power.set.hand) {
+      b.answered = b.power.set.answer;
+      b.ansT = 0;
+    } else if (b.answered !== s.telegraph) {
       b.ansT += dt;
       if (b.ansT >= ANSWER_S) {
         b.answered = s.telegraph;
@@ -352,7 +356,7 @@ export const boat = {
     o.bilge = b.bilge;
     o.lost = b.lost;
     o.flow = { ...b.flow };
-    power.present(b.power, o.power);
+    power.present(b.power, o.power, b.answered);
   },
 };
 

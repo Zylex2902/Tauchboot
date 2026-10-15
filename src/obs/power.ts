@@ -53,6 +53,24 @@ export const NOISE_DEPTHS = { shallow: 13, deep: 60 } as const;
 export const NOISE_DIESELS = 10000;
 
 export type DieselState = 'stop' | 'start' | 'run';
+
+/**
+ * The engine room's hands (chunk 1.5). With the engine crew in charge they work these
+ * themselves; touch any of them and the engine room is yours until you leave it.
+ */
+export interface EngineSet {
+  /** True: the captain runs the engine room. False: the engine crew does. */
+  hand: boolean;
+  /** Diesel clutches: in, the diesels turn the shafts; out, they only drive the generators. */
+  clutch: boolean;
+  /** Charging switch: the diesels' spare power goes into the battery. */
+  charge: boolean;
+  /** The engine room's answer on the telegraph (detent, as TELEGRAPH). */
+  answer: number;
+}
+
+/** Diesel revolutions at full output, per minute (the rev counter's red line). */
+export const DIESEL_RPM = 470;
 /** What turns the screws: the diesels (surfaced), the motors (on the battery), or nothing. */
 export type Drive = 'diesel' | 'motor' | 'none';
 
@@ -70,8 +88,12 @@ export interface PowerObs {
   charging: boolean;
   /** Radiated noise, dB (for the debug overlay and the escorts' ears later). */
   noise: number;
+  /** Diesel revolutions per minute. */
+  rpm: number;
+  /** The engine room's settings: the crew's when they have it, the captain's when he does. */
+  set: EngineSet;
 }
 
 export function freshPowerObs(): PowerObs {
-  return { charge: 1, amps: 0, volts: 250, fuel: POWER.fuelMax, diesels: 'stop', drive: 'none', charging: false, noise: 100 };
+  return { charge: 1, amps: 0, volts: 250, fuel: POWER.fuelMax, diesels: 'stop', drive: 'none', charging: false, noise: 100, rpm: 0, set: { hand: false, clutch: false, charge: true, answer: 3 } };
 }

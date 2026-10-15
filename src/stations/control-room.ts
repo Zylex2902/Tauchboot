@@ -8,12 +8,11 @@ import { SFX } from '../core/sfx';
 import { ease } from '../core/tween';
 import type { Layout } from '../core/display';
 import { hitPolicy, type AnyControl, type ControlSpec, type Crank, type Hold, type KitContext, type Lever, type Switch } from '../controls';
-import { lampBezel, lampFrames } from '../controls/art';
 import { NeedleMeter } from '../controls/meter';
 import { Odometer } from '../controls/odometer';
 import { BOAT, obs, send, TELEGRAPH, TELEGRAPH_STOP, type BoatSet } from '../obs';
 import { art, group, label, type LayoutNode } from './boards';
-import { Bubble, bubbleGlass, Column, columnFrame, DepthTape, depthColumnFrame, dialRedZone, dialTicks, drumPlate, paperDial, roundDial } from './gauges';
+import { Bubble, bubbleGlass, Column, columnFrame, DepthTape, depthColumnFrame, dialRedZone, dialTicks, drumPlate, PanelLamp, paperDial, roundDial } from './gauges';
 import { maskRect, paintedWall, pipeRun, plate } from './panel-art';
 import { HEADER_H, StationScene } from './station';
 
@@ -93,38 +92,6 @@ function glass(ticker: KitContext['ticker'], w: number, h: number, marks: number
 
 /** Caption stamped on the paint, centred on its anchor. */
 const cap = (t: string) => label(t, C.paper2, true);
-
-/** A panel lamp (vent open): brass bezel, glass stepping through dither frames, a relay click. */
-class PanelLamp {
-  readonly root = new Container();
-  private glassS: Sprite;
-  private frames: Texture[];
-  private k = 0;
-  private want = 0;
-  private acc = 0;
-
-  constructor(ticker: KitContext['ticker']) {
-    const R = 3;
-    this.root.addChild(Object.assign(art(R * 2 + 8, R * 2 + 8, (p) => lampBezel(p, R + 3, R + 3, R)), { x: -R - 3, y: -R - 3 }));
-    this.frames = lampFrames(R, C.red0, C.red1, C.rust0);
-    this.glassS = new Sprite(this.frames[0]);
-    this.glassS.position.set(-R, -R);
-    this.root.addChild(this.glassS);
-    ticker.add((t) => {
-      if (this.k === this.want) return;
-      this.acc += t.deltaMS;
-      if (this.acc < 35) return;
-      this.acc = 0;
-      this.k += Math.sign(this.want - this.k);
-      this.glassS.texture = this.frames[this.k];
-      if (this.k === this.want) mixer.play(this.want ? SFX.lampOn : SFX.lampOff, 'ui', { gain: 0.18 });
-    });
-  }
-
-  set(on: boolean): void {
-    this.want = on ? 4 : 0;
-  }
-}
 
 export class ControlRoom extends StationScene {
   private debug = new Container();

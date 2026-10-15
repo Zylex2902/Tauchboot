@@ -3,7 +3,6 @@ import { obs, send, TIME_SCALES } from '../obs';
 import { drawText, measure } from '../core/font';
 import { C } from '../core/palette';
 import { BAYER4, Pix } from '../core/pixels';
-import { wirePower } from './power-panel';
 import { StationScene } from './station';
 
 /**
@@ -86,7 +85,6 @@ export const PLACEHOLDERS: Record<number, PlaceholderSpec> = {
       { kind: 'button', id: 'startAir', x: 404, y: 96, radius: 11, color: 'red', cover: true, label: 'START AIR' },
     ],
     captions: [['PORT', 40, 48], ['STBD', 126, 48]],
-    wire: wirePower,
     stencil: [432, 150],
   },
   8: {

@@ -1,4 +1,4 @@
-import { POWER, type DieselState, type Drive, type PowerObs } from '../obs/power';
+import { DIESEL_RPM, POWER, type DieselState, type Drive, type EngineSet, type PowerObs } from '../obs/power';
 
 /**
  * Power (chunk 1.3). Two diesels drive her on the surface and charge the battery with
@@ -51,10 +51,33 @@ export interface PowerState {
   called: number;
   flat: boolean;
   fuelCalled: number;
+  /** The captain's settings while he has the engine room (ignored when the crew has it). */
+  set: EngineSet;
+  /** Start or stop asked for by hand, done on the next step. */
+  req: null | 'start' | 'stop';
+  rpm: number;
+  /** Lines already said (so the engineer does not repeat himself). */
+  said: Record<string, boolean>;
 }
 
 export function newPower(): PowerState {
-  return { bat: 1, fuel: POWER.fuelMax, diesel: 'stop', dieselT: 0, drive: 'none', kw: 0, dieselKw: 0, noise: 100, called: 0, flat: false, fuelCalled: 0 };
+  return {
+    bat: 1,
+    fuel: POWER.fuelMax,
+    diesel: 'stop',
+    dieselT: 0,
+    drive: 'none',
+    kw: 0,
+    dieselKw: 0,
+    noise: 100,
+    called: 0,
+    flat: false,
+    fuelCalled: 0,
+    set: { hand: false, clutch: false, charge: true, answer: 3 },
+    req: null,
+    rpm: 0,
+    said: {},
+  };
 }
 
 /** What the rest of the boat tells the power plant each step. */
@@ -94,11 +117,31 @@ function drain(kw: number): number {
 }
 
 export const power = {
+  /** The settings the engine room is actually working to (the crew's own when they have it). */
+  effective(p: PowerState, answered: number): EngineSet {
+    if (p.set.hand) return { ...p.set };
+    return { hand: false, clutch: p.diesel === 'run', charge: true, answer: answered };
+  },
+
+  /** Hands on the engine room's controls. Taking it over starts from what the crew had set. */
+  setHand(p: PowerState, h: PowerHost, s: Partial<EngineSet>, answered: number): void {
+    if (s.hand === true && !p.set.hand) {
+      p.set = { ...power.effective(p, answered), hand: true };
+      h.say(ENGINE, 'CAPTAIN HAS THE ENGINES.');
+    }
+    if (s.hand === false && p.set.hand) p.set.hand = false;
+    if (s.clutch !== undefined) p.set.clutch = s.clutch;
+    if (s.charge !== undefined) p.set.charge = s.charge;
+    if (s.answer !== undefined) p.set.answer = Math.max(0, Math.min(4, Math.round(s.answer)));
+  },
+
   /** Which way the screws are driven this step, and the speed that gives (knots). */
   drive(p: PowerState, i: PowerInput): number {
     const t = i.telegraph;
+    // By hand, the diesels only turn the shafts with their clutches in.
+    const clutched = !p.set.hand || p.set.clutch;
     if (i.lost) p.drive = 'none';
-    else if (p.diesel === 'run') p.drive = 'diesel';
+    else if (p.diesel === 'run' && clutched) p.drive = 'diesel';
     else if (!p.flat) p.drive = 'motor';
     else p.drive = 'none';
     if (p.drive === 'diesel') return SURFACED_KN[t] ?? 0;
@@ -108,14 +151,25 @@ export const power = {
 
   /** Loads, charge and fuel for one step; flows are this step's (pumps, vents). */
   step(p: PowerState, i: PowerInput, h: PowerHost, dt: number): void {
-    // The diesels: the engine room's own routine until the player has the station.
+    // The diesels: the engine crew's own routine, or start and stop by the captain's hand.
     const canRun = i.surfaced && !i.diving && !i.lost && p.fuel > 0;
+    const hand = p.set.hand;
     // Stopped, they wait for the battery to want a proper charge; running, they top it right up.
-    const want = canRun && (i.telegraph !== 3 || p.bat < (p.diesel === 'stop' ? 0.95 : 0.995));
+    const want = !hand && canRun && (i.telegraph !== 3 || p.bat < (p.diesel === 'stop' ? 0.95 : 0.995));
+    const req = p.req;
+    p.req = null;
     if (!canRun && p.diesel !== 'stop') {
       p.diesel = 'stop';
-      if (i.diving) h.say(ENGINE, p.flat ? 'DIESELS STOPPED. THE BATTERY IS FLAT, CAPTAIN.' : 'DIESELS STOPPED. ON THE MOTORS.');
+      if (hand && i.diving) h.say(ENGINE, 'DIESELS STALLED. THE HEAD VALVE IS SHUT.');
+      else if (i.diving) h.say(ENGINE, p.flat ? 'DIESELS STOPPED. THE BATTERY IS FLAT, CAPTAIN.' : 'DIESELS STOPPED. ON THE MOTORS.');
       else if (p.fuel <= 0) h.say(ENGINE, 'DIESELS STOPPED. THE BUNKERS ARE DRY.');
+    } else if (hand) {
+      if (req === 'start' && p.diesel === 'stop') {
+        if (canRun) {
+          p.diesel = 'start';
+          p.dieselT = 0;
+        } else h.say(ENGINE, p.fuel <= 0 ? 'NO FUEL, CAPTAIN.' : 'WE ARE DIVED, CAPTAIN! THE HEAD VALVE IS SHUT.');
+      } else if (req === 'stop' && p.diesel !== 'stop') p.diesel = 'stop';
     } else if (want && p.diesel === 'stop') {
       p.diesel = 'start';
       p.dieselT = 0;
@@ -135,21 +189,33 @@ export const power = {
     const pumps = PUMP_KW.pump * i.flow.pump + PUMP_KW.trim * i.flow.trim + PUMP_KW.bilge * i.flow.bilge;
     const kn = p.drive === 'diesel' ? (SURFACED_KN[i.telegraph] ?? 0) : p.drive === 'motor' ? (DIVED_KN[i.telegraph] ?? 0) : 0;
     const load = HOTEL_KW + pumps;
+    // Motors driving with the diesel clutches still in turn the dead diesels over too.
+    const drag = hand && p.set.clutch && p.diesel !== 'run' && p.drive === 'motor' && kn !== 0;
+    if (drag && !p.said.drag) h.say(ENGINE, 'THE CLUTCHES ARE IN! THE MOTORS ARE TURNING THE DIESELS OVER.');
+    p.said.drag = drag;
+    const motorKw = p.drive === 'motor' ? MOTOR_K * Math.abs(kn) ** 3 * (drag ? 1.6 : 1) : 0;
     p.kw = 0;
     p.dieselKw = 0;
     if (p.diesel === 'run') {
-      const shaft = DIESEL_K * Math.abs(kn) ** 3;
+      // The diesels carry the hotel load and the shafts (clutched in), or feed the motors
+      // through the generators (clutched out); what is left charges the battery.
+      const shaft = p.drive === 'diesel' ? DIESEL_K * Math.abs(kn) ** 3 : 0;
       const spare = Math.max(0, DIESEL_MAX - shaft - load);
-      const charge = Math.min(spare, acceptance(p.bat));
-      p.dieselKw = Math.min(DIESEL_MAX, shaft + load + charge);
-      p.kw = -charge;
-      p.bat = Math.min(1, p.bat + (charge * CHARGE_EFF * dt) / 3600 / BATTERY_KWH);
+      const fed = Math.min(spare, motorKw);
+      const charge = !hand || p.set.charge ? Math.min(spare - fed, acceptance(p.bat)) : 0;
+      p.dieselKw = Math.min(DIESEL_MAX, shaft + load + fed + charge);
+      p.kw = motorKw - fed - charge;
+      if (p.kw < 0) p.bat = Math.min(1, p.bat + (-p.kw * CHARGE_EFF * dt) / 3600 / BATTERY_KWH);
+      else if (!p.flat) p.bat = Math.max(0, p.bat - drain(p.kw) * dt);
       const kg = (p.dieselKw * sfc(p.dieselKw / DIESEL_MAX) * dt) / 3600;
       p.fuel = Math.max(0, p.fuel - kg / 1000);
     } else if (!p.flat) {
-      p.kw = load + (p.drive === 'motor' ? MOTOR_K * Math.abs(kn) ** 3 : 0);
+      p.kw = load + motorKw;
       p.bat = Math.max(0, p.bat - drain(p.kw) * dt);
     }
+    // Rev counter: turning over on start air, then running up with the load; running down when stopped.
+    const rpmTo = p.diesel === 'run' ? DIESEL_RPM * (0.62 + 0.38 * (p.dieselKw / DIESEL_MAX)) : p.diesel === 'start' ? (p.dieselT > POWER.dieselStart - 2.5 ? 200 : 90) : 0;
+    p.rpm += (rpmTo - p.rpm) * Math.min(1, dt / (p.diesel === 'stop' ? 2.5 : 0.9));
 
     // Charge callouts on the way down; they reset once she is charged past them again.
     const C = POWER.callouts;
@@ -185,7 +251,9 @@ export const power = {
     return p.diesel === 'run' || !p.flat;
   },
 
-  present(p: PowerState, o: PowerObs): void {
+  present(p: PowerState, o: PowerObs, answered: number): void {
+    o.rpm = p.rpm;
+    o.set = power.effective(p, answered);
     // Pack voltage: 124 cells, sagging under load and with the charge, lifting on charge.
     const v = 124 * (1.92 + 0.2 * p.bat) - p.kw * 0.03;
     o.charge = p.bat;
