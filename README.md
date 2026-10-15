@@ -65,6 +65,15 @@ The engine room: TELEGRAPH (the control room's ORDER on the repeater, the engine
 3. Battery clock: in either drill, ring a speed, push the chart table's WATCH CLOCK (5) to 1024X and watch the battery. The engineer calls 50, 25 and 10 percent, then "the battery is flat": motors stop, pumps die, fans go quiet, the lamps sink to the emergency glow. From full: 1 h 30 at FULL, 9 h at HALF, 48 h at SLOW, 70 h stopped. SURFACE THE BOAT by voice pipe to charge (flat to full in about 6 h stopped).
 Speed costs noise: shallow at FULL the screws cavitate (heard at 5 km); at 60 m the same speed is heard at 2 km. Node checks outside the repo: `node pw/power.mjs`, `node pw/engine.mjs`.
 
+## World sim (chunk 2.1, nothing on screen yet)
+Behind the stations the sim now runs the patrol area itself at the same 10 Hz: convoys, escorts, independents, weather, sky and water. None of it is shown yet; chunk 2.2 turns it into what the crew can see and hear. Every new patrol (and every older save, which loads with a fresh world) has one.
+- Convoys: 18 to 60 merchants in columns (1000 yd apart, 600 yd between ships; tankers in the middle), a commodore keeping a planned route and speed of advance, zigzagging by day and steering straight at night, the whole convoy turning together. Escorts (by year: one or two in 1939, seven or eight from 1943) hold screening stations ahead, on the bows, beams and quarters, weaving across them. Lone independents cross on their own routes.
+- Every ship is a hull with a top speed, turning rate and acceleration, steered by her own station-keeping. Heavy seas cost speed, so in a gale the convoy drops to what her slowest ship can make and falls behind her schedule, then catches up when the weather eases. True tracks are logged every 5 minutes for the debrief.
+- Weather: highs, westerlies, fronts, gales and storms by season. The sea builds over hours behind the wind and runs on as swell. Fog, rain and squalls set the visibility.
+- Sky: sun and moon from the date and position (sunrise, twilight, moonlit nights, cloud).
+- Water: a thermal layer in most summer and autumn patrols. Gales stir it deeper, the tide heaves it, and sound across it loses up to 22 dB.
+Check it: `node pw/world.mjs` (outside the repo) runs the convoy crossings and almanac checks; `pw/world-2.1.png` is a plot of one crossing.
+
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
 

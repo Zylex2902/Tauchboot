@@ -4,6 +4,7 @@ import { power } from './power';
 import { dive, newDiveState, type DiveState } from './dive';
 import { bearingOf, drill, newDrillState, sea, wrap, type DrillHost, type DrillState, type Effect } from './drill';
 import { Rng } from './rng';
+import { newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
 
 /**
  * The sim core (chunk 1.1): a fixed 10 Hz tick, seeded RNG, time compression with an
@@ -18,7 +19,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
+/** Saves from before the world sim (chunk 2.1) load with a fresh world added. */
+const MIGRATES = [4];
 
 const QUIET = 'ALL QUIET.';
 
@@ -52,7 +55,7 @@ export interface SimState {
   tick: number;
   scale: number;
   paused: boolean;
-  rng: { drill: number; hydro: number; boat: number };
+  rng: { drill: number; hydro: number; boat: number; world: number };
   sched: Scheduled[];
   alarms: AlarmObs[];
   nextTest: number;
@@ -62,6 +65,8 @@ export interface SimState {
   drill: DrillState;
   dive: DiveState;
   boat: BoatState;
+  /** The true world: ships, weather, sky and water (chunk 2.1). */
+  world: WorldState;
 }
 
 export interface Snapshot {
@@ -74,6 +79,7 @@ export class Sim {
   private rngDrill: Rng;
   private rngHydro: Rng;
   private rngBoat: Rng;
+  private rngWorld: Rng;
   private queue: Command[] = [];
   private acc = 0;
   /** Ship and sea clock at the previous step, for drawing between steps (not saved). */
@@ -88,6 +94,7 @@ export class Sim {
     this.rngDrill = new Rng(s.rng.drill);
     this.rngHydro = new Rng(s.rng.hydro);
     this.rngBoat = new Rng(s.rng.boat);
+    this.rngWorld = new Rng(s.rng.world);
     this.host = {
       rng: this.rngDrill,
       say: (from, text) => this.effect({ kind: 'voice', from, text }),
@@ -104,16 +111,17 @@ export class Sim {
     this.keepPrev();
   }
 
-  static fresh(seed: number): Sim {
+  static fresh(seed: number, world?: WorldOpts): Sim {
     const drillRng = new Rng(seed ^ 0x9e3779b9);
     const boatRng = new Rng((seed ^ 0x85ebca6b) >>> 0 || 3);
+    const worldRng = new Rng((seed ^ 0xc2b2ae35) >>> 0 || 5);
     const s: SimState = {
       v: SAVE_VERSION,
       seed,
       tick: 0,
       scale: 1,
       paused: false,
-      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0 },
+      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0 },
       sched: [],
       alarms: Array.from({ length: 9 }, () => ({ level: 0 as AlarmLevel, report: QUIET })),
       nextTest: 0,
@@ -122,15 +130,24 @@ export class Sim {
       drill: newDrillState(drillRng),
       dive: newDiveState(),
       boat: boatAtPeriscopeDepth(boatRng),
+      world: newWorld(worldRng, world),
     };
     s.rng.drill = drillRng.s;
     s.rng.boat = boatRng.s;
+    s.rng.world = worldRng.s;
     return new Sim(s);
   }
 
   static load(snap: Snapshot): Sim | null {
-    if (!snap || snap.v !== SAVE_VERSION || !snap.sim) return null;
-    return new Sim(structuredClone(snap.sim));
+    if (!snap || !snap.sim) return null;
+    if (snap.v === SAVE_VERSION) return new Sim(structuredClone(snap.sim));
+    if (!MIGRATES.includes(snap.v)) return null;
+    const s = structuredClone(snap.sim);
+    const r = new Rng((s.seed ^ 0xc2b2ae35) >>> 0 || 5);
+    s.world = newWorld(r);
+    s.rng.world = r.s;
+    s.v = SAVE_VERSION;
+    return new Sim(s);
   }
 
   get state(): Readonly<SimState> {
@@ -160,6 +177,7 @@ export class Sim {
     this.s.rng.drill = this.rngDrill.s;
     this.s.rng.hydro = this.rngHydro.s;
     this.s.rng.boat = this.rngBoat.s;
+    this.s.rng.world = this.rngWorld.s;
     return { v: SAVE_VERSION, sim: structuredClone(this.s) };
   }
 
@@ -219,6 +237,7 @@ export class Sim {
       if (this.drillObs.phase === 'over' && !b.lost)
         for (let i = 0; i < 9; i++) if (this.s.alarms[i].level) this.effect({ kind: 'alarm', station: i, level: 0, report: QUIET });
     }
+    stepWorld(this.s.world, this.rngWorld, TICK_S, b.lost ? 0 : b.speed);
     this.hydroTick(true);
     if (this.s.sched.length) {
       const due = this.s.sched.filter((x) => x.at <= this.s.tick);
@@ -230,6 +249,7 @@ export class Sim {
     this.s.rng.drill = this.rngDrill.s;
     this.s.rng.hydro = this.rngHydro.s;
     this.s.rng.boat = this.rngBoat.s;
+    this.s.rng.world = this.rngWorld.s;
   }
 
   private keepPrev(): void {
