@@ -16,6 +16,7 @@ import { Hull } from './hull/hull';
 import { obs } from './obs';
 import { runSim, Sim, type Snapshot } from './sim/core';
 import { BoatSound } from './hull/boat-sound';
+import { Lighting } from './core/lighting';
 import { newSeed } from './sim/rng';
 import { readStore, writeStore } from './core/store';
 import type { UiState } from './hull/hull';
@@ -139,7 +140,14 @@ async function boot(): Promise<void> {
     c.eventMode = 'none';
     return c;
   });
-  app.stage.addChild(bleed, world, ...covers, prompt.root);
+  // The room light falls on everything in the boat (not on the turn-your-phone prompt).
+  const lit = new Container();
+  lit.addChild(bleed, world, ...covers);
+  app.stage.addChild(lit, prompt.root);
+  const light = new Lighting(lit, app.ticker);
+  // The lamp hangs plumb while the boat tilts: bow down (bow is to the left), it swings bowward.
+  app.ticker.add(() => (light.lean = -obs.boat.pitch * 0.9));
+  if (params.has('test')) Object.assign(window, { __light: light });
 
   watchSize(host, (w, h) => {
     app.renderer.resize(w, h);
@@ -150,6 +158,7 @@ async function boot(): Promise<void> {
     world.scale.set(l.scale);
     world.position.set(l.frameX, l.frameY);
     hull.setLayout(l);
+    light.setLayout(l, w, h);
     const grid = prompt.apply(l) ?? { scale: l.scale, x: l.frameX, y: l.frameY };
     bleed.tileScale.set(grid.scale);
     bleed.tilePosition.set(grid.x, grid.y); // plates line up with the art grid in use

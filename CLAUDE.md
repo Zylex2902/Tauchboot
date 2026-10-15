@@ -25,7 +25,7 @@ Status: chunks 0.1-0.5, 1.1 and 1.2 done (shell, kit, stations, hydrophone, peri
 - Sounds are mechanical foley (struck/scraped steel, brass, wood, relays, air) through a steel-room reverb; never bare sine tones or UI blips. Audition with `npm run build:sounds` (tools/soundboard).
 
 ## Code map
-- src/core/: display (integer scaler, bleed, safe area), lockdown, haptics, audio (buses ui/machinery/bed/sensors/voices/music, mixer.duck), sfx (procedural foley), store (patrol storage), settings, tween, typed, font, pixels, palette
+- src/core/: display (integer scaler, bleed, safe area), lighting (room lamp: GLSL filter over bleed+world, palette SHADOW steps via LUT + Bayer dither on the art grid; light.set({...}, ms) for future boat-driven moods), lockdown, haptics, audio (buses ui/machinery/bed/sensors/voices/music, mixer.duck), sfx (procedural foley), store (patrol storage), settings, tween, typed, font, pixels, palette
 - src/controls/: data-driven kit (lever, crank, hold, switch, button+cover, key, drag; createControl(spec)); hitPolicy (44 pt min targets); persistent controls restore(v) from saves; meter, tape, odometer displays
 - src/obs/: observation layer + send(command); ships.ts (recognition manual, SCOPE_FOV/SURFACE), boat.ts (BOAT manual, BoatSet/BoatObs, TELEGRAPH, DIVE_DRILL), TIME_SCALES. The UI imports only this, never src/sim.
 - src/sim/: core.ts (Sim: fixed 10 Hz tick, commands land on tick boundaries, effects + schedule as data, time compression with auto-drop on voice/alarm/phase, snapshot/load, lerped presentation), rng.ts (one-integer state), drill.ts (scope drill; lens height uses boat depth), boat.ts (tanks/air/planes/depth/pitch physics, crew depth keeping, test/crush depth), dive.ts (dive drill)

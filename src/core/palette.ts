@@ -27,3 +27,23 @@ export const RGB: ReadonlyArray<readonly [number, number, number]> = PALETTE.map
 ]);
 
 export const hexNum = (i: ColorIndex): number => parseInt(PALETTE[i].slice(1), 16);
+
+/**
+ * One step into shadow for every colour, down its own ramp (iron to black, brass to
+ * rust, paper to brass, signal colours to rust). Lighting dithers between a colour and
+ * its shadow steps, so shade stays on the palette and text keeps its shape.
+ */
+export const SHADOW: readonly number[] = (() => {
+  const d = Array.from({ length: 32 }, (_, i) => i);
+  const ramps: number[][] = [
+    [C.black, C.iron0, C.iron1, C.iron2, C.iron3, C.iron4, C.iron5, C.iron6, C.iron7, C.iron8, C.white],
+    [C.black, C.rust0, C.rust1, C.rust2, C.rust3, C.amber0, C.amber1],
+    [C.rust0, C.brass0, C.brass1, C.brass2],
+    [C.brass0, C.paper2, C.paper1, C.paper0, C.paper3],
+    [C.black, C.bilge0, C.bilge1, C.bilge2, C.bilge3],
+    [C.iron0, C.ink0, C.ink1],
+    [C.rust0, C.red0, C.red1],
+  ];
+  for (const r of ramps) for (let i = 1; i < r.length; i++) d[r[i]] = r[i - 1];
+  return d;
+})();
