@@ -7,8 +7,8 @@
  * Outside the safe area (behind notches and the home indicator) the same hull plating
  * carries on, on the same art-pixel grid.
  */
-/** The smallest canvas any layout gets: stations are authored at this size. */
-export const ART_W = 480;
+/** The smallest canvas any layout gets (station boards fit this). 464 lets an 11-inch iPad take scale 5. */
+export const ART_W = 464;
 export const ART_H = 270;
 
 export interface Insets {

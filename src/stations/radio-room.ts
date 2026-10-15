@@ -11,7 +11,8 @@ import { meterFace, NeedleMeter } from '../controls/meter';
 import { Odometer } from '../controls/odometer';
 import { BearingTape } from '../controls/tape';
 import { obs, send } from '../obs';
-import { drawLabel, plate } from './panel-art';
+import { plate } from './panel-art';
+import { art, group, label, type LayoutNode } from './boards';
 import { StationScene } from './station';
 
 /** Bearing degrees per turn of the handwheel: a full sweep is three turns. */
@@ -19,59 +20,56 @@ export const DEG_PER_TURN = 120;
 /** Merchant screw: turns per minute for one knot (the speed card). */
 export const RPM_PER_KNOT = 8;
 
-const TAPE = { x: 24, y: 36 };
-const METER = { x: 190, y: 34, w: 140, h: 90, pivotX: 260, pivotY: 112, len: 62 };
-const PAD = { x: 182, y: 134, w: 156, h: 98 };
-const TEST = { x: 346, y: 138, w: 128, h: 94 };
-const LOG_ROWS = 9;
+/** Meter face (its own sprite, origin top-left) and the needle pivot inside it. */
+const METER = { w: 140, h: 90, pivotX: 70, pivotY: 78, len: 62 };
+const PAD = { w: 138, h: 100 };
+const LOG_ROWS = 10;
 
 export const RADIO_ROOM: ControlSpec[] = [
-  { kind: 'crank', id: 'train', x: 84, y: 154, radius: 42, mass: 0.9, friction: 3.2, ticksPerTurn: 24, label: 'TRAIN' },
-  { kind: 'key', id: 'count', x: 352, y: 40, w: 76, h: 34, style: 'brass', text: 'COUNT', fireOn: 'down' },
+  { kind: 'crank', id: 'train', x: 0, y: 0, radius: 46, mass: 0.9, friction: 3.2, ticksPerTurn: 24 },
+  { kind: 'key', id: 'count', x: 0, y: 0, w: 68, h: 30, style: 'brass', text: 'COUNT', fireOn: 'down' },
   // Test plate: PHONES off = meter alone; METER off = a blind rolls down over the dial (ear alone).
-  { kind: 'switch', id: 'phones', x: 362, y: 190, states: ['OFF', 'ON'], initial: true, label: 'PHONES' },
-  { kind: 'switch', id: 'meterOn', x: 396, y: 190, states: ['OFF', 'ON'], initial: true, label: 'METER' },
-  { kind: 'key', id: 'mark', x: 420, y: 156, w: 48, h: 28, style: 'iron', text: 'MARK' },
-  { kind: 'key', id: 'newDrill', x: 420, y: 196, w: 48, h: 28, style: 'iron', text: ['NEW', 'DRILL'] },
+  { kind: 'switch', id: 'phones', x: 0, y: 0, states: ['OFF', 'ON'], initial: true, label: 'PHONES' },
+  { kind: 'switch', id: 'meterOn', x: 0, y: 0, states: ['OFF', 'ON'], initial: true, label: 'METER' },
+  { kind: 'key', id: 'mark', x: 0, y: 0, w: 52, h: 26, style: 'iron', text: 'MARK' },
+  { kind: 'key', id: 'newDrill', x: 0, y: 0, w: 52, h: 26, style: 'iron', text: ['NEW', 'DRILL'] },
 ];
 
-function furniture(p: Pix): void {
-  // Bearing tape housing and its caption.
-  plate(p, TAPE.x - 4, TAPE.y - 4, 128, 26);
-  p.rect(TAPE.x - 1, TAPE.y - 1, 122, 20, C.black);
-  plate(p, 152, TAPE.y - 4, 30, 26);
-  for (let i = 0; i < 3; i++) p.rect(157 + i * 7, TAPE.y + 3, 7, 10, C.black);
-  drawLabel(p, 'TRAINED BEARING', TAPE.x, TAPE.y + 26, C.paper1);
-  // Level meter: brass bezel, paper face, arc scale.
-  plate(p, METER.x, METER.y, METER.w, METER.h);
-  p.rect(METER.x + 4, METER.y + 4, METER.w - 8, METER.h - 8, C.paper0);
-  p.rect(METER.x + 4, METER.y + 4, METER.w - 8, 1, C.paper3);
-  meterFace(p, METER.pivotX, METER.pivotY, METER.len);
+/** Bearing, by ear and wheel | what she sounds like | what was reported. */
+const LAYOUT: LayoutNode = {
+  dir: 'row',
+  kids: [
+    { board: 'hydro', title: 'HYDROPHONE', min: [140, 215], grow: 1 },
+    { board: 'listen', title: 'LEVEL AND SPEED', min: [160, 215], grow: 1.2 },
+    {
+      dir: 'col',
+      grow: 1,
+      kids: [
+        { board: 'log', title: 'LOG', min: [148, 124], grow: 1.3 },
+        { board: 'test', title: 'GREY-BOX TEST', min: [148, 87], grow: 0.4 },
+      ],
+    },
+  ],
+};
+
+function meterArt(p: Pix): void {
+  const M = METER;
+  plate(p, 0, 0, M.w, M.h);
+  p.rect(4, 4, M.w - 8, M.h - 8, C.paper0);
+  p.rect(4, 4, M.w - 8, 1, C.paper3);
+  meterFace(p, M.pivotX, M.pivotY, M.len);
   ['0', '5', '10'].forEach((t, k) => {
     const a = ((-55 + 55 * k) * Math.PI) / 180;
-    const r = METER.len + 8;
-    drawText(p, t, Math.round(METER.pivotX + Math.sin(a) * r - measure(t) / 2), Math.round(METER.pivotY - Math.cos(a) * r - 3), C.ink1);
+    const r = M.len + 8;
+    drawText(p, t, Math.round(M.pivotX + Math.sin(a) * r - measure(t) / 2), Math.round(M.pivotY - Math.cos(a) * r - 3), C.ink1);
   });
-  drawText(p, 'LEVEL', METER.pivotX - Math.floor(measure('LEVEL') / 2), METER.pivotY - 24, C.ink1);
-  // Speed: counters and the merchant card.
-  for (const [x, cap] of [[350, 'RPM'], [410, 'KNOTS']] as const) {
-    plate(p, x, 92, 36, 18);
-    for (let i = 0; i < 3; i++) p.rect(x + 5 + i * 7, 96, 7, 10, i === 2 && cap === 'KNOTS' ? C.iron1 : C.black);
-    drawLabel(p, cap, x + 2, 84, C.paper1);
-  }
-  p.rect(410 + 18, 104, 1, 1, C.paper3); // decimal point before tenths of a knot
-  p.rect(349, 115, 124, 13, C.paper0);
-  p.frame(349, 115, 124, 13, C.paper2);
-  drawText(p, `MERCHANT ${RPM_PER_KNOT} RPM = 1 KN`, 354, 119, C.ink1);
-  // Log pad.
-  p.rect(PAD.x + 1, PAD.y + 1, PAD.w, PAD.h, C.black);
-  p.rect(PAD.x, PAD.y, PAD.w, PAD.h, C.paper0);
-  for (let y = PAD.y + 18; y < PAD.y + PAD.h - 2; y += 8) p.rect(PAD.x + 3, y, PAD.w - 6, 1, C.paper1);
-  p.frame(PAD.x, PAD.y, PAD.w, PAD.h, C.paper2);
-  drawText(p, 'LOG', PAD.x + 5, PAD.y + 5, C.ink1);
-  // Grey-box test plate: clearly not part of the boat.
-  plate(p, TEST.x, TEST.y, TEST.w, TEST.h);
-  drawText(p, 'GREY-BOX TEST', TEST.x + 6, TEST.y + 5, C.amber1, C.black);
+  drawText(p, 'LEVEL', M.pivotX - Math.floor(measure('LEVEL') / 2), M.pivotY - 24, C.ink1);
+}
+
+function drumArt(p: Pix, tenths: boolean): void {
+  plate(p, 0, 0, 36, 18);
+  for (let i = 0; i < 3; i++) p.rect(5 + i * 7, 4, 7, 10, i === 2 && tenths ? C.iron1 : C.black);
+  if (tenths) p.rect(18, 12, 1, 1, C.paper3); // decimal point before tenths of a knot
 }
 
 /**
@@ -99,23 +97,41 @@ export class RadioRoom extends StationScene {
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'RADIO AND SOUND ROOM', ctx);
-    this.elastic = { x: [182], y: [] }; // wheel | meter, log and test plate
-    const p = this.furniture();
-    furniture(p);
-    this.addFurniture(p);
+    this.useBoards(LAYOUT);
+    const tk = ctx.ticker;
+    this.addControls(RADIO_ROOM);
 
-    this.tape.root.position.set(TAPE.x, TAPE.y);
-    this.brg = new Odometer(3, 0, ctx.ticker, C.paper3, 360);
-    this.brg.root.position.set(158, TAPE.y + 3);
-    this.meter = new NeedleMeter(ctx.ticker, METER.len);
+    // HYDROPHONE: where it points (tape and drum), and the big wheel that points it.
+    const tape = new Container();
+    tape.addChild(
+      Object.assign(
+        art(128, 26, (p) => {
+          plate(p, 0, 0, 128, 26);
+          p.rect(3, 3, 122, 20, C.black);
+        }),
+        { x: -4, y: -4 },
+      ),
+      this.tape.root,
+    );
+
+    this.brg = new Odometer(3, 0, tk, C.paper3, 360);
+    const brg = new Container();
+    brg.addChild(art(30, 22, (p) => {
+      plate(p, 0, 0, 30, 22);
+      for (let i = 0; i < 3; i++) p.rect(5 + i * 7, 6, 7, 10, C.black);
+    }));
+    this.brg.root.position.set(6, 6);
+    brg.addChild(this.brg.root);
+    this.pin('hydro', group([tape, 0, 0], [brg, 45, 24], [label('TRAINED BEARING', C.paper1, true), 60, 50]), 0.5, 0, -60, 4, { spread: false });
+    this.pinControl('hydro', 'train', 0.5, 1, 0, -57);
+    this.pin('hydro', label('TRAIN', C.iron7, true), 0.5, 1, 0, -5);
+
+    // LEVEL AND SPEED: the meter; COUNT and what it works out.
+    const meter = new Container();
+    meter.addChild(art(METER.w, METER.h, meterArt));
+    this.meter = new NeedleMeter(tk, METER.len);
     this.meter.root.position.set(METER.pivotX, METER.pivotY);
-    this.rpmDrum = new Odometer(3, 0, ctx.ticker);
-    this.rpmDrum.root.position.set(356, 96);
-    this.knDrum = new Odometer(3, 0, ctx.ticker);
-    this.knDrum.root.position.set(416, 96);
-    this.log.position.set(PAD.x + 5, PAD.y + 13);
-    this.root.addChild(this.tape.root, this.brg.root, this.meter.root, this.rpmDrum.root, this.knDrum.root, this.log);
-
+    meter.addChild(this.meter.root);
     // Roller blind over the meter dial (test aid): unrolls as a growing sub-frame.
     const bw = METER.w - 8;
     const bh = METER.h - 8;
@@ -129,11 +145,52 @@ export class RadioRoom extends StationScene {
     drawText(bp, 'METER COVERED', Math.floor((bw - measure('METER COVERED')) / 2), Math.floor(bh / 2) - 6, C.paper1, C.black);
     this.blindTex = bp.toTexture();
     this.blind = new Sprite(Texture.EMPTY);
-    this.blind.position.set(METER.x + 4, METER.y + 4);
+    this.blind.position.set(4, 4);
     this.blind.visible = false;
-    this.root.addChild(this.blind);
+    meter.addChild(this.blind);
+    this.pin('listen', meter, 0.5, 0, -METER.w / 2, 0, { spread: false });
+    const speed = group([this.ctl('count'), 0, 6]);
+    this.rpmDrum = new Odometer(3, 0, tk);
+    this.knDrum = new Odometer(3, 0, tk);
+    for (const [dx, cap, drum, tenths] of [[-1, 'RPM', this.rpmDrum, false], [37, 'KNOTS', this.knDrum, true]] as const) {
+      const box = new Container();
+      box.addChild(art(36, 18, (p) => drumArt(p, tenths)));
+      drum.root.position.set(6, 4);
+      box.addChild(drum.root);
+      for (const [n, x, y] of [[box, dx + 75, 10], [label(cap, C.paper1), dx + 77, 0]] as const) {
+        n.position.set(x, y);
+        speed.addChild(n);
+      }
+    }
+    const card = art(150, 13, (p) => {
+      p.rect(0, 0, 150, 13, C.paper0);
+      p.frame(0, 0, 150, 13, C.paper2);
+      drawText(p, `MERCHANT ${RPM_PER_KNOT} RPM = 1 KN`, 5, 4, C.ink1);
+    });
+    card.position.set(0, 42);
+    speed.addChild(card);
+    // Count and its readouts sit right under the meter.
+    this.pin('listen', speed, 0.5, 0, -75, 98, { spread: false });
 
-    this.addControls(RADIO_ROOM);
+    // LOG: what the sound room reported, line by line.
+    const pad = new Container();
+    pad.addChild(
+      art(PAD.w + 1, PAD.h + 1, (p) => {
+        p.rect(1, 1, PAD.w, PAD.h, C.black);
+        p.rect(0, 0, PAD.w, PAD.h, C.paper0);
+        for (let y = 13; y < PAD.h - 2; y += 8) p.rect(3, y, PAD.w - 6, 1, C.paper1);
+        p.frame(0, 0, PAD.w, PAD.h, C.paper2);
+      }),
+    );
+    this.log.position.set(4, 6);
+    pad.addChild(this.log);
+    this.pin('log', pad, 0.5, 0, -PAD.w / 2, 0, { spread: false });
+
+    // GREY-BOX TEST: clearly not part of the boat.
+    this.pinControl('test', 'phones', 0, 0.5, 12, -6);
+    this.pinControl('test', 'meterOn', 0, 0.5, 58, -6);
+    this.pinControl('test', 'mark', 1, 0, -52, 2);
+    this.pinControl('test', 'newDrill', 1, 1, -52, -26);
     const c = (id: string) => this.controls.get(id)!;
     c('train').onChange((turns) => {
       const b = ((((turns as number) * DEG_PER_TURN) % 360) + 360) % 360;

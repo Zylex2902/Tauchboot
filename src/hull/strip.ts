@@ -45,7 +45,8 @@ export class StationStrip {
 
   /** Canvas width w, panel height h: the hull stays centred, its band runs edge to edge. */
   setFrame(w: number, h: number): void {
-    this.root.position.set(Math.floor((w - 480) / 2), h);
+    // Centred; on a canvas narrower than the strip it keeps clear of the pause tab instead.
+    this.root.position.set(Math.min(Math.floor((w - 480) / 2), w - 480), h);
     this.band.x = -this.root.x;
     this.band.width = w;
   }

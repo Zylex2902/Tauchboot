@@ -11,48 +11,58 @@ import { hitPolicy, type AnyControl, type ControlSpec, type Crank, type Hold, ty
 import { meterFace, NeedleMeter } from '../controls/meter';
 import { Odometer } from '../controls/odometer';
 import { BOAT, obs, send, TELEGRAPH, TELEGRAPH_STOP, type BoatSet } from '../obs';
+import { art, group, label, type LayoutNode } from './boards';
 import { Bubble, bubbleGlass, Column, columnFrame, DepthTape, dialFigures, dialPlate } from './gauges';
-import { drawLabel, maskRect, plate } from './panel-art';
-import { NAME_PLATE, StationScene } from './station';
+import { maskRect, plate } from './panel-art';
+import { HEADER_H, StationScene } from './station';
 
 /**
- * The control room (chunk 1.2): the chief's station. Left, depth keeping: the depth
- * gauge, the fine depth tape, the rate and angle instruments and the two plane wheels.
- * Right, the tanks: vents, blow, regulating and trim valves, and the telegraph.
+ * The control room (chunk 1.2): the chief's station, as five instrument boards (DEPTH,
+ * PLANES, BALLAST, TRIM AND REG, SPEED).
  *
  * Every control here mirrors the boat. With the crew keeping depth their hands work the
  * same wheels and levers (they move by themselves); touch any of them and you take the
  * planes. The PLANES switch gives the boat back to the crew at the ordered depth.
  */
 
-const DEBUG = { x: 10, y: 204, w: 300, h: 28 };
-const GAUGE = { cx: 64, cy: 94, r: 44, needle: 36, arc: 135 };
-const TAPE = { x: 126, y: 46, w: 32, h: 96 };
-const RATE = { cx: 200, cy: 76, len: 20 };
-const ANGLE = { x: 170, y: 112, w: 62, span: 30 };
-const PLANE_DIALS = [{ cx: 36, cy: 170 }, { cx: 100, cy: 170 }];
-const MBT_COL = [{ x: 350, y: 52 }, { x: 362, y: 52 }];
-const COL_H = 48;
-const REG_COL = { x: 444, y: 50, h: 52 };
-const AIR = { cx: 324, cy: 146, len: 18 };
-const TRIM_COL = [{ x: 450, y: 128 }, { x: 462, y: 128 }];
-const TRIM_H = 36;
-
+const DEBUG = { x: 6, y: 24, w: 300, h: 28 };
 const RATE_SPAN = 30; // m/min either side
 const PLANE_TURNS = BOAT.planeMax / BOAT.planePerTurn;
+const WHEEL_R = 29;
 
 export const CONTROL_ROOM: ControlSpec[] = [
-  { kind: 'crank', id: 'bow', x: 38, y: 206, radius: 20, mass: 0.7, friction: 3.5, ticksPerTurn: 16, resolution: 200, min: -PLANE_TURNS, max: PLANE_TURNS, label: 'BOW PLANES' },
-  { kind: 'crank', id: 'stern', x: 104, y: 206, radius: 20, mass: 0.7, friction: 3.5, ticksPerTurn: 16, resolution: 200, min: -PLANE_TURNS, max: PLANE_TURNS, label: 'STERN PLANES' },
-  { kind: 'switch', id: 'hand', x: 152, y: 200, states: ['CREW', 'HAND'] },
-  { kind: 'crank', id: 'ordered', x: 200, y: 194, radius: 14, mass: 0.3, friction: 6, ticksPerTurn: 20, resolution: 20, min: 0, max: BOAT.orderedMax / 20, label: 'ORDER M', sounds: { tick: SFX.roll } },
-  { kind: 'lever', id: 'ventF', x: 258, y: 56, axis: 'y', length: 32, detents: ['SHUT', 'OPEN'], weight: 80 },
-  { kind: 'lever', id: 'ventA', x: 304, y: 56, axis: 'y', length: 32, detents: ['SHUT', 'OPEN'], weight: 80 },
-  { kind: 'hold', id: 'blow', x: 264, y: 134, radius: 11, rate: 0.9, decay: 1.6, color: 'black', label: 'BLOW', sounds: { loop: SFX.hiss, drain: SFX.hiss } },
-  { kind: 'lever', id: 'reg', x: 386, y: 52, axis: 'y', length: 44, detents: ['PUMP', 'SHUT', 'FLOOD'], initial: 1, weight: 60 },
-  { kind: 'lever', id: 'trim', x: 372, y: 150, axis: 'x', length: 48, detents: ['FWD', 'OFF', 'AFT'], initial: 1, weight: 60 },
-  { kind: 'lever', id: 'telegraph', x: 262, y: 206, axis: 'x', length: 132, detents: [...TELEGRAPH], initial: TELEGRAPH_STOP, weight: 70, sounds: { lock: SFX.telegraph } },
+  { kind: 'crank', id: 'bow', x: 0, y: 0, radius: WHEEL_R, mass: 0.8, friction: 3.5, ticksPerTurn: 16, resolution: 200, min: -PLANE_TURNS, max: PLANE_TURNS, label: 'BOW' },
+  { kind: 'crank', id: 'stern', x: 0, y: 0, radius: WHEEL_R, mass: 0.8, friction: 3.5, ticksPerTurn: 16, resolution: 200, min: -PLANE_TURNS, max: PLANE_TURNS, label: 'STERN' },
+  { kind: 'switch', id: 'hand', x: 0, y: 0, states: ['CREW', 'HAND'] },
+  { kind: 'crank', id: 'ordered', x: 0, y: 0, radius: 20, mass: 0.35, friction: 6, ticksPerTurn: 20, resolution: 20, min: 0, max: BOAT.orderedMax / 20, label: 'ORDER', sounds: { tick: SFX.roll } },
+  { kind: 'lever', id: 'ventF', x: 0, y: 0, axis: 'y', length: 22, detents: ['SHUT', 'OPEN'], weight: 80 },
+  { kind: 'lever', id: 'ventA', x: 0, y: 0, axis: 'y', length: 22, detents: ['SHUT', 'OPEN'], weight: 80 },
+  { kind: 'hold', id: 'blow', x: 0, y: 0, radius: 11, segments: 6, rate: 0.9, decay: 1.6, color: 'black', label: 'BLOW', sounds: { loop: SFX.hiss, drain: SFX.hiss } },
+  { kind: 'lever', id: 'reg', x: 0, y: 0, axis: 'y', length: 36, detents: ['PUMP', 'SHUT', 'FLOOD'], initial: 1, weight: 60 },
+  { kind: 'lever', id: 'trim', x: 0, y: 0, axis: 'y', length: 36, detents: ['FWD', 'OFF', 'AFT'], initial: 1, weight: 60 },
+  { kind: 'lever', id: 'telegraph', x: 0, y: 0, axis: 'y', length: 128, detents: [...TELEGRAPH], initial: TELEGRAPH_STOP, weight: 70, sounds: { lock: SFX.telegraph } },
 ];
+
+/**
+ * Five boards, each one job, in the order the eye works them: how deep (DEPTH), how she
+ * flies (PLANES), what she weighs (BALLAST, TRIM AND REG), how fast (TELEGRAPH).
+ */
+const LAYOUT: LayoutNode = {
+  dir: 'row',
+  kids: [
+    { board: 'depth', title: 'DEPTH', min: [136, 215], grow: 1 },
+    { board: 'planes', title: 'PLANES', min: [134, 215], grow: 1.2 },
+    {
+      dir: 'col',
+      grow: 1.2,
+      kids: [
+        { board: 'ballast', title: 'BALLAST', min: [122, 118], grow: 1.2 },
+        { board: 'trim', title: 'TRIM AND REG', min: [122, 93], grow: 1 },
+      ],
+    },
+    { board: 'tele', title: 'SPEED', min: [52, 215], grow: 0.3 },
+  ],
+};
 
 /** Dashed outline frames for the hit-area overlay: sparse to solid (palette-safe fade). */
 function outlineFrames(w: number, h: number): Texture[] {
@@ -66,13 +76,55 @@ function outlineFrames(w: number, h: number): Texture[] {
   });
 }
 
-function smallDial(p: Pix, cx: number, cy: number, len: number, left: string, right: string): void {
-  plate(p, cx - len - 8, cy - len - 6, len * 2 + 16, len + 14);
-  p.rect(cx - len - 5, cy - len - 3, len * 2 + 10, len + 8, C.paper0);
-  meterFace(p, cx, cy + 3, len, 55, 11, 2);
-  p.rect(cx, cy + 3 - len, 1, 4, C.ink1);
-  drawText(p, left, cx - len - 4, cy, C.ink0);
-  drawText(p, right, cx + len + 5 - measure(right), cy, C.ink0);
+/** A small needle dial on a brass plate; origin at the needle's pivot line. */
+function smallDial(ticker: KitContext['ticker'], len: number, left: string, right: string, steps = 61): { root: Container; meter: NeedleMeter } {
+  const root = new Container();
+  const W = len * 2 + 16;
+  const H = len + 14;
+  root.addChild(
+    Object.assign(
+      art(W, H, (p) => {
+        const cx = len + 8;
+        const cy = len + 6;
+        plate(p, 0, 0, W, H);
+        p.rect(3, 3, W - 6, H - 6, C.paper0);
+        meterFace(p, cx, cy + 3, len, 55, 11, 2);
+        p.rect(cx, cy + 3 - len, 1, 4, C.ink1);
+        drawText(p, left, 4, cy, C.ink0);
+        drawText(p, right, W - 4 - measure(right), cy, C.ink0);
+      }),
+      { x: -len - 8, y: -len - 6 },
+    ),
+  );
+  const meter = new NeedleMeter(ticker, len - 2, 55, steps, C.iron0, 90, 14);
+  meter.root.position.set(0, 3);
+  root.addChild(meter.root);
+  return { root, meter };
+}
+
+/** Sight glass with its brass frame and scale marks; origin at the glass's top-left. */
+function glass(ticker: KitContext['ticker'], w: number, h: number, marks: number[]): { root: Container; col: Column } {
+  const root = new Container();
+  root.addChild(Object.assign(art(w + 9, h + 4, (p) => columnFrame(p, 2, 2, w, h, marks)), { x: -2, y: -2 }));
+  const col = new Column(w, h, ticker);
+  root.addChild(col.root);
+  return { root, col };
+}
+
+/** A brass plate with a caption and a drum counter on it; origin at its top-left. */
+function drumPlate(ticker: KitContext['ticker'], w: number, caption: string, digits: number, point = false): { root: Container; drum: Odometer } {
+  const root = new Container();
+  root.addChild(
+    art(w, 24, (p) => {
+      plate(p, 0, 0, w, 24);
+      drawText(p, caption, 4, 3, C.iron7);
+      if (point) p.rect(4 + (digits - 1) * 7 - 1, 21, 1, 1, C.paper3);
+    }),
+  );
+  const drum = new Odometer(digits, 0, ticker);
+  drum.root.position.set(4, 12);
+  root.addChild(drum.root);
+  return { root, drum };
 }
 
 export class ControlRoom extends StationScene {
@@ -83,13 +135,13 @@ export class ControlRoom extends StationScene {
   private overlayFor = new Map<AnyControl, Sprite>();
   private layout: Layout | null = null;
   private depth: NeedleMeter;
-  private tape = new DepthTape(TAPE.w, TAPE.h);
+  private tape = new DepthTape(28, 88);
   private rate: NeedleMeter;
   private angle: Bubble;
   private planeDials: NeedleMeter[];
   private mbt: Column[];
   private regCol: Column;
-  private trimCols: Column[];
+  private trimCol: Column;
   private air: NeedleMeter;
   private orderedDrum: Odometer;
   private heldDrum: Odometer;
@@ -101,105 +153,95 @@ export class ControlRoom extends StationScene {
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'CONTROL ROOM', ctx);
-    // Depth keeping | rate, angle, order | tanks and telegraph; instruments above, wheels below.
-    this.elastic = { x: [167, 241], y: [178] };
+    this.useBoards(LAYOUT);
+    const tk = ctx.ticker;
     ctx.ticker.add(() => {
       for (const [c, s] of this.overlayFor) {
         const r = this.panelRect(c);
         s.position.set(Math.round(r.x), Math.round(r.y));
       }
     });
-    const p = this.furniture();
-    // Depth gauge: 0..250 m round a 270-degree dial, red past test depth.
-    const g = GAUGE;
-    dialPlate(p, g.cx, g.cy, g.r);
-    meterFace(p, g.cx, g.cy, g.needle + 4, g.arc, 51, BOAT.testDepth / BOAT.gaugeMax);
-    dialFigures(p, g.cx, g.cy, g.needle - 7, g.arc, [0, 50, 100, 150, 200, 250].map((d) => [d / BOAT.gaugeMax, String(d), d >= BOAT.testDepth ? C.red0 : C.ink0] as [number, string, number]));
-    drawText(p, 'DEPTH', g.cx - Math.floor(measure('DEPTH') / 2), g.cy + 14, C.ink1);
-    drawText(p, 'METRES', g.cx - Math.floor(measure('METRES') / 2), g.cy + 22, C.ink0);
-    // Fine depth tape window.
-    p.rect(TAPE.x - 3, TAPE.y - 3, TAPE.w + 6, TAPE.h + 6, C.brass0);
-    p.rect(TAPE.x - 2, TAPE.y - 2, TAPE.w + 4, TAPE.h + 4, C.black);
-    drawLabel(p, 'FINE', TAPE.x + 4, TAPE.y - 11, C.iron7);
-    plate(p, TAPE.x - 3, TAPE.y + TAPE.h + 5, TAPE.w + 6, 26);
-    drawText(p, 'HELD S', TAPE.x + 1, TAPE.y + TAPE.h + 9, C.iron7);
-    // Rate of depth change.
-    smallDial(p, RATE.cx, RATE.cy, RATE.len, 'UP', 'DN');
-    drawLabel(p, 'M/MIN', RATE.cx - Math.floor(measure('M/MIN') / 2), RATE.cy + 12, C.iron7);
-    // Inclinometer.
-    drawLabel(p, 'ANGLE', ANGLE.x + Math.floor((ANGLE.w - measure('ANGLE')) / 2), ANGLE.y - 13, C.iron7);
-    bubbleGlass(p, ANGLE.x, ANGLE.y, ANGLE.w, ANGLE.span, 5);
-    // Ordered depth drum.
-    plate(p, RATE.cx - 22, 132, 44, 20);
-    drawText(p, 'M', RATE.cx + 14, 139, C.iron7);
-    // Plane angle indicators.
-    PLANE_DIALS.forEach((d) => smallDial(p, d.cx, d.cy, 14, 'R', 'D'));
-    drawText(p, 'PLANES', 152 - Math.floor(measure('PLANES') / 2), 226, C.paper1);
-    // Vents and main ballast sight glasses.
-    drawText(p, 'VENT FWD', 247, 100, C.paper1);
-    drawText(p, 'VENT AFT', 293, 100, C.paper1);
-    MBT_COL.forEach((c) => columnFrame(p, c.x, c.y, 8, COL_H, [0, 0.5, 1]));
-    drawText(p, 'MBT', MBT_COL[0].x - 1, MBT_COL[0].y + COL_H + 5, C.iron7);
-    drawText(p, 'F', MBT_COL[0].x + 2, MBT_COL[0].y - 10, C.iron6);
-    drawText(p, 'A', MBT_COL[1].x + 2, MBT_COL[1].y - 10, C.iron6);
-    // Regulating tank.
-    drawLabel(p, 'REGULATING', 382, 38, C.paper1);
-    columnFrame(p, REG_COL.x, REG_COL.y, 8, REG_COL.h, [0, BOAT.regNominal / BOAT.regMax, 1]);
-    drawText(p, `${BOAT.regMax}T`, REG_COL.x - 1, REG_COL.y + REG_COL.h + 5, C.iron7);
-    // HP air.
-    smallDial(p, AIR.cx, AIR.cy, AIR.len, '', '');
-    drawLabel(p, 'HP AIR BAR', AIR.cx - Math.floor(measure('HP AIR BAR') / 2), AIR.cy + 12, C.iron7);
-    // Trim tanks.
-    drawLabel(p, 'TRIM', 360, 124, C.paper1);
-    TRIM_COL.forEach((c) => columnFrame(p, c.x, c.y, 8, TRIM_H, [0.5]));
-    drawText(p, 'F', TRIM_COL[0].x + 2, TRIM_COL[0].y + TRIM_H + 5, C.iron6);
-    drawText(p, 'A', TRIM_COL[1].x + 2, TRIM_COL[1].y + TRIM_H + 5, C.iron6);
-    // Telegraph and log.
-    drawLabel(p, 'TELEGRAPH', 250, 188, C.paper1);
-    plate(p, 418, 194, 52, 34);
-    drawText(p, 'LOG KN', 424, 199, C.iron7);
-    p.rect(441, 218, 1, 1, C.paper3); // decimal point before the tenths drum
-    this.addFurniture(p);
-
-    // Instruments (between the furniture and the controls).
-    const add = (c: Container, x: number, y: number) => {
-      c.position.set(x, y);
-      this.root.addChild(c);
-    };
-    this.depth = new NeedleMeter(ctx.ticker, g.needle, g.arc, 271, C.iron0, 40, 11);
-    add(this.depth.root, g.cx, g.cy);
-    add(this.tape.root, TAPE.x, TAPE.y);
-    this.rate = new NeedleMeter(ctx.ticker, RATE.len - 2, 55, 61, C.iron0, 60, 12);
-    add(this.rate.root, RATE.cx, RATE.cy + 3);
-    this.angle = new Bubble(ANGLE.w, ANGLE.span, ctx.ticker);
-    add(this.angle.root, ANGLE.x, ANGLE.y);
-    this.planeDials = PLANE_DIALS.map((d) => {
-      const m = new NeedleMeter(ctx.ticker, 12, 55, 51, C.iron0, 120, 16);
-      add(m.root, d.cx, d.cy + 3);
-      return m;
-    });
-    this.mbt = MBT_COL.map((c) => {
-      const col = new Column(8, COL_H, ctx.ticker);
-      add(col.root, c.x, c.y);
-      return col;
-    });
-    this.regCol = new Column(8, REG_COL.h, ctx.ticker);
-    add(this.regCol.root, REG_COL.x, REG_COL.y);
-    this.trimCols = TRIM_COL.map((c) => {
-      const col = new Column(8, TRIM_H, ctx.ticker);
-      add(col.root, c.x, c.y);
-      return col;
-    });
-    this.air = new NeedleMeter(ctx.ticker, AIR.len - 2, 55, 81, C.iron0, 90, 14);
-    add(this.air.root, AIR.cx, AIR.cy + 3);
-    this.orderedDrum = new Odometer(3, 0, ctx.ticker);
-    add(this.orderedDrum.root, RATE.cx - 12, 137);
-    this.heldDrum = new Odometer(2, 0, ctx.ticker);
-    add(this.heldDrum.root, TAPE.x + 9, TAPE.y + TAPE.h + 17);
-    this.speedDrum = new Odometer(3, 0, ctx.ticker);
-    add(this.speedDrum.root, 427, 210);
-
     this.addControls(CONTROL_ROOM);
+
+    // DEPTH: the gauge and the fine tape side by side; the chief's orders below.
+    const R = 40;
+    const gauge = new Container();
+    gauge.addChild(
+      Object.assign(
+        art(R * 2 + 8, R * 2 + 8, (p) => {
+          const c = R + 4;
+          dialPlate(p, c, c, R);
+          meterFace(p, c, c, R - 4, 135, 51, BOAT.testDepth / BOAT.gaugeMax);
+          dialFigures(p, c, c, R - 15, 135, [0, 50, 100, 150, 200, 250].map((d) => [d / BOAT.gaugeMax, String(d), d >= BOAT.testDepth ? C.red0 : C.ink0] as [number, string, number]));
+          drawText(p, 'METRES', c - Math.floor(measure('METRES') / 2), c + 24, C.ink1);
+        }),
+        { x: -R - 4, y: -R - 4 },
+      ),
+    );
+    this.depth = new NeedleMeter(tk, R - 8, 135, 271, C.iron0, 40, 11);
+    gauge.addChild(this.depth.root);
+    const tape = new Container();
+    tape.addChild(
+      Object.assign(
+        art(34, 94, (p) => {
+          p.rect(0, 0, 34, 94, C.brass0);
+          p.rect(1, 1, 32, 92, C.black);
+        }),
+        { x: -3, y: -3 },
+      ),
+      this.tape.root,
+    );
+    const held = drumPlate(tk, 34, 'HELD S', 2);
+    this.heldDrum = held.drum;
+    // The gauge, the fine tape beside it and the hold counter under the tape read as one.
+    this.pin('depth', group([gauge, 0, 0], [tape, 46, -42], [held.root, 43, 52]), 0.5, 0, -20, 44, { spread: false });
+    const ord = drumPlate(tk, 40, 'ORDER M', 3);
+    this.orderedDrum = ord.drum;
+    this.pin('depth', group([this.ctl('ordered'), 0, 0], [ord.root, 28, -14]), 0.5, 1, -38, -32);
+    this.pin('depth', group([label('PLANES', C.paper1, true), 0, -38], [this.ctl('hand'), 0, 0]), 0.5, 1, 44, -26);
+
+    // PLANES: angle and rate on top, each wheel under its own indicator.
+    const ang = new Container();
+    ang.addChild(Object.assign(art(84, 22, (p) => bubbleGlass(p, 2, 3, 80, 30, 5)), { x: -2, y: -3 }));
+    this.angle = new Bubble(80, 30, tk);
+    ang.addChild(this.angle.root);
+    this.pin('planes', group([ang, 0, 0], [label('BOW', C.iron6), 0, 16], [label('ANGLE', C.iron7, true), 40, 16]), 0.5, 0, -40, 4);
+    const rate = smallDial(tk, 20, 'UP', 'DN');
+    this.rate = rate.meter;
+    this.pin('planes', group([rate.root, 0, 0], [label('M/MIN', C.iron7, true), 0, 12]), 0.5, 0, 0, 56);
+    this.planeDials = [-33, 33].map((dx) => {
+      const d = smallDial(tk, 14, 'R', 'D', 51);
+      this.pin('planes', d.root, 0.5, 1, dx, -88);
+      return d.meter;
+    });
+    this.pinControl('planes', 'bow', 0.5, 1, -33, -42);
+    this.pinControl('planes', 'stern', 0.5, 1, 33, -42);
+
+    // BALLAST: vents and the main ballast glasses; blow and its air below.
+    this.pin('ballast', group([this.ctl('ventF'), 0, 0], [label('VENT F', C.paper1), -8, 32]), 0, 0, 8, 6);
+    this.pin('ballast', group([this.ctl('ventA'), 0, 0], [label('VENT A', C.paper1), -8, 32]), 0, 0, 54, 6);
+    const mbt = [glass(tk, 6, 40, [0, 0.5, 1]), glass(tk, 6, 40, [0, 0.5, 1])];
+    this.mbt = mbt.map((g) => g.col);
+    this.pin('ballast', group([mbt[0].root, 0, 0], [mbt[1].root, 10, 0], [label('MBT', C.iron7), -2, 44]), 1, 0, -18, 2);
+    this.pinControl('ballast', 'blow', 0, 1, 24, -36);
+    const air = smallDial(tk, 16, '', '', 81);
+    this.air = air.meter;
+    this.pin('ballast', group([air.root, 0, 0], [label('HP AIR', C.iron7, true), 0, 16]), 1, 1, -30, -22);
+
+    // TRIM AND REG: each lever beside the glass it fills.
+    const reg = glass(tk, 6, 52, [0, BOAT.regNominal / BOAT.regMax, 1]);
+    this.regCol = reg.col;
+    this.pin('trim', group([this.ctl('reg'), 0, 0], [reg.root, 46, -6], [label('REG', C.iron7), 43, 51]), 0, 0, 8, 8);
+    const tr = glass(tk, 6, 52, [0.5]);
+    this.trimCol = tr.col;
+    this.pin('trim', group([this.ctl('trim'), 0, 0], [tr.root, 34, -6], [label('FWD', C.iron7), 30, 51]), 0, 0, 70, 8);
+
+    // SPEED: the telegraph, tall like the real thing, and the log under it.
+    this.pinControl('tele', 'telegraph', 0, 0, 6, 8);
+    const log = drumPlate(tk, 40, 'LOG KN', 3, true);
+    this.speedDrum = log.drum;
+    this.pin('tele', log.root, 0.5, 1, -20, -24);
+
     for (const id of this.controls.keys()) this.noSave.add(id); // all of it mirrors the boat
     this.seen = { ...obs.boat.set };
     this.bind();
@@ -208,7 +250,7 @@ export class ControlRoom extends StationScene {
 
     // Name plate toggles the readout and the hit-area overlay.
     const titleHit = new Container();
-    titleHit.hitArea = new Rectangle(0, 0, NAME_PLATE.x + 154, 30);
+    titleHit.hitArea = new Rectangle(0, 0, 160, HEADER_H);
     titleHit.eventMode = 'static';
     titleHit.cursor = 'pointer';
     titleHit.on('pointertap', () => this.toggleDebug());
@@ -327,8 +369,7 @@ export class ControlRoom extends StationScene {
     this.mbt[0].set(b.mbtF);
     this.mbt[1].set(b.mbtA);
     this.regCol.set(b.regT / BOAT.regMax);
-    this.trimCols[0].set(b.trimF / BOAT.trimTotal);
-    this.trimCols[1].set(1 - b.trimF / BOAT.trimTotal);
+    this.trimCol.set(b.trimF / BOAT.trimTotal);
     this.air.target = b.air / BOAT.airMax;
     this.orderedDrum.set(Math.round(b.set.ordered));
     const d = obs.drill;

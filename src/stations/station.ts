@@ -3,8 +3,9 @@ import type { Layout } from '../core/display';
 import { drawText, measure } from '../core/font';
 import { C } from '../core/palette';
 import { Pix } from '../core/pixels';
-import { createControl, type AnyControl, type ControlSpec, type KitContext } from '../controls';
+import { createControl, Crank, type AnyControl, type ControlSpec, type KitContext } from '../controls';
 import { panelArt, PANEL_H, plate } from './panel-art';
+import { Board, GAP, layout, type LayoutNode, type PinOpts, type Rect } from './boards';
 import { ART_W } from '../core/display';
 
 /**
@@ -19,6 +20,12 @@ export interface Elastic {
 
 /** Name plate every station carries, top-left (kept clear of the voice-pipe tab, top centre). */
 export const NAME_PLATE = { x: 10, y: 8, h: 15 };
+
+/** Board stations: header strip with the name plate; boards start below it. */
+export const HEADER_H = 21;
+/** Cut-line stations (placeholders) are still drawn on a 480 px wide sheet. */
+const LEGACY_W = 480;
+const HEADER_PLATE_H = 15;
 
 /** Reserved for the voice-pipe tab: stations put no controls here. */
 export const VOICE_TAB_ZONE = { x: 206, y: 0, w: 68, h: 28 };
@@ -47,6 +54,10 @@ export abstract class StationScene {
   protected elastic: Elastic = { x: [], y: [] };
   private furnitureSprites: Sprite[] = [];
   private cells: { c: Container; col: number; row: number }[] | null = null;
+  /** Board layout (stations built from boards); null for the old cut-line stations. */
+  private tree: LayoutNode | null = null;
+  protected readonly boards = new Map<string, Board>();
+  private header: Sprite | null = null;
   readonly controls = new Map<string, AnyControl>();
   /** Controls whose position mirrors the sim (restored from the sim, not from the UI save). */
   readonly noSave = new Set<string>();
@@ -64,7 +75,7 @@ export abstract class StationScene {
 
   /** Transparent layer for a station's fixed furniture, with its name plate already on it. */
   protected furniture(): Pix {
-    const p = new Pix(ART_W, PANEL_H);
+    const p = new Pix(LEGACY_W, PANEL_H);
     const w = namePlateWidth(this.name);
     plate(p, NAME_PLATE.x, NAME_PLATE.y, w, NAME_PLATE.h);
     drawText(p, this.name, NAME_PLATE.x + 5, NAME_PLATE.y + 4, C.paper1, C.iron0);
@@ -79,6 +90,53 @@ export abstract class StationScene {
   }
 
   /**
+   * Build the station from boards: a name plate in the header strip, then the boards laid
+   * out below it by `tree`. Pin things into them with `pin` / `pinControl`.
+   */
+  protected useBoards(tree: LayoutNode): void {
+    this.tree = tree;
+    const walk = (n: LayoutNode) => {
+      if ('board' in n) {
+        const b = new Board(n.board, n.title ?? n.board.toUpperCase(), n.min[0], n.min[1]);
+        this.boards.set(n.board, b);
+        this.root.addChild(b.root);
+      } else n.kids.forEach(walk);
+    };
+    walk(tree);
+    const w = namePlateWidth(this.name);
+    const p = new Pix(w, HEADER_PLATE_H);
+    plate(p, 0, 0, w, HEADER_PLATE_H);
+    drawText(p, this.name, 5, 4, C.paper1, C.iron0);
+    this.header = new Sprite(p.toTexture());
+    this.header.position.set(GAP + 2, 3);
+    this.root.addChild(this.header);
+  }
+
+  protected pin(board: string, node: Container, ax: number, ay: number, x = 0, y = 0, o: PinOpts = {}): Container {
+    return this.boards.get(board)!.pin(node, ax, ay, x, y, o);
+  }
+
+  /** A control's root, for building it into a group. */
+  protected ctl(id: string): Container {
+    return this.controls.get(id)!.root;
+  }
+
+  /** Move a control (made by addControls) onto a board. */
+  protected pinControl(board: string, id: string, ax: number, ay: number, x = 0, y = 0): void {
+    const c = this.controls.get(id)!;
+    // Handwheels grow with a roomy board: bigger wheels are easier to turn by thumb.
+    const fit = c instanceof Crank ? ((base: number) => (k: number) => c.setRadius(Math.round(base * k)))(c.s.radius) : undefined;
+    this.boards.get(board)!.pin(c.root, ax, ay, x, y, { fit });
+  }
+
+  /** Board rects in panel px, for tests and overlays. */
+  boardRects(): Record<string, Rect> {
+    const out: Record<string, Rect> = {};
+    for (const [id, b] of this.boards) out[id] = { x: b.root.x, y: b.root.y, w: b.w, h: b.h };
+    return out;
+  }
+
+  /**
    * Fill a panel of w x h art px. The first time, everything on the panel is sorted into
    * cells between the elastic lines (furniture is cut along them into sub-textures);
    * after that only the cells move.
@@ -88,6 +146,12 @@ export abstract class StationScene {
     this.h = h;
     this.bg.width = w;
     this.bg.height = h;
+    if (this.tree) {
+      const rects = new Map<string, Rect>();
+      layout(this.tree, { x: GAP, y: HEADER_H, w: w - GAP * 2, h: h - HEADER_H - GAP }, rects);
+      for (const [id, r] of rects) this.boards.get(id)!.place(r);
+      return;
+    }
     const ex = this.elastic;
     const xs = [...ex.x].sort((a, b) => a - b);
     const ys = [...ex.y].sort((a, b) => a - b);
@@ -96,7 +160,7 @@ export abstract class StationScene {
     // quarter of the spare above, half between the rows, a quarter below.
     const offX = (i: number, spare: number) => (xs.length ? Math.round((spare * i) / xs.length) : Math.floor(spare / 2));
     const offY = (i: number, spare: number) => (ys.length ? Math.round(spare * (0.25 + (0.5 * i) / ys.length)) : Math.floor(spare / 2));
-    for (const cell of this.cells) cell.c.position.set(offX(cell.col, w - ART_W), offY(cell.row, h - PANEL_H));
+    for (const cell of this.cells) cell.c.position.set(offX(cell.col, w - LEGACY_W), offY(cell.row, h - PANEL_H));
   }
 
   private split(xs: number[], ys: number[]): { c: Container; col: number; row: number }[] {
@@ -171,10 +235,15 @@ export abstract class StationScene {
   leave(): void {}
   setLayout(_l: Layout): void {}
 
-  /** A control's touch rect in panel coordinates (its cell may have moved). */
+  /** A control's touch rect in panel coordinates (its board or cell may have moved). */
   panelRect(c: AnyControl): Rectangle {
     const r = c.hitRect();
-    const p = c.root.parent;
-    return new Rectangle(r.x + (p && p !== this.root ? p.x : 0), r.y + (p && p !== this.root ? p.y : 0), r.width, r.height);
+    let x = r.x;
+    let y = r.y;
+    for (let p = c.root.parent; p && p !== this.root; p = p.parent) {
+      x += p.x;
+      y += p.y;
+    }
+    return new Rectangle(x, y, r.width, r.height);
   }
 }

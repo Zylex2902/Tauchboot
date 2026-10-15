@@ -4,7 +4,6 @@ import { C } from '../core/palette';
 import { Pix } from '../core/pixels';
 
 const PX_PER_DEG = 2;
-const SPAN = 30; // degrees either side of the lubber line
 
 /**
  * A bearing tape seen through a window: graduated every 5 degrees, figures every 30.
@@ -13,15 +12,17 @@ const SPAN = 30; // degrees either side of the lubber line
  */
 export class BearingTape {
   readonly root = new Container();
-  readonly width = SPAN * 2 * PX_PER_DEG;
+  readonly width: number;
   readonly height = 18;
   private source: Texture;
   private frames = new Map<number, Texture>();
   private sprite: Sprite;
 
-  constructor() {
-    const lo = -SPAN;
-    const hi = 360 + SPAN;
+  /** span: degrees shown either side of the lubber line. */
+  constructor(span = 30) {
+    this.width = span * 2 * PX_PER_DEG;
+    const lo = -span;
+    const hi = 360 + span;
     const p = new Pix((hi - lo) * PX_PER_DEG + 1, this.height, C.iron1);
     for (let d = lo; d <= hi; d++) {
       const x = (d - lo) * PX_PER_DEG;

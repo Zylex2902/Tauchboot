@@ -136,15 +136,16 @@ export class Pause {
 
   /** Card centred on the canvas, the veil over all of it, the tab at its bottom-right corner. */
   setFrame(w: number, h: number): void {
-    const ox = Math.floor((w - ART_W) / 2);
+    // The card and tab are drawn for a 480 x 270 sheet.
+    const ox = Math.floor((w - 480) / 2);
     const was = this.dropY;
-    this.dropY = Math.floor((h - ART_H) / 2);
+    this.dropY = Math.floor((h - 270) / 2);
     if (this.paused && this.card.y >= CARD.y + was - 1) this.card.y = CARD.y + this.dropY;
     this.framed.position.set(ox, 0);
     this.veil.position.set(-ox, 0);
     this.veil.width = w;
     this.veil.height = h;
-    this.tab.position.set(w - (ART_W - TAB.x), h - (ART_H - TAB.y));
+    this.tab.position.set(w - (480 - TAB.x), h - (270 - TAB.y));
   }
 
   get isPaused(): boolean {

@@ -183,7 +183,7 @@ export class Hull {
     this.catcher.hitArea = new Rectangle(0, 0, W, H);
     this.scenes.forEach((s) => s?.setSize(W, H));
     this.strip.setFrame(W, H);
-    this.slips.root.position.set(ox, l.artH - 270);
+    this.slips.root.position.set(Math.min(ox, W - 480), l.artH - 270);
     this.voice.setFrame(W, H);
     this.card.setFrame(W, l.artH);
     this.pause.setFrame(l.artW, l.artH);

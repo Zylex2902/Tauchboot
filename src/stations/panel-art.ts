@@ -2,7 +2,6 @@ import { Graphics, type Texture } from 'pixi.js';
 import { drawText, measure } from '../core/font';
 import { C } from '../core/palette';
 import { Pix, rng } from '../core/pixels';
-import { ART_W } from '../core/display';
 
 /** Shared station-panel art: riveted plating, brass plates, the hull strip. */
 
@@ -98,7 +97,7 @@ export function wallArt(w: number, h: number, seed: number): Pix {
  * the shading.
  */
 export function panelArt(): Pix {
-  return wallArt(ART_W, PANEL_H, 7);
+  return wallArt(PLATE_W * 3, PANEL_H, 7);
 }
 
 export function drawLabel(p: Pix, text: string, x: number, y: number, c: number): void {
@@ -106,9 +105,9 @@ export function drawLabel(p: Pix, text: string, x: number, y: number, c: number)
 }
 
 export function stripArt(): Pix {
-  const p = new Pix(ART_W, STRIP_H, C.iron1);
-  p.rect(0, 0, ART_W, 1, C.black);
-  p.rect(0, 1, ART_W, 1, C.iron4);
+  const p = new Pix(480, STRIP_H, C.iron1);
+  p.rect(0, 0, 480, 1, C.black);
+  p.rect(0, 1, 480, 1, C.iron4);
   const cy = 12;
   const x0 = 24;
   const x1 = 456;

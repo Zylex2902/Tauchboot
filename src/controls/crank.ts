@@ -76,9 +76,13 @@ export class Crank extends Control<number> {
   private emitted: number;
   /** Where code (a crewman) is turning the wheel to, in radians; null when nobody is. */
   private driveTo: number | null = null;
+  /** Current wheel radius (it can be fitted bigger to a roomy board). */
+  private r: number;
+  private labelSprite: Sprite | null = null;
 
   constructor(readonly s: CrankSpec, ctx: KitContext) {
     super(s, ctx, s.initial ?? 0);
+    this.r = s.radius;
     this.frames = wheelFrames(s.radius);
     this.wheel = new Sprite(this.frames[0]);
     this.wheel.position.set(-s.radius - 1, -s.radius - 1);
@@ -92,6 +96,7 @@ export class Crank extends Control<number> {
       const ls = new Sprite(lp.toTexture());
       ls.position.set(-Math.floor(lp.w / 2), s.radius + 6);
       this.root.addChild(ls);
+      this.labelSprite = ls;
     }
     this.root.addChild(this.wheel);
     this.draw();
@@ -209,6 +214,21 @@ export class Crank extends Control<number> {
     super.restore(turns);
   }
 
+  /** Rebuild the wheel at a new radius (layout only; the reading is untouched). */
+  setRadius(r: number): void {
+    if (r === this.r) return;
+    this.r = r;
+    this.frames = wheelFrames(r);
+    this.wheel.position.set(-r - 1, -r - 1);
+    if (this.labelSprite) this.labelSprite.y = r + 6;
+    this.draw();
+    this.applyHitPolicy();
+  }
+
+  get radius(): number {
+    return this.r;
+  }
+
   private draw(): void {
     const f = ((Math.round((this.angle / TAU) * FRAMES) % FRAMES) + FRAMES) % FRAMES;
     this.wheel.texture = this.frames[f];
@@ -216,7 +236,7 @@ export class Crank extends Control<number> {
 
   override applyHitPolicy(): void {
     super.applyHitPolicy();
-    const r = Math.max(this.s.radius + 4, Math.ceil(this.hitRect().width / 2));
+    const r = Math.max(this.r + 4, Math.ceil(this.hitRect().width / 2));
     this.target.hitArea = new Circle(0, 0, r);
   }
 
@@ -227,7 +247,7 @@ export class Crank extends Control<number> {
   }
 
   protected coreRect(): Rectangle {
-    const r = this.s.radius + 2;
+    const r = (this.r ?? this.s.radius) + 2;
     return new Rectangle(-r, -r, r * 2, r * 2);
   }
 
