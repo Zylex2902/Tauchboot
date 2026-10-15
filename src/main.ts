@@ -157,8 +157,8 @@ async function boot(): Promise<void> {
     const grid = prompt.apply(l) ?? { scale: l.scale, x: l.frameX, y: l.frameY };
     bleed.tileScale.set(grid.scale);
     bleed.tilePosition.set(grid.x, grid.y); // plates line up with the art grid in use
-    const fw = 480 * l.scale;
-    const fh = 270 * l.scale;
+    const fw = l.artW * l.scale;
+    const fh = l.artH * l.scale;
     const rects = [
       [0, 0, w, l.frameY],
       [0, l.frameY + fh, w, h - l.frameY - fh],
@@ -174,7 +174,7 @@ async function boot(): Promise<void> {
       c.tileScale.set(grid.scale);
       c.tilePosition.set(grid.x - x, grid.y - y);
     });
-    const by = l.frameY + 240 * l.scale;
+    const by = l.frameY + (l.artH - 30) * l.scale;
     bands.forEach((b, i) => {
       const x = i === 0 ? 0 : l.frameX + fw;
       const bw = i === 0 ? l.frameX : w - l.frameX - fw;

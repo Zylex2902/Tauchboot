@@ -2,20 +2,20 @@ import type { Texture } from 'pixi.js';
 import { drawText, measure } from '../core/font';
 import { C } from '../core/palette';
 import { BAYER4, Pix, rng } from '../core/pixels';
-import { PANEL_H, rivet } from '../stations/panel-art';
+import { rivet } from '../stations/panel-art';
 
 /** Art the camera passes on its way through the hull: bulkheads and the rooms between. */
 export const BULKHEAD_W = 56;
 export const PASSAGE_W = 160;
 
-let bulkhead: Texture | null = null;
-const passages = new Map<number, Texture>();
+const bulkheads = new Map<number, Texture>();
+const passages = new Map<string, Texture>();
 
 /** Watertight bulkhead with an oval pressure hatch; you see darkness through it. */
-export function bulkheadTexture(): Texture {
-  if (bulkhead) return bulkhead;
+export function bulkheadTexture(H: number): Texture {
+  const hit = bulkheads.get(H);
+  if (hit) return hit;
   const W = BULKHEAD_W;
-  const H = PANEL_H;
   const p = new Pix(W, H, C.iron2);
   p.dither(0, 0, W, H, C.iron2, C.iron1, 6);
   p.rect(0, 0, 2, H, C.black);
@@ -29,7 +29,7 @@ export function bulkheadTexture(): Texture {
   }
   // Hatch: oval coaming, dark opening, dogs around the rim.
   const cx = W / 2;
-  const cy = 112;
+  const cy = Math.round(H * 0.47);
   const rx = 19;
   const ry = 34;
   const inside = (x: number, y: number, ax: number, ay: number) => ((x - cx + 0.5) / ax) ** 2 + ((y - cy + 0.5) / ay) ** 2 <= 1;
@@ -51,16 +51,17 @@ export function bulkheadTexture(): Texture {
   }
   // Raised sill you step over.
   p.rect(cx - 16, cy + ry + 2, 32, 2, C.iron6);
-  bulkhead = p.toTexture();
-  return bulkhead;
+  const tex = p.toTexture();
+  bulkheads.set(H, tex);
+  return tex;
 }
 
 /** A compartment glimpsed in passing: pipe runs, deck grating, a dim lamp, its number. */
-export function passageTexture(index: number): Texture {
-  const hit = passages.get(index);
+export function passageTexture(index: number, H: number): Texture {
+  const key = `${index}:${H}`;
+  const hit = passages.get(key);
   if (hit) return hit;
   const W = PASSAGE_W;
-  const H = PANEL_H;
   const r = rng(500 + index);
   const p = new Pix(W, H, C.iron1);
   p.dither(0, 0, W, H, C.iron1, C.iron0, 7);
@@ -82,18 +83,20 @@ export function passageTexture(index: number): Texture {
   // Bunks or lockers as dark blocks.
   for (let k = 0; k < 2; k++) {
     const x = 8 + k * 80 + Math.floor(r() * 20);
-    p.rect(x, 96, 56, 70, C.iron0);
-    p.frame(x, 96, 56, 70, C.iron3);
-    p.rect(x + 2, 130, 52, 1, C.iron3);
+    const by = H - 144;
+    p.rect(x, by, 56, 70, C.iron0);
+    p.frame(x, by, 56, 70, C.iron3);
+    p.rect(x + 2, by + 34, 52, 1, C.iron3);
   }
   // Deck grating.
-  p.rect(0, 196, W, H - 196, C.iron2);
-  for (let y = 198; y < H; y += 4) for (let x = (y >> 2) % 2 ? 0 : 2; x < W; x += 4) p.rect(x, y, 2, 2, C.black);
-  p.rect(0, 196, W, 1, C.iron5);
+  const deck = H - 44;
+  p.rect(0, deck, W, H - deck, C.iron2);
+  for (let y = deck + 2; y < H; y += 4) for (let x = (y >> 2) % 2 ? 0 : 2; x < W; x += 4) p.rect(x, y, 2, 2, C.black);
+  p.rect(0, deck, W, 1, C.iron5);
   // Compartment number, stencilled.
   const n = String(index + 1);
   drawText(p, n, Math.floor((W - measure(n)) / 2), 72, C.iron5);
   const tex = p.toTexture();
-  passages.set(index, tex);
+  passages.set(key, tex);
   return tex;
 }

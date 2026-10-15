@@ -96,6 +96,12 @@ export class VoicePipe {
     this.bindHandle(handle);
   }
 
+  /** Centred on the canvas; tapping anywhere over the panel closes the board. */
+  setFrame(w: number, h: number): void {
+    this.root.x = Math.floor((w - 480) / 2);
+    this.scrim.hitArea = new Rectangle(-this.root.x, 0, w, h);
+  }
+
   private keyControls: Container[] = [];
   private keys(ctx: KitContext): Container[] {
     if (this.keyControls.length) return this.keyControls;

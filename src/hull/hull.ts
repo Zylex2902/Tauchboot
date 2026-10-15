@@ -16,7 +16,6 @@ import { compMid, StationStrip } from './strip';
 import { BULKHEAD_W, PASSAGE_W, bulkheadTexture, passageTexture } from './transit-art';
 import { VoicePipe } from './voice-pipe';
 
-const W = 480;
 
 /** The UI half of a save: where you stand and how every wheel, lever and switch is set. */
 export interface UiState {
@@ -79,11 +78,15 @@ export class Hull {
   private pause: Pause;
   private slips: ReportSlips;
   private card: DrillCard;
+  private plateHolder = new Container();
+  /** Panel size in art px: the canvas less the strip. */
+  private W = 480;
+  private H = PANEL_H;
   /** Test hook: durations of completed strip travels (ms). */
   readonly travelLog: { from: number; to: number; ms: number; tickMs: number }[] = [];
 
   constructor(private tw: Tweens, private ctx: KitContext) {
-    this.catcher.hitArea = new Rectangle(0, 0, W, PANEL_H);
+    this.catcher.hitArea = new Rectangle(0, 0, 480, PANEL_H);
     this.catcher.eventMode = 'none';
     this.catcher.on('pointerdown', () => this.skip());
     this.viewport.addChild(this.transit, this.catcher);
@@ -96,7 +99,8 @@ export class Hull {
     this.pause = new Pause(tw, ctx);
     this.card = new DrillCard(tw, ctx);
     const plate = new TimePlate(tw);
-    this.root.addChild(this.viewport, plate.root, this.voice.root, this.slips.root, this.strip.root, this.card.root, this.pause.root);
+    this.plateHolder.addChild(plate.root);
+    this.root.addChild(this.viewport, this.plateHolder, this.voice.root, this.slips.root, this.strip.root, this.card.root, this.pause.root);
 
     this.strip.onTap = (i) => this.goTo(i);
     this.strip.onLongPress = (i) => {
@@ -172,6 +176,18 @@ export class Hull {
   setLayout(l: Layout): void {
     this.layout = l;
     hitPolicy.update(l.scale, l.dpr);
+    // Fill the canvas: stations spread out, the chrome keeps to its edges and centre.
+    const W = (this.W = l.artW);
+    const H = (this.H = l.artH - 30);
+    const ox = Math.floor((W - 480) / 2);
+    this.catcher.hitArea = new Rectangle(0, 0, W, H);
+    this.scenes.forEach((s) => s?.setSize(W, H));
+    this.strip.setFrame(W, H);
+    this.slips.root.position.set(ox, l.artH - 270);
+    this.voice.setFrame(W, H);
+    this.card.setFrame(W, l.artH);
+    this.pause.setFrame(l.artW, l.artH);
+    this.plateHolder.x = W - 480;
     this.scenes.forEach((s) => s?.setLayout(l));
     if (l.portrait) this.pause.set(true, true); // turned to portrait: stop the clock
   }
@@ -180,6 +196,7 @@ export class Hull {
     let s = this.scenes[i];
     if (!s) {
       s = createStation(i, this.ctx);
+      s.setSize(this.W, this.H);
       if (this.layout) s.setLayout(this.layout);
       this.bindSwipe(s);
       this.scenes[i] = s;
@@ -237,24 +254,24 @@ export class Hull {
     const props: Sprite[] = [];
     const bulkheads: number[] = [];
     const place = (obj: Container, x: number, w: number) => {
-      obj.x = dir > 0 ? x : W - (x + w); // mirror the path when travelling toward the bow
+      obj.x = dir > 0 ? x : this.W - (x + w); // mirror the path when travelling toward the bow
       this.transit.addChild(obj);
     };
     for (let k = 0; k < dist; k++) {
-      const bx = W + k * unit;
-      const b = new Sprite(bulkheadTexture());
+      const bx = this.W + k * unit;
+      const b = new Sprite(bulkheadTexture(this.H));
       place(b, bx, BULKHEAD_W);
       props.push(b);
       bulkheads.push(bx + BULKHEAD_W / 2);
       if (k < dist - 1) {
-        const pz = new Sprite(passageTexture(from + dir * (k + 1)));
+        const pz = new Sprite(passageTexture(from + dir * (k + 1), this.H));
         place(pz, bx + BULKHEAD_W, PASSAGE_W);
         props.push(pz);
       }
     }
     const target = this.scene(to);
-    const tx = W + (dist - 1) * unit + BULKHEAD_W;
-    place(target.root, tx, W);
+    const tx = this.W + (dist - 1) * unit + BULKHEAD_W;
+    place(target.root, tx, this.W);
     // No new control input while the room moves: a catcher covers the panel (a tap on it
     // hurries a strip travel). The swiping finger stays bound to the plating it started on.
     this.catcher.eventMode = 'static';
@@ -290,8 +307,8 @@ export class Hull {
     const c = Math.round(st.prog.p * st.D);
     this.transit.x = st.dir > 0 ? -c : c;
     this.strip.setCursor(st.from, st.to, st.prog.p);
-    const prev = st.c + W / 2;
-    const now = c + W / 2;
+    const prev = st.c + this.W / 2;
+    const now = c + this.W / 2;
     for (const b of st.bulkheads)
       if ((prev < b && now >= b) || (prev >= b && now < b)) {
         mixer.play(SFX.hatch, 'machinery', { gain: 0.25, rate: 1.6 + Math.random() * 0.2 });
@@ -402,7 +419,8 @@ export class Hull {
       const s1 = sw.samples[sw.samples.length - 1];
       const v = s1.t > s0.t ? ((s0.x - s1.x) * st.dir) / (s1.t - s0.t) : 0; // art px per ms, toward the target
       const p = st.prog.p;
-      if (p > 0.3 || (v > 0.35 && p > 0.02)) {
+      // Past a third of the way, or a good hand's width on a wide canvas, or flicked: go.
+      if (p > 0.3 || p * st.D > 150 || (v > 0.35 && p > 0.02)) {
         const ms = Math.max(110, Math.min(320, ((1 - p) * st.D) / Math.max(v, 1.4)));
         this.runTo(st, 1, ms, ease.outCubic);
       } else this.runTo(st, 0, 180, ease.outCubic);

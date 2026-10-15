@@ -1,11 +1,13 @@
 /**
- * Integer-scaled 480x270 virtual canvas.
+ * Integer-scaled, full-screen art canvas.
  *
- * All maths is in device pixels. The art frame (480x270 art px) gets the largest
- * integer scale that fits inside the safe area, centred there. Everything outside
- * the frame (including behind notches and the home indicator) shows bleed art drawn
- * on the same art-pixel grid, so there are never black bars.
+ * All maths is in device pixels. The scale is the largest integer at which a 480x270
+ * design still fits inside the safe area; the canvas then grows (artW x artH art px) to
+ * fill the whole safe area at that scale, and stations spread their groups into it.
+ * Outside the safe area (behind notches and the home indicator) the same hull plating
+ * carries on, on the same art-pixel grid.
  */
+/** The smallest canvas any layout gets: stations are authored at this size. */
 export const ART_W = 480;
 export const ART_H = 270;
 
@@ -25,9 +27,12 @@ export interface Layout {
   safe: Insets;
   /** Device pixels per art pixel (integer >= 1). */
   scale: number;
-  /** Device-pixel position of art pixel (0,0) of the 480x270 frame. */
+  /** Device-pixel position of art pixel (0,0) of the canvas. */
   frameX: number;
   frameY: number;
+  /** Canvas size in art px (at least ART_W x ART_H): the safe area at this scale. */
+  artW: number;
+  artH: number;
   portrait: boolean;
   /** Fold / dual-screen segments in CSS px, if the Viewport Segments API reports any. */
   segments: DOMRect[];
@@ -55,9 +60,11 @@ export function computeLayout(devW: number, devH: number): Layout {
   const availH = Math.max(1, devH - safe.top - safe.bottom);
   const portrait = devH > devW;
   const scale = Math.max(1, Math.floor(Math.min(availW / ART_W, availH / ART_H)));
-  const frameX = safe.left + Math.floor((availW - ART_W * scale) / 2);
-  const frameY = safe.top + Math.floor((availH - ART_H * scale) / 2);
-  return { devW, devH, dpr, safe, scale, frameX, frameY, portrait, segments: readSegments() };
+  const artW = Math.max(ART_W, Math.floor(availW / scale));
+  const artH = Math.max(ART_H, Math.floor(availH / scale));
+  const frameX = safe.left + Math.floor((availW - artW * scale) / 2);
+  const frameY = safe.top + Math.floor((availH - artH * scale) / 2);
+  return { devW, devH, dpr, safe, scale, frameX, frameY, artW, artH, portrait, segments: readSegments() };
 }
 
 /**

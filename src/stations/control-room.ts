@@ -29,7 +29,7 @@ const DEBUG = { x: 10, y: 204, w: 300, h: 28 };
 const GAUGE = { cx: 64, cy: 94, r: 44, needle: 36, arc: 135 };
 const TAPE = { x: 126, y: 46, w: 32, h: 96 };
 const RATE = { cx: 200, cy: 76, len: 20 };
-const ANGLE = { x: 168, y: 112, w: 64, span: 30 };
+const ANGLE = { x: 170, y: 112, w: 62, span: 30 };
 const PLANE_DIALS = [{ cx: 36, cy: 170 }, { cx: 100, cy: 170 }];
 const MBT_COL = [{ x: 350, y: 52 }, { x: 362, y: 52 }];
 const COL_H = 48;
@@ -45,7 +45,7 @@ export const CONTROL_ROOM: ControlSpec[] = [
   { kind: 'crank', id: 'bow', x: 38, y: 206, radius: 20, mass: 0.7, friction: 3.5, ticksPerTurn: 16, resolution: 200, min: -PLANE_TURNS, max: PLANE_TURNS, label: 'BOW PLANES' },
   { kind: 'crank', id: 'stern', x: 104, y: 206, radius: 20, mass: 0.7, friction: 3.5, ticksPerTurn: 16, resolution: 200, min: -PLANE_TURNS, max: PLANE_TURNS, label: 'STERN PLANES' },
   { kind: 'switch', id: 'hand', x: 152, y: 200, states: ['CREW', 'HAND'] },
-  { kind: 'crank', id: 'ordered', x: 200, y: 190, radius: 14, mass: 0.3, friction: 6, ticksPerTurn: 20, resolution: 20, min: 0, max: BOAT.orderedMax / 20, label: 'ORDER M', sounds: { tick: SFX.roll } },
+  { kind: 'crank', id: 'ordered', x: 200, y: 194, radius: 14, mass: 0.3, friction: 6, ticksPerTurn: 20, resolution: 20, min: 0, max: BOAT.orderedMax / 20, label: 'ORDER M', sounds: { tick: SFX.roll } },
   { kind: 'lever', id: 'ventF', x: 258, y: 56, axis: 'y', length: 32, detents: ['SHUT', 'OPEN'], weight: 80 },
   { kind: 'lever', id: 'ventA', x: 304, y: 56, axis: 'y', length: 32, detents: ['SHUT', 'OPEN'], weight: 80 },
   { kind: 'hold', id: 'blow', x: 264, y: 134, radius: 11, rate: 0.9, decay: 1.6, color: 'black', label: 'BLOW', sounds: { loop: SFX.hiss, drain: SFX.hiss } },
@@ -101,9 +101,11 @@ export class ControlRoom extends StationScene {
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'CONTROL ROOM', ctx);
+    // Depth keeping | rate, angle, order | tanks and telegraph; instruments above, wheels below.
+    this.elastic = { x: [167, 241], y: [178] };
     ctx.ticker.add(() => {
       for (const [c, s] of this.overlayFor) {
-        const r = c.hitRect();
+        const r = this.panelRect(c);
         s.position.set(Math.round(r.x), Math.round(r.y));
       }
     });
@@ -375,7 +377,7 @@ export class ControlRoom extends StationScene {
     this.overlay.removeChildren().forEach((c) => c.destroy());
     const sprites: (Sprite & { frames?: Texture[] })[] = [];
     for (const c of this.controls.values()) {
-      const r = c.hitRect();
+      const r = this.panelRect(c);
       const frames = outlineFrames(Math.round(r.width), Math.round(r.height));
       const s = new Sprite(frames[animate ? 0 : 2]) as Sprite & { frames?: Texture[] };
       s.frames = frames;

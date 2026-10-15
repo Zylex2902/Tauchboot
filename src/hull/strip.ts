@@ -1,4 +1,5 @@
-import { Container, Rectangle, Sprite, type FederatedPointerEvent, type Texture } from 'pixi.js';
+import { Container, Rectangle, Sprite, TilingSprite, type FederatedPointerEvent, type Texture } from 'pixi.js';
+import { Pix } from '../core/pixels';
 import { mixer } from '../core/audio';
 import { haptic } from '../core/haptics';
 import { C } from '../core/palette';
@@ -34,14 +35,29 @@ export class StationStrip {
   private amber: Texture[];
   private red: Texture[];
   private hits: Container[] = [];
+  /** The strip's dark band, run out to both edges of the canvas. */
+  private band: TilingSprite;
   onTap: (i: number) => void = () => {};
   onLongPress: (i: number) => void = () => {};
   onRelease: () => void = () => {};
   /** A long-press fired late (the app was busy) but the touch was a tap after all. */
   onCancelLong: () => void = () => {};
 
+  /** Canvas width w, panel height h: the hull stays centred, its band runs edge to edge. */
+  setFrame(w: number, h: number): void {
+    this.root.position.set(Math.floor((w - 480) / 2), h);
+    this.band.x = -this.root.x;
+    this.band.width = w;
+  }
+
   constructor(private tw: Tweens, ctx: KitContext) {
     this.root.y = STRIP_Y;
+    const bp = new Pix(1, STRIP_H, C.iron1);
+    bp.set(0, 0, C.black);
+    bp.set(0, 1, C.iron4);
+    this.band = new TilingSprite({ texture: bp.toTexture(), width: 480, height: STRIP_H });
+    this.band.eventMode = 'none';
+    this.root.addChild(this.band);
     const art = stripArt();
     for (let i = 0; i < 9; i++) {
       const cx = compMid(i);

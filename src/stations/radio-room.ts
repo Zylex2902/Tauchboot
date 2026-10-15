@@ -99,6 +99,7 @@ export class RadioRoom extends StationScene {
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'RADIO AND SOUND ROOM', ctx);
+    this.elastic = { x: [182], y: [] }; // wheel | meter, log and test plate
     const p = this.furniture();
     furniture(p);
     this.addFurniture(p);

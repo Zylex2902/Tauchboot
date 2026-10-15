@@ -145,6 +145,16 @@ export class DrillCard {
   private kind: DrillKind = 'scope';
   private token = 0;
   private keyMode: 'begin' | 'again' = 'begin';
+  /** Extra drop on a tall canvas, so the card hangs in the middle. */
+  private dropY = 0;
+
+  /** Centre on a canvas of w x h art px (the card still drops in from above the top edge). */
+  setFrame(w: number, h: number): void {
+    this.root.x = Math.floor((w - 480) / 2);
+    const was = this.dropY;
+    this.dropY = Math.floor((h - 270) / 2);
+    if (this.showing && this.card.y >= CARD.y + was - 1) this.card.y = CARD.y + this.dropY;
+  }
 
   constructor(private tw: Tweens, ctx: KitContext) {
     this.catcher.hitArea = new Rectangle(-ART_W, -ART_H, ART_W * 3, ART_H * 3);
@@ -226,7 +236,7 @@ export class DrillCard {
       this.card.y = -CARD.h - 6;
       mixer.play(SFX.pickup, 'ui', { gain: 0.7 });
       mixer.play(SFX.slide, 'ui', { gain: 0.35, rate: 0.8 });
-      void this.tw.to(this.card, { y: CARD.y }, { duration: 340, ease: ease.outBack }).then(async () => {
+      void this.tw.to(this.card, { y: CARD.y + this.dropY }, { duration: 340, ease: ease.outBack }).then(async () => {
         if (tok !== this.token) return;
         mixer.play(SFX.plate, 'ui', { gain: 0.35, rate: 0.9 });
         haptic('tick');

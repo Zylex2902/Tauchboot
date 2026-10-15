@@ -16,7 +16,7 @@ Status: chunks 0.1-0.5, 1.1 and 1.2 done (shell, kit, stations, hydrophone, peri
 - Warn Matthew whenever new work could breach a patent, copyright or trademark.
 
 ## Project rules
-- Landscape only; 480x270 art grid; integer scaling; nearest-neighbour.
+- Landscape only; full screen: integer scaling (largest that fits a 480x270 design in the safe area), nearest-neighbour; the art canvas then grows to fill the safe area (Layout.artW/artH). Author stations at 480x240 and give them elastic cut lines (StationScene.elastic) so groups spread apart; hull chrome anchors to canvas edges/centre.
 - UI reads only the observation layer, never the world sim. Controls are data-driven.
 - Offline single-player; no accounts, no tracking.
 - Fictional names everywhere; nothing from UBOAT, IRON NEST, Silent Hunter or Das Boot.
@@ -31,7 +31,7 @@ Status: chunks 0.1-0.5, 1.1 and 1.2 done (shell, kit, stations, hydrophone, peri
 - src/sim/: core.ts (Sim: fixed 10 Hz tick, commands land on tick boundaries, effects + schedule as data, time compression with auto-drop on voice/alarm/phase, snapshot/load, lerped presentation), rng.ts (one-integer state), drill.ts (scope drill; lens height uses boat depth), boat.ts (tanks/air/planes/depth/pitch physics, crew depth keeping, test/crush depth), dive.ts (dive drill)
 - src/main.ts: boots sim from the save (or ?fresh / ?seed=), then the hull; autosave every 4 s, on drill phase and on hide/pagehide
 - src/hull/: hull.ts (travel, swipe, keys, uiState/restoreUi), strip, report slips, voice-pipe, pause, drill-card (both drills), time-plate, transit-art, boat-sound (vents/blow/pumps/creaks from obs.boat.flow + hull events)
-- src/stations/: station.ts (base; noSave, saveExtra/restoreExtra), control-room (depth keeping + tanks; controls mirror obs.boat.set, crew drives them via Lever.set/Crank.drive/Hold.follow, byCode flag), gauges (depth tape, sight columns, bubble), radio-room (hydrophone), conning-tower + scope-view + ship-art (periscope), placeholders (data-driven grey boxes; chart table time lever wired), panel-art
+- src/stations/: station.ts (base; noSave, saveExtra/restoreExtra; setSize splits furniture and children into cells between elastic lines; panelRect), control-room (depth keeping + tanks; controls mirror obs.boat.set, crew drives them via Lever.set/Crank.drive/Hold.follow, byCode flag), gauges (depth tape, sight columns, bubble), radio-room (hydrophone), conning-tower + scope-view + ship-art (periscope), placeholders (data-driven grey boxes; chart table time lever wired), panel-art
 - Layout: stations keep top centre free (voice tab, and the subtitle plate over x 180-300 down to y 46); top-right corner is the time plate; strip right end is the pause tab. No stencil masks on frame-level layers.
 - Test hook `?test`: window.__hull, __app, __mixer, __sim, __obs, __save; __noSave stops writes. Tests live in /home/claude/pw (drill.mjs, dive.mjs, save.mjs, timescale.mjs, hull.mjs); headless runs ~8 fps at 960x540 dpr 1, each CDP touch ~300 ms.
 - Playtest: `npm run build:single` -> artifact https://claude.ai/artifact/Sss2vfG49S3UZXYkCwJ46K

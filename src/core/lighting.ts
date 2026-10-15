@@ -60,7 +60,7 @@ out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform vec4 uGrid;   // frame x, frame y (device px), scale, unused
 uniform vec4 uLamp;   // x, y, inner, fall (art px)
-uniform vec4 uShade;  // shade, aspect, unused, unused
+uniform vec4 uShade;  // shade, aspect, strip top (art px), unused
 uniform sampler2D uLut; // colour (5 bits a channel) -> one, two and three steps into shadow
 
 float bayer2(vec2 a)
@@ -95,7 +95,7 @@ void main(void)
     float s = floor(steps);
     if (fract(steps) > mix(bayer4(art), grain(art), 0.45)) s += 1.0;
     // The station strip is how you get around: it never sinks more than one step into shade.
-    if (art.y >= 240.0 && art.y < 270.0) s = min(s, 1.0);
+    if (art.y >= uShade.z && art.y < uShade.z + 30.0) s = min(s, 1.0);
     if (s >= 1.0 && color.a > 0.0) {
         vec3 q = floor(color.rgb / color.a * 255.0 / 8.0 + 0.001);
         vec2 uv = vec2((q.b * 32.0 + q.r + 0.5) / 1024.0, (q.g + 32.0 * (min(s, 3.0) - 1.0) + 0.5) / 96.0);
@@ -181,12 +181,17 @@ export class Lighting {
     g[0] = l.frameX;
     g[1] = l.frameY;
     g[2] = l.scale;
+    (this.uniforms.uniforms.uShade as Float32Array)[2] = l.artH - 30;
+    // The lamp hangs over the middle of the panel; its pool grows with the room.
+    const k = Math.max(l.artW / 480, (l.artH - 30) / 240);
+    this.set({ x: l.artW / 2, y: Math.round((l.artH - 30) * 0.43), inner: 135 * k, fall: 230 * k }, 0);
     this.host.filterArea = new Rectangle(0, 0, w, h);
   }
 
   /** Move the light to a new state over ms (default a slow 600 ms). */
   set(p: Partial<LightState>, ms = 600): void {
     Object.assign(this.target, p);
+    if (ms <= 0) Object.assign(this.now, p);
     this.rate = 1 / Math.max(0.05, ms / 1000);
   }
 

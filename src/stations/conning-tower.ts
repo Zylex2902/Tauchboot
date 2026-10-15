@@ -133,6 +133,7 @@ export class ConningTower extends StationScene {
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'CONNING TOWER', ctx);
+    this.elastic = { x: [226], y: [] }; // eyepiece | scope controls
     const p = this.furniture();
     furniture(p);
     this.addFurniture(p);

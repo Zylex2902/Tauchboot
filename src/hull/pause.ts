@@ -77,6 +77,7 @@ export class Pause {
   private catcher = new Container();
   private framed = new Container();
   private paused = false;
+  private dropY = 0;
   onChange: (paused: boolean) => void = () => {};
 
   constructor(private tw: Tweens, ctx: KitContext) {
@@ -133,6 +134,19 @@ export class Pause {
     this.root.addChild(this.catcher, this.framed, this.tab);
   }
 
+  /** Card centred on the canvas, the veil over all of it, the tab at its bottom-right corner. */
+  setFrame(w: number, h: number): void {
+    const ox = Math.floor((w - ART_W) / 2);
+    const was = this.dropY;
+    this.dropY = Math.floor((h - ART_H) / 2);
+    if (this.paused && this.card.y >= CARD.y + was - 1) this.card.y = CARD.y + this.dropY;
+    this.framed.position.set(ox, 0);
+    this.veil.position.set(-ox, 0);
+    this.veil.width = w;
+    this.veil.height = h;
+    this.tab.position.set(w - (ART_W - TAB.x), h - (ART_H - TAB.y));
+  }
+
   get isPaused(): boolean {
     return this.paused;
   }
@@ -153,7 +167,7 @@ export class Pause {
       this.veil.visible = true;
       this.card.visible = true;
       void this.tw.frames(VEIL_STEPS.length, 180, (k) => (this.veil.texture = this.veilTex[k]));
-      void this.tw.to(this.card, { y: CARD.y }, { duration: 320, ease: ease.outBack });
+      void this.tw.to(this.card, { y: CARD.y + this.dropY }, { duration: 320, ease: ease.outBack });
     } else {
       const n = VEIL_STEPS.length;
       void this.tw.frames(n, 160, (k) => (this.veil.texture = this.veilTex[n - 1 - k])).then(() => {
