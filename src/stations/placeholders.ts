@@ -3,6 +3,7 @@ import { obs, send, TIME_SCALES } from '../obs';
 import { drawText, measure } from '../core/font';
 import { C } from '../core/palette';
 import { BAYER4, Pix } from '../core/pixels';
+import { wirePower } from './power-panel';
 import { StationScene } from './station';
 
 /**
@@ -16,7 +17,7 @@ interface PlaceholderSpec {
   papers?: { x: number; y: number; w: number; h: number; title?: string }[];
   stencil: [x: number, y: number];
   /** Hook a grey-box control to the sim. */
-  wire?: (st: StationScene) => void;
+  wire?: (st: StationScene, ctx: KitContext) => void;
 }
 
 /** Chart table watch clock: the time compression lever. It follows the sim (drops to 1X on events). */
@@ -85,7 +86,8 @@ export const PLACEHOLDERS: Record<number, PlaceholderSpec> = {
       { kind: 'button', id: 'startAir', x: 404, y: 96, radius: 11, color: 'red', cover: true, label: 'START AIR' },
     ],
     captions: [['PORT', 40, 48], ['STBD', 126, 48]],
-    stencil: [404, 158],
+    wire: wirePower,
+    stencil: [432, 150],
   },
   8: {
     controls: [
@@ -126,6 +128,6 @@ export class PlaceholderStation extends StationScene {
     for (const [t, x, y] of spec.captions ?? []) drawText(p, t, x, y, C.paper1);
     this.addFurniture(p);
     this.addControls(spec.controls);
-    spec.wire?.(this);
+    spec.wire?.(this, ctx);
   }
 }

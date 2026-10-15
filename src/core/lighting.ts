@@ -30,9 +30,11 @@ export interface LightState {
   period: number;
   /** How often the filament stutters: 0 never .. 1 constantly. */
   flicker: number;
+  /** Lamp brightness: 1 on good mains, less as the battery voltage sags (the pool shrinks). */
+  dim: number;
 }
 
-export const LIGHT_DEFAULT: LightState = { x: 240, y: 104, inner: 135, fall: 230, shade: 1, swing: 5, period: 6.5, flicker: 0.25 };
+export const LIGHT_DEFAULT: LightState = { x: 240, y: 104, inner: 135, fall: 230, shade: 1, swing: 5, period: 6.5, flicker: 0.25, dim: 1 };
 
 const vertex = /* glsl */ `in vec2 aPosition;
 out vec2 vTextureCoord;
@@ -188,6 +190,17 @@ export class Lighting {
     this.host.filterArea = new Rectangle(0, 0, w, h);
   }
 
+  /**
+   * The lamps hang off the battery: as it runs down the pool shrinks and the filament
+   * stutters more; flat, only the emergency lamp glows. Cheap to call every frame.
+   */
+  power(charge: number, mains: boolean): void {
+    const dim = mains ? 1 : charge <= 0 ? 0.32 : charge < 0.1 ? 0.6 + 0.4 * (charge / 0.1) : 1;
+    if (Math.abs(dim - this.target.dim) < 0.005) return;
+    const ms = Math.abs(dim - this.target.dim) > 0.2 ? 1800 : 600;
+    this.set({ dim, flicker: dim < 1 ? 0.25 + (1 - dim) * 1.6 : 0.25 }, ms);
+  }
+
   /** Move the light to a new state over ms (default a slow 600 ms). */
   set(p: Partial<LightState>, ms = 600): void {
     Object.assign(this.target, p);
@@ -215,8 +228,8 @@ export class Lighting {
     const lamp = this.uniforms.uniforms.uLamp as Float32Array;
     lamp[0] = x;
     lamp[1] = y;
-    lamp[2] = n.inner * (1 - stutter * 0.5);
-    lamp[3] = n.fall;
+    lamp[2] = n.inner * n.dim * (1 - stutter * 0.5);
+    lamp[3] = n.fall * (0.5 + 0.5 * n.dim);
     const shade = this.uniforms.uniforms.uShade as Float32Array;
     shade[0] = Math.min(0.95, n.shade + stutter);
     this.uniforms.update();

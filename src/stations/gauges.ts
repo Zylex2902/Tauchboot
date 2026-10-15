@@ -2,7 +2,11 @@ import { Container, Rectangle, Sprite, Texture, type Ticker } from 'pixi.js';
 import { drawText, measure } from '../core/font';
 import { C, type ColorIndex } from '../core/palette';
 import { Pix } from '../core/pixels';
-import { approach } from '../controls/control';
+import { approach, type KitContext } from '../controls/control';
+import { meterFace, NeedleMeter } from '../controls/meter';
+import { Odometer } from '../controls/odometer';
+import { art } from './boards';
+import { plate } from './panel-art';
 
 /**
  * Control-room instruments that are not needle dials: the fine depth tape, sight-glass
@@ -223,3 +227,46 @@ export function bubbleGlass(p: Pix, x: number, y: number, w: number, span: numbe
   }
   p.rect(x + half + 3, y - 2, 1, 8, C.amber0);
 }
+
+/** A small needle dial on a brass plate; origin at the needle's pivot line. */
+export function smallDial(ticker: KitContext['ticker'], len: number, left: string, right: string, steps = 61): { root: Container; meter: NeedleMeter } {
+  const root = new Container();
+  const W = len * 2 + 16;
+  const H = len + 14;
+  root.addChild(
+    Object.assign(
+      art(W, H, (p) => {
+        const cx = len + 8;
+        const cy = len + 6;
+        plate(p, 0, 0, W, H);
+        p.rect(3, 3, W - 6, H - 6, C.paper0);
+        meterFace(p, cx, cy + 3, len, 55, 11, 2);
+        p.rect(cx, cy + 3 - len, 1, 4, C.ink1);
+        drawText(p, left, 4, cy, C.ink0);
+        drawText(p, right, W - 4 - measure(right), cy, C.ink0);
+      }),
+      { x: -len - 8, y: -len - 6 },
+    ),
+  );
+  const meter = new NeedleMeter(ticker, len - 2, 55, steps, C.iron0, 90, 14);
+  meter.root.position.set(0, 3);
+  root.addChild(meter.root);
+  return { root, meter };
+}
+
+/** A brass plate with a caption and a drum counter on it; origin at its top-left. */
+export function drumPlate(ticker: KitContext['ticker'], w: number, caption: string, digits: number, point = false): { root: Container; drum: Odometer } {
+  const root = new Container();
+  root.addChild(
+    art(w, 24, (p) => {
+      plate(p, 0, 0, w, 24);
+      drawText(p, caption, 4, 3, C.iron7);
+      if (point) p.rect(4 + (digits - 1) * 7 - 1, 21, 1, 1, C.paper3);
+    }),
+  );
+  const drum = new Odometer(digits, 0, ticker);
+  drum.root.position.set(4, 12);
+  root.addChild(drum.root);
+  return { root, drum };
+}
+

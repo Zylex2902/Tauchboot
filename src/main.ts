@@ -141,7 +141,10 @@ async function boot(): Promise<void> {
   app.stage.addChild(lit, prompt.root);
   const light = new Lighting(lit, app.ticker);
   // The lamp hangs plumb while the boat tilts: bow down (bow is to the left), it swings bowward.
-  app.ticker.add(() => (light.lean = -obs.boat.pitch * 0.9));
+  app.ticker.add(() => {
+    light.lean = -obs.boat.pitch * 0.9;
+    light.power(obs.boat.power.charge, obs.boat.power.diesels === 'run');
+  });
   if (params.has('test')) Object.assign(window, { __light: light });
 
   watchSize(host, (w, h) => {

@@ -1,3 +1,5 @@
+import { freshPowerObs, type PowerObs } from './power';
+
 /**
  * The boat's manual: fixed facts about own boat that the crew (and so the UI) know.
  * Depths are keel depths in metres, as the control room gauges read them.
@@ -82,6 +84,7 @@ export interface BoatObs {
   lost: null | 'crushed';
   /** For sound: 0..1 rates of what is moving air and water right now. */
   flow: { vent: number; blow: number; spill: number; flood: number; pump: number; trim: number; bilge: number };
+  power: PowerObs;
 }
 
 export function freshBoatObs(): BoatObs {
@@ -103,5 +106,6 @@ export function freshBoatObs(): BoatObs {
     bilge: 0,
     lost: null,
     flow: { vent: 0, blow: 0, spill: 0, flood: 0, pump: 0, trim: 0, bilge: 0 },
+    power: freshPowerObs(),
   };
 }

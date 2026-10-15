@@ -56,6 +56,12 @@ On the orders card, DIVE DRILL swaps drills (PERISCOPE DRILL swaps back). The bo
 4. Surface: vents SHUT, hold BLOW, planes to rise (R).
 The report grades the dive, hold, angles, air and time. Past 150 m (red) the hull groans and rivets go; somewhere deeper she is crushed. Touching any wheel or valve while the crew has the boat takes the planes; the PLANES switch gives them back, and the crew keeps the ORDER M depth (crank). Voice pipe PERISCOPE DEPTH and SURFACE THE BOAT now act. In the periscope drill the crew keeps her at 13 m; if she broaches, the merchant sees her.
 
+## Power (chunk 1.3, Engine Room, compartment 8)
+Dived, two motors run her off the battery; on the surface two diesels drive her and charge it. The engine room (still a grey box) shows BATTERY charge, AMPS (charging left, discharging right), FUEL, lamps for DIESELS (blinking on start air), MOTORS and CHARGE, and the engineer's card: hours to flat and how far off an escort hears her at each telegraph speed.
+1. Battery clock: in either drill, ring a speed on the control-room TELEGRAPH, go to the chart table (5) and push the WATCH CLOCK to 1024X. The engineer calls 50, 25 and 10 percent (each drops time back to 1X) and then "the battery is flat": motors stop, pumps die, fans go quiet and the lamps sink to the emergency glow. From full, the battery lasts 1 h 30 at FULL, 9 h at HALF, 48 h at SLOW, and 70 h stopped.
+2. Charging: SURFACE THE BOAT by voice pipe (air blows her up without power). The diesels start on their own, and charge flat to full in about 6 h at STOP. Ring a speed and they drive her too; they charge with whatever power the shafts don't need. Open the vents and they stop at once.
+Speed costs noise: shallow at FULL the screws cavitate (heard at 5 km); at 60 m the same speed is heard at 2 km. `node pw/power.mjs` (outside the repo) checks the sim against the manual's tables.
+
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
 

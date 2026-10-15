@@ -9,6 +9,7 @@ import type { ShipClassKey } from './ships';
 export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
 
 export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassKey } from './ships';
+export { CHARGE_HOURS, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type PowerObs } from './power';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */

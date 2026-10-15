@@ -2,7 +2,7 @@ import type { Ticker } from 'pixi.js';
 import { mixer, type LoopHandle } from '../core/audio';
 import { haptic } from '../core/haptics';
 import { SFX } from '../core/sfx';
-import { BOAT, obs, type HullSound } from '../obs';
+import { BOAT, obs, type DieselState, type HullSound } from '../obs';
 
 /**
  * The boat heard from anywhere aboard: motors and ventilation, ballast air roaring out of
@@ -16,6 +16,8 @@ export class BoatSound {
   private nextCreak = 0;
   private t = 0;
   private lastPitch = 0;
+  private diesels: DieselState = 'stop';
+  private bedGain = 0.3;
 
   constructor(ticker: Ticker) {
     mixer.whenRunning(() => {
@@ -53,8 +55,27 @@ export class BoatSound {
     const b = obs.boat;
     const f = b.flow;
     this.t += dt;
-    // Motors under way: the bed runs up with speed.
-    this.bed?.setRate(0.9 + Math.min(1, Math.abs(b.speed) / 8) * 0.25);
+    const pw = b.power;
+    const kn = Math.abs(b.speed);
+    // Fans, gyro and mains: they die with the battery, and the boat goes eerily quiet.
+    const bed = pw.drive === 'none' && pw.diesels !== 'run' && pw.charge <= 0 ? 0.07 : 0.3;
+    if (bed !== this.bedGain) {
+      this.bedGain = bed;
+      this.bed?.setGain(bed, 2500);
+    }
+    // Diesels: start air and catching, running, running down.
+    if (pw.diesels !== this.diesels) {
+      if (pw.diesels === 'start') {
+        mixer.play(SFX.dieselStart, 'machinery', { gain: 0.9 });
+        haptic('tick');
+      } else if (pw.diesels === 'run') haptic('impact');
+      else if (this.diesels !== 'stop') mixer.play(SFX.dieselStop, 'machinery', { gain: this.diesels === 'run' ? 0.85 : 0.5 });
+      this.diesels = pw.diesels;
+    }
+    this.loop(SFX.diesel, pw.diesels === 'run' ? 0.8 : 0, 0.94 + Math.min(1, kn / 16) * 0.1);
+    // Motors: the whine rises with the shafts.
+    const motor = pw.drive === 'motor' && b.set.telegraph !== 3 ? Math.min(1, kn / 7.5 + 0.15) : 0;
+    this.loop(SFX.motor, motor * 0.45, 0.55 + Math.min(1, kn / 7.5) * 0.6);
     this.loop(SFX.vent, f.vent * 0.85, 0.9 + f.vent * 0.15);
     this.loop(SFX.blowAir, f.blow * 0.7, 0.85 + f.blow * 0.2);
     this.loop(SFX.bubbles, Math.min(1, f.spill) * 0.5);

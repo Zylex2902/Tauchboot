@@ -1,5 +1,6 @@
 import type { HullSound } from '../obs';
 import { BOAT, TELEGRAPH_STOP, type BoatObs, type BoatSet } from '../obs/boat';
+import { power, newPower, type PowerState } from './power';
 import type { Rng } from './rng';
 
 /**
@@ -40,8 +41,6 @@ const ARM_MBT = 14;
 const SQUEEZE = 0.012;
 /** HP air bank volume, m^3 (bar x m^3 = free air). */
 const BANK = 4;
-const DIVED_KN = [7.5, 4.5, 2, 0, -2];
-const SURFACED_KN = [16, 10, 6, 0, -3];
 const PLANE_RATE = 5; // deg/s
 
 export interface BoatState {
@@ -79,6 +78,8 @@ export interface BoatState {
   /** Last step's depth rate, for the observation. */
   rate: number;
   flow: BoatObs['flow'];
+  /** Diesels, motors, battery and fuel. */
+  power: PowerState;
 }
 
 export interface BoatHost {
@@ -144,6 +145,7 @@ function blank(r: Rng): BoatState {
     dived: true,
     rate: 0,
     flow: { vent: 0, blow: 0, spill: 0, flood: 0, pump: 0, trim: 0, bilge: 0 },
+    power: newPower(),
   };
 }
 
@@ -222,8 +224,10 @@ export const boat = {
     const surfaced = isSurfaced(b);
     const flow = b.flow;
 
-    // Speed: diesels on the surface, motors below; a heavy hull is slow to change.
-    const kn = (surfaced ? SURFACED_KN : DIVED_KN)[s.telegraph] ?? 0;
+    // Speed: diesels on the surface, motors on the battery; a heavy hull is slow to change.
+    const pin = { surfaced, diving: s.ventF || s.ventA, telegraph: s.telegraph, depth: b.depth, lost: false, flow };
+    const kn = power.drive(b.power, pin);
+    const live = power.pumpsLive(b.power);
     b.speed += ((kn * KN - b.speed) * dt) / (surfaced ? 15 : 25);
     const v = b.speed;
 
@@ -267,11 +271,11 @@ export const boat = {
       const r = 0.05 * Math.sqrt(A) * dt;
       b.reg = Math.min(BOAT.regMax, b.reg + r);
       flow.flood = Math.min(1, Math.sqrt(A) / 3);
-    } else if (s.reg === -1 && b.reg > 0) {
+    } else if (s.reg === -1 && b.reg > 0 && live) {
       b.reg = Math.max(0, b.reg - (0.08 / (1 + b.depth / 80)) * dt);
       flow.pump = 1;
     }
-    if (s.trim !== 0) {
+    if (s.trim !== 0 && live) {
       const to = clamp(b.trimF + s.trim * 0.06 * dt, 0, BOAT.trimTotal);
       if (to !== b.trimF) flow.trim = 1;
       b.trimF = to;
@@ -279,9 +283,10 @@ export const boat = {
 
     // Leaks past test depth, the bilge pump behind them.
     b.bilge += b.rivets * 0.01 * dt;
-    const bp = Math.min(b.bilge, (0.02 / (1 + b.depth / 80)) * dt);
+    const bp = live ? Math.min(b.bilge, (0.02 / (1 + b.depth / 80)) * dt) : 0;
     b.bilge -= bp;
-    flow.bilge = b.bilge > 0.01 ? 1 : 0;
+    flow.bilge = live && b.bilge > 0.01 ? 1 : 0;
+    power.step(b.power, pin, h, dt);
 
     // Forces.
     const mbtF = water(b.airF, b.depth);
@@ -331,6 +336,7 @@ export const boat = {
     o.bilge = b.bilge;
     o.lost = b.lost;
     o.flow = { ...b.flow };
+    power.present(b.power, o.power);
   },
 };
 

@@ -195,6 +195,14 @@ export const SFX = {
   crush: 'crush',
   /** Bridge breaking the surface: water cascading off the casing. */
   breach: 'breach',
+  /** Both diesels running: firing thumps, valve gear, intake roar (loop). */
+  diesel: 'diesel',
+  /** Start air blast, the engines turning over and catching. */
+  dieselStart: 'dieselStart',
+  /** Fuel racks to stop: the diesels running down to a halt. */
+  dieselStop: 'dieselStop',
+  /** Electric motors on the shafts: commutator ring, brush hiss (loop; rate with speed). */
+  motor: 'motor',
 } as const;
 
 /** Turns per minute the screw loop is rendered at. */
@@ -246,6 +254,10 @@ export const SFX_NOTES: Record<string, string> = {
   rivet: 'rivet shearing, a ring through the hull',
   crush: 'the hull giving way',
   breach: 'water cascading off the casing as she surfaces',
+  diesel: 'both diesels running, loops',
+  dieselStart: 'start air, the diesels catching',
+  dieselStop: 'the diesels running down',
+  motor: 'electric motors on the shafts, loops',
 };
 
 /** A small hard contact (switch blade, pawl, type bar tip). */
@@ -581,6 +593,99 @@ export function defineSounds(): void {
       out[i] = Math.tanh(v * 0.9) * 0.6 + vent2 * 3;
     }
     return loopable(out, sr, 0.1);
+  }, 0.5);
+
+  /** One firing stroke: a low thump through the engine bed, valve gear ticking after it. */
+  const firing = (out: Float32Array, sr: number, at: number, seed: number, k: number, g: number, f: number) => {
+    const cyl = [1, 0.82, 0.94, 0.76, 0.9, 0.86][k % 6]; // six cylinders, never quite equal
+    add(out, strike(sr, 0.14, 3, seed + (k % 6), 0.75, cluster(seed + 6 + (k % 3), 42, 240, 8, 0.035)), g * cyl, at, sr);
+    add(out, contact(sr, 0.05, seed + 20 + (k % 4), 1700, 5200, 0.004), 0.14 * g, at + 0.5 / f, sr);
+  };
+  /** Intake roar: dark noise breathing at the firing rate. */
+  const intake = (out: Float32Array, sr: number, seed: number, f: number, env: (t: number) => number) => {
+    const r = rng(seed);
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < out.length; i++) {
+      const t = i / sr;
+      a += (r() * 2 - 1 - a) * 0.08;
+      b += (a - b) * 0.08;
+      out[i] += b * 2.2 * (0.75 + 0.25 * Math.sin(TAU * f * t)) * env(t);
+    }
+  };
+  /** Firing strokes at a rate that moves from f0 to f1 over T seconds. */
+  const train = (out: Float32Array, sr: number, dur: number, seed: number, f0: number, f1: number, T: number, g: (t: number) => number, at = 0) => {
+    let t = at;
+    let k = 0;
+    while (t < dur) {
+      const f = f0 + (f1 - f0) * Math.min(1, (t - at) / T) ** 0.7;
+      firing(out, sr, t, seed, k++, g(t), f);
+      t += 1 / Math.max(0.5, f);
+    }
+  };
+
+  d(SFX.diesel, (sr) => {
+    // Two six-cylinder four-strokes at about 470 rpm fire 24 and 23.5 times a second, so the
+    // pair beats slowly against each other. Two seconds hold whole firings of both: clean loop.
+    const dur = 2;
+    const X = 0.08;
+    const out = len(sr, dur + X);
+    train(out, sr, dur + X, 601, 24, 24, 1, () => 1);
+    train(out, sr, dur + X, 631, 23.5, 23.5, 1, () => 0.85, 0.013);
+    intake(out, sr, 661, 24, () => 1);
+    return loopable(lowpass(grit(highpass(out, 30, sr), 1.8), 2200, sr), sr, X);
+  }, 0.6);
+
+  d(SFX.dieselStart, (sr) => {
+    // Start air bangs into the cylinders and spins her over, slow compression strokes,
+    // then she fires and runs up to speed. Ends at the running loop's level.
+    const dur = 3.4;
+    const out = len(sr, dur);
+    const r = rng(671);
+    let hp = 0;
+    for (let i = 0; i < Math.floor(sr * 1.3); i++) {
+      const t = i / sr;
+      const n = r() * 2 - 1;
+      hp += (n - hp) * 0.5;
+      out[i] += (n - hp) * 0.9 * Math.min(1, t / 0.01) * Math.exp(-t / 0.55); // the air blast
+    }
+    add(out, strike(sr, 0.4, 2, 672, 0.4, cluster(673, 300, 2400, 10, 0.06)), 0.6, 0, sr); // the start valve
+    train(out, sr, 1.25, 681, 3, 7, 1.2, (t) => 0.35 + 0.2 * t); // turning over on air
+    train(out, sr, dur, 691, 9, 24, 1.4, (t) => Math.min(1, 0.7 + (t - 1.25) * 0.4), 1.25); // she fires
+    intake(out, sr, 701, 20, (t) => Math.max(0, Math.min(1, (t - 1.25) / 1.2)));
+    return lowpass(grit(highpass(out, 30, sr), 1.8), 2600, sr);
+  }, 0.75);
+
+  d(SFX.dieselStop, (sr) => {
+    // Fuel racks to stop: a clank, then the firing dies away and the flywheels run down.
+    const dur = 3;
+    const out = len(sr, dur);
+    add(out, strike(sr, 0.5, 2, 711, 0.5, cluster(712, 160, 1400, 12, 0.08)), 0.8, 0, sr);
+    add(out, contact(sr, 0.1, 713, 1500, 4800, 0.01), 0.5, 0.01, sr);
+    train(out, sr, 2.6, 721, 24, 2, 2.3, (t) => Math.max(0, 0.9 - t * 0.33));
+    intake(out, sr, 731, 12, (t) => Math.max(0, 1 - t / 1.4));
+    return lowpass(grit(highpass(out, 30, sr), 1.6), 2400, sr);
+  }, 0.7);
+
+  d(SFX.motor, (sr) => {
+    // DC motors: commutator bars passing the brushes ring the casing, the brushes hiss, the
+    // shafts turn over slowly. 1.5 s holds whole bar cycles at 330 Hz: clean loop.
+    const dur = 1.5;
+    const X = 0.08;
+    const out = len(sr, dur + X);
+    const bars = buzz(sr, dur + X, 330, 0.12, () => 1);
+    add(out, resonate(sr, bars, cluster(741, 330, 2600, 12, 0.02, 0.6)), 0.35);
+    const brush = scrape(sr, dur + X, 1100, 742, () => 1);
+    add(out, resonate(sr, brush, cluster(743, 1400, 5200, 10, 0.008)), 0.22);
+    const r = rng(744);
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < out.length; i++) {
+      a += (r() * 2 - 1 - a) * 0.025;
+      b += (a - b) * 0.025;
+      out[i] += b * 4 * (1 + 0.35 * Math.sin((TAU * 4 * i) / sr)); // the shafts, four turns a second
+    }
+    return loopable(lowpass(grit(highpass(out, 55, sr), 1.4), 3600, sr), sr, X);
   }, 0.5);
 
   d(SFX.telegraph, (sr) => {
