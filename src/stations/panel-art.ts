@@ -44,54 +44,61 @@ export function plate(p: Pix, x: number, y: number, w: number, h: number): void 
   p.set(x + 1, y + 1, C.brass2);
 }
 
-/** Plating with seams, rivets, rust and condensation; stations draw their furniture on top. */
-export function panelArt(): Pix {
-  const p = new Pix(ART_W, PANEL_H, C.iron2);
-  const r = rng(7);
-  // Light falls off toward the corners: ordered dither, no gradients.
-  p.ditherFn(
-    (x, y) => {
-      const dx = (x - 240) / 240;
-      const dy = (y - 110) / 150;
-      const l = Math.round((Math.hypot(dx, dy) - 0.55) * 32);
-      return l <= 0 ? -1 : Math.min(16, l);
-    },
-    C.iron2,
-    C.iron1,
-  );
-  // Plate seams.
-  for (const sx of [160, 320]) {
-    p.rect(sx, 0, 1, PANEL_H, C.iron0);
-    p.rect(sx + 1, 0, 1, PANEL_H, C.iron4);
+/** One hull plate: 160 x 120 art px, seams on its top and left edges, rivets along them. */
+export const PLATE_W = 160;
+export const PLATE_H = 120;
+
+function plateTile(p: Pix, ox: number, oy: number, r: () => number): void {
+  p.rect(ox, oy, PLATE_W, PLATE_H, C.iron2);
+  // Seams: a dark joint and a lit lip, on the top and left edges (the next plate closes them).
+  p.rect(ox, oy, 1, PLATE_H, C.iron0);
+  p.rect(ox + 1, oy, 1, PLATE_H, C.iron4);
+  p.rect(ox, oy, PLATE_W, 1, C.iron0);
+  p.rect(ox, oy + 1, PLATE_W, 1, C.iron4);
+  // Uneven steel: a few darker blotches, dithered.
+  for (let k = 0; k < 3; k++) {
+    const bx = ox + 10 + Math.floor(r() * (PLATE_W - 50));
+    const by = oy + 10 + Math.floor(r() * (PLATE_H - 40));
+    const bw = 20 + Math.floor(r() * 30);
+    const bh = 12 + Math.floor(r() * 20);
+    p.ditherFn((x, y) => (Math.hypot((x - bx - bw / 2) / bw, (y - by - bh / 2) / bh) < 0.5 ? 4 + Math.floor(r() * 2) : -1), C.iron2, C.iron1, bx, by, bw, bh);
   }
-  p.rect(0, 118, ART_W, 1, C.iron0);
-  p.rect(0, 119, ART_W, 1, C.iron4);
-  // Rivet rows along seams and edges.
   const rivets: [number, number][] = [];
-  for (let y = 6; y < PANEL_H - 4; y += 12) {
-    for (const x of [4, 155, 165, 315, 325, 473]) rivets.push([x, y]);
-  }
-  for (let x = 10; x < ART_W - 6; x += 12) for (const y of [3, 113, 123, 234]) rivets.push([x, y]);
+  for (let y = 6; y < PLATE_H; y += 12) for (const x of [5, PLATE_W - 5]) rivets.push([ox + x, oy + y]);
+  for (let x = 10; x < PLATE_W - 6; x += 12) for (const y of [5, PLATE_H - 5]) rivets.push([ox + x, oy + y]);
   for (const [x, y] of rivets) rivet(p, x, y);
   // Rust weeping from some rivets.
-  for (let k = 0; k < 18; k++) {
+  for (let k = 0; k < 6; k++) {
     const [x, y] = rivets[Math.floor(r() * rivets.length)];
     const len = 5 + Math.floor(r() * 16);
-    for (let j = 0; j < len; j++) {
-      if (r() < 1 - (j / len) * 0.85) p.set(x + 1, y + 3 + j, j < 3 ? C.rust1 : C.rust0);
-    }
+    for (let j = 0; j < len && y + 3 + j < oy + PLATE_H; j++) if (r() < 1 - (j / len) * 0.85) p.set(x + 1, y + 3 + j, j < 3 ? C.rust1 : C.rust0);
   }
   // Condensation beads.
-  for (let k = 0; k < 70; k++) {
-    const x = Math.floor(r() * ART_W);
-    const y = Math.floor(r() * PANEL_H);
+  for (let k = 0; k < 24; k++) {
+    const x = ox + 3 + Math.floor(r() * (PLATE_W - 6));
+    const y = oy + 3 + Math.floor(r() * (PLATE_H - 6));
     if (p.get(x, y) === C.iron2) {
       p.set(x, y, C.iron4);
       p.set(x, y - 1, C.iron6);
     }
   }
+}
 
+/** A run of hull plates, w x h, on the 160 x 120 grid from its top-left corner. */
+export function wallArt(w: number, h: number, seed: number): Pix {
+  const p = new Pix(w, h, C.iron2);
+  const r = rng(seed);
+  for (let y = 0; y < h; y += PLATE_H) for (let x = 0; x < w; x += PLATE_W) plateTile(p, x, y, r);
   return p;
+}
+
+/**
+ * Station plating: three plates by two, on the same grid as the hull around the frame, so
+ * the frame edge is just another seam and the boat fills the screen. The room light does
+ * the shading.
+ */
+export function panelArt(): Pix {
+  return wallArt(ART_W, PANEL_H, 7);
 }
 
 export function drawLabel(p: Pix, text: string, x: number, y: number, c: number): void {

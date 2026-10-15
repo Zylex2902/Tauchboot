@@ -7,7 +7,8 @@ import { computeLayout, watchSize } from './core/display';
 import { hapticsInit } from './core/haptics';
 import { lockdown } from './core/lockdown';
 import { C, hexNum } from './core/palette';
-import { Pix, rng } from './core/pixels';
+import { Pix } from './core/pixels';
+import { PLATE_H, PLATE_W, STRIP_H, wallArt } from './stations/panel-art';
 import { RotatePrompt } from './core/rotate-prompt';
 import { loadSettings } from './core/settings';
 import { defineSounds } from './core/sfx';
@@ -20,23 +21,6 @@ import { Lighting } from './core/lighting';
 import { newSeed } from './sim/rng';
 import { readStore, writeStore } from './core/store';
 import type { UiState } from './hull/hull';
-
-/** Bleed art: darker hull plating on the same art grid, shown outside the 480x270 frame. */
-function bleedTile(): Pix {
-  const p = new Pix(48, 40, C.iron1);
-  const r = rng(3);
-  p.dither(0, 0, 48, 40, C.iron1, C.iron0, 5);
-  p.rect(0, 0, 48, 1, C.black);
-  p.rect(0, 1, 48, 1, C.iron3);
-  p.rect(0, 0, 1, 40, C.black);
-  p.rect(1, 0, 1, 40, C.iron3);
-  for (const [x, y] of [[5, 5], [41, 5], [5, 33], [41, 33]]) {
-    p.set(x, y, C.iron5);
-    p.set(x + 1, y + 1, C.black);
-  }
-  for (let k = 0; k < 6; k++) p.set(3 + Math.floor(r() * 42), 3 + Math.floor(r() * 34), C.iron3);
-  return p;
-}
 
 async function lockLandscape(): Promise<void> {
   try {
@@ -116,7 +100,18 @@ async function boot(): Promise<void> {
   host.appendChild(app.canvas);
 
   const tweens = new Tweens(app.ticker);
-  const bleed = new TilingSprite({ texture: bleedTile().toTexture(), width: 1, height: 1 });
+  // Around the frame the hull carries on: the same plates, on the same grid.
+  const bleed = new TilingSprite({ texture: wallArt(PLATE_W * 3, PLATE_H * 2, 11).toTexture(), width: 1, height: 1 });
+  // The strip's dark band runs on to the screen edges beside the frame.
+  const bandPix = new Pix(1, STRIP_H, C.iron1);
+  bandPix.set(0, 0, C.black);
+  bandPix.set(0, 1, C.iron4);
+  const bandTex = bandPix.toTexture();
+  const bands = [0, 1].map(() => {
+    const b = new TilingSprite({ texture: bandTex, width: 1, height: 1 });
+    b.eventMode = 'none';
+    return b;
+  });
   const world = new Container();
   // The patrol: resume the save if there is one, else a fresh seed. The sim is up (and has
   // published the boat's state) before the UI is built, so the UI starts from it.
@@ -142,7 +137,7 @@ async function boot(): Promise<void> {
   });
   // The room light falls on everything in the boat (not on the turn-your-phone prompt).
   const lit = new Container();
-  lit.addChild(bleed, world, ...covers);
+  lit.addChild(bleed, world, ...covers, ...bands);
   app.stage.addChild(lit, prompt.root);
   const light = new Lighting(lit, app.ticker);
   // The lamp hangs plumb while the boat tilts: bow down (bow is to the left), it swings bowward.
@@ -178,6 +173,16 @@ async function boot(): Promise<void> {
       c.height = Math.max(1, ch);
       c.tileScale.set(grid.scale);
       c.tilePosition.set(grid.x - x, grid.y - y);
+    });
+    const by = l.frameY + 240 * l.scale;
+    bands.forEach((b, i) => {
+      const x = i === 0 ? 0 : l.frameX + fw;
+      const bw = i === 0 ? l.frameX : w - l.frameX - fw;
+      b.visible = !l.portrait && bw > 0;
+      b.position.set(x, by);
+      b.width = Math.max(1, bw);
+      b.height = 30 * l.scale;
+      b.tileScale.set(l.scale);
     });
   });
 }

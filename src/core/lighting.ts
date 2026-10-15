@@ -6,8 +6,8 @@ import type { Layout } from './display';
 
 /**
  * Room light: one lamp hanging over the panel. Its pool of light falls off toward the
- * corners: each pixel steps down its own colour ramp into shadow (SHADOW, up to two
- * steps), blended by an ordered 4x4 Bayer dither laid on the art grid. So the shade stays
+ * corners: each pixel steps down its own colour ramp into shadow (SHADOW, up to three
+ * steps), blended by an ordered 4x4 Bayer dither roughened with static grain laid on the art grid. So the shade stays
  * on the palette, text keeps its shape, and it is pixel-exact at any scale. The lamp swings a little and
  * its filament flickers now and then.
  *
@@ -32,7 +32,7 @@ export interface LightState {
   flicker: number;
 }
 
-export const LIGHT_DEFAULT: LightState = { x: 240, y: 104, inner: 155, fall: 220, shade: 0.85, swing: 5, period: 6.5, flicker: 0.25 };
+export const LIGHT_DEFAULT: LightState = { x: 240, y: 104, inner: 135, fall: 230, shade: 1, swing: 5, period: 6.5, flicker: 0.25 };
 
 const vertex = /* glsl */ `in vec2 aPosition;
 out vec2 vTextureCoord;
@@ -61,7 +61,7 @@ uniform sampler2D uTexture;
 uniform vec4 uGrid;   // frame x, frame y (device px), scale, unused
 uniform vec4 uLamp;   // x, y, inner, fall (art px)
 uniform vec4 uShade;  // shade, aspect, unused, unused
-uniform sampler2D uLut; // colour (5 bits a channel) -> one and two steps into shadow
+uniform sampler2D uLut; // colour (5 bits a channel) -> one, two and three steps into shadow
 
 float bayer2(vec2 a)
 {
@@ -75,6 +75,12 @@ float bayer4(vec2 a)
     return bayer2(0.5 * a) * 0.25 + bayer2(a) + 0.5 / 16.0;
 }
 
+// Static grain on the art grid (interleaved gradient noise): grit in the shade edge.
+float grain(vec2 a)
+{
+    return fract(52.9829189 * fract(dot(a, vec2(0.06711056, 0.00583715))));
+}
+
 void main(void)
 {
     vec4 color = texture(uTexture, vTextureCoord);
@@ -85,25 +91,27 @@ void main(void)
     float dark = uShade.x * t * t * (3.0 - 2.0 * t);
     // Past the frame, into the bleed, it keeps getting darker.
     dark = min(1.0, dark + max(0.0, (r - uLamp.z - uLamp.w) / 300.0));
-    float steps = dark * 2.0;
+    float steps = dark * 3.0;
     float s = floor(steps);
-    if (fract(steps) > bayer4(art)) s += 1.0;
+    if (fract(steps) > mix(bayer4(art), grain(art), 0.45)) s += 1.0;
+    // The station strip is how you get around: it never sinks more than one step into shade.
+    if (art.y >= 240.0 && art.y < 270.0) s = min(s, 1.0);
     if (s >= 1.0 && color.a > 0.0) {
         vec3 q = floor(color.rgb / color.a * 255.0 / 8.0 + 0.001);
-        vec2 uv = vec2((q.b * 32.0 + q.r + 0.5) / 1024.0, (q.g + 32.0 * (min(s, 2.0) - 1.0) + 0.5) / 64.0);
+        vec2 uv = vec2((q.b * 32.0 + q.r + 0.5) / 1024.0, (q.g + 32.0 * (min(s, 3.0) - 1.0) + 0.5) / 96.0);
         color.rgb = texture(uLut, uv).rgb * color.a;
     }
     finalColor = color;
 }
 `;
 
-/** 1024x64 lookup: x = b*32 + r, y = g (+32 for two steps), in 5-bit cells. */
+/** 1024x96 lookup: x = b*32 + r, y = g + 32 * (steps - 1), in 5-bit cells. */
 function shadowLut(): Texture {
   const cv = document.createElement('canvas');
   cv.width = 1024;
-  cv.height = 64;
+  cv.height = 96;
   const g = cv.getContext('2d')!;
-  const img = g.createImageData(1024, 64);
+  const img = g.createImageData(1024, 96);
   const cell = (v: number) => Math.floor(v / 8);
   const nearest = (r: number, gg: number, b: number) => {
     let best = 0;
@@ -117,7 +125,7 @@ function shadowLut(): Texture {
   const idx = new Uint8Array(32 * 32 * 32);
   for (let r = 0; r < 32; r++) for (let gg = 0; gg < 32; gg++) for (let b = 0; b < 32; b++) idx[(gg * 32 + b) * 32 + r] = nearest(r * 8 + 4, gg * 8 + 4, b * 8 + 4);
   RGB.forEach(([r, gg, b], i) => (idx[(cell(gg) * 32 + cell(b)) * 32 + cell(r)] = i)); // palette colours map exactly
-  for (let step = 1; step <= 2; step++)
+  for (let step = 1; step <= 3; step++)
     for (let gg = 0; gg < 32; gg++)
       for (let b = 0; b < 32; b++)
         for (let r = 0; r < 32; r++) {
