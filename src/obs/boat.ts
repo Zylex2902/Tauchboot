@@ -68,6 +68,8 @@ export interface BoatObs {
   bow: number;
   stern: number;
   set: BoatSet;
+  /** The engine room's answer on the telegraph: the order the shafts are running to. */
+  answered: number;
   /** Main ballast water, 0 empty .. 1 full, forward and aft groups. */
   mbtF: number;
   mbtA: number;
@@ -96,6 +98,7 @@ export function freshBoatObs(): BoatObs {
     bow: 0,
     stern: 0,
     set: { bow: 0, stern: 0, ventF: false, ventA: false, blow: 0, reg: 0, trim: 0, telegraph: TELEGRAPH_STOP, ordered: BOAT.periscopeDepth, hand: false },
+    answered: TELEGRAPH_STOP,
     mbtF: 1,
     mbtA: 1,
     regT: BOAT.regNominal,

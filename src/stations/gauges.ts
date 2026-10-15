@@ -39,59 +39,72 @@ const TAPE_TOP = -20;
 const TAPE_BOTTOM = 270;
 
 /**
- * Fine depth tape: a vertical scale behind a window, 3 px a metre, figures every 5 m.
- * Depth grows downward, so the tape climbs as she goes deeper. A brass pointer marks the
- * ordered depth when it is in the window.
+ * Depth column: a glass tube with water standing in it, read against a scale behind the
+ * glass, 3 px a metre, figures every 5 m. The water line is fixed at the middle; the
+ * scale climbs as she goes deeper, so the waterline always sits on her depth. Above the
+ * line the scale shows on paper; below it, through the water. A brass pointer outside
+ * the glass marks the ordered depth when it is in the window.
  */
 export class DepthTape {
   readonly root = new Container();
-  private source: Texture;
-  private frames = new Map<number, Texture>();
-  private tape: Sprite;
+  private dry: Texture;
+  private wet: Texture;
+  private frames = new Map<string, Texture>();
+  private top: Sprite;
+  private bottom: Sprite;
   private pointer: Sprite;
-  private shown = 0;
+  private shown = -1;
+  private readonly half: number;
 
   constructor(readonly w: number, readonly h: number) {
+    this.half = Math.floor(h / 2);
     const H = (TAPE_BOTTOM - TAPE_TOP) * PX_PER_M + h;
-    const p = new Pix(w, H, C.iron1);
-    const y0 = Math.floor(h / 2);
-    for (let d = TAPE_TOP; d <= TAPE_BOTTOM; d++) {
-      const y = y0 + (d - TAPE_TOP) * PX_PER_M;
-      const ten = d % 10 === 0;
-      const five = d % 5 === 0;
-      const len = ten ? 9 : five ? 6 : 3;
-      const col = d >= 150 ? C.red0 : ten ? C.paper2 : C.iron6;
-      p.rect(w - 2 - len, y, len, 1, col);
-      if (five && d >= 0) {
-        const t = String(d);
-        drawText(p, t, 2, y - 3, d >= 150 ? C.red1 : ten ? C.paper1 : C.iron7);
+    const scale = (bg: ColorIndex, bg2: ColorIndex, tick: ColorIndex, fig: ColorIndex, red: ColorIndex) => {
+      const p = new Pix(w, H, bg);
+      p.dither(0, 0, w, H, bg, bg2, 3);
+      for (let d = TAPE_TOP; d <= TAPE_BOTTOM; d++) {
+        const y = this.half + (d - TAPE_TOP) * PX_PER_M;
+        const ten = d % 10 === 0;
+        const five = d % 5 === 0;
+        const len = ten ? 7 : five ? 5 : 2;
+        p.rect(w - 1 - len, y, len, 1, d >= 150 ? red : tick);
+        if (five && d >= 0) drawText(p, String(d), 2, y - 3, d >= 150 ? red : fig);
       }
-    }
-    this.source = p.toTexture();
-    this.tape = new Sprite(this.frameAt(0));
-    // Lubber line across the middle of the window.
-    const lub = new Pix(w, 3);
-    lub.rect(0, 1, w, 1, C.amber1);
-    lub.set(0, 0, C.amber1);
-    lub.set(0, 2, C.amber1);
-    lub.set(w - 1, 0, C.amber1);
-    lub.set(w - 1, 2, C.amber1);
+      return p.toTexture();
+    };
+    this.dry = scale(C.paper3, C.paper0, C.ink1, C.ink0, C.red0);
+    this.wet = scale(C.ink1, C.ink0, C.paper2, C.paper3, C.red1);
+    this.top = new Sprite();
+    this.bottom = new Sprite();
+    this.bottom.y = this.half;
+    // The water surface: a bright meniscus with a dark line under it.
+    const lub = new Pix(w, 2);
+    lub.rect(0, 0, w, 1, C.white);
+    lub.rect(0, 1, w, 1, C.ink0);
     const ls = new Sprite(lub.toTexture());
-    ls.y = y0 - 1;
-    // Ordered-depth pointer: a brass wedge on the right edge.
+    ls.y = this.half - 1;
+    // Light on the glass: a broken highlight down the left of the tube.
+    const glint = new Pix(1, h);
+    for (let y = 2; y < h - 2; y++) if (y % 7 !== 3) glint.set(0, y, C.white);
+    const gs = new Sprite(glint.toTexture());
+    gs.x = 1;
+    // Ordered-depth pointer: a brass wedge outside the glass, on the right.
     const pt = new Pix(6, 7);
     for (let k = 0; k < 4; k++) pt.rect(5 - k, 3 - k, k + 1, 1 + 2 * k, C.brass2);
     pt.rect(5, 0, 1, 7, C.brass0);
     this.pointer = new Sprite(pt.toTexture());
-    this.pointer.x = w - 6;
-    this.root.addChild(this.tape, ls, this.pointer);
+    this.pointer.scale.x = -1; // point in at the glass
+    this.pointer.x = w + 9;
+    this.root.addChild(this.top, this.bottom, ls, gs, this.pointer);
+    this.set(0, null);
   }
 
-  private frameAt(px: number): Texture {
-    let t = this.frames.get(px);
+  private frame(src: Texture, y: number, h: number): Texture {
+    const k = `${src.uid}:${y}`;
+    let t = this.frames.get(k);
     if (!t) {
-      t = new Texture({ source: this.source.source, frame: new Rectangle(0, px, this.w, this.h) });
-      this.frames.set(px, t);
+      t = new Texture({ source: src.source, frame: new Rectangle(0, y, this.w, h) });
+      this.frames.set(k, t);
     }
     return t;
   }
@@ -100,16 +113,115 @@ export class DepthTape {
     const px = Math.round((Math.max(TAPE_TOP, Math.min(TAPE_BOTTOM, depth)) - TAPE_TOP) * PX_PER_M);
     if (px !== this.shown) {
       this.shown = px;
-      this.tape.texture = this.frameAt(px);
+      this.top.texture = this.frame(this.dry, px, this.half);
+      this.bottom.texture = this.frame(this.wet, px + this.half, this.h - this.half);
     }
     if (ordered === null) {
       this.pointer.visible = false;
       return;
     }
-    const y = Math.floor(this.h / 2) + Math.round((ordered - depth) * PX_PER_M) - 3;
+    const y = this.half + Math.round((ordered - depth) * PX_PER_M) - 3;
     this.pointer.visible = y >= 0 && y <= this.h - 7;
     this.pointer.y = y;
   }
+}
+
+/** Glass tube, brass end caps and its shadow for a DepthTape of w x h; origin at the glass's top-left. */
+export function depthColumnFrame(w: number, h: number): Sprite {
+  const p = new Pix(w + 8, h + 14);
+  p.rect(3, 4, w + 4, h + 8, C.black); // shadow
+  p.rect(1, 2, w + 4, h + 8, C.black);
+  // End caps.
+  for (const y of [0, h + 7]) {
+    p.rect(0, y, w + 6, 5, C.brass0);
+    p.rect(0, y, w + 6, 1, C.brass2);
+    p.rect(1, y + 1, w + 4, 3, C.brass1);
+  }
+  const s = new Sprite(p.toTexture());
+  s.position.set(-3, -5);
+  return s;
+}
+
+/** Brass-rimmed paper dial face, lit from the upper left, with a soft shade in the lower right. */
+export function paperDial(p: Pix, cx: number, cy: number, r: number): void {
+  p.disc(cx + 1, cy + 2, r + 3, C.black);
+  p.disc(cx, cy, r + 3, C.black);
+  for (let y = cy - r - 3; y <= cy + r + 3; y++)
+    for (let x = cx - r - 3; x <= cx + r + 3; x++) {
+      const d = Math.hypot(x - cx, y - cy);
+      if (d > r + 2.4 || d <= r) continue;
+      const lit = -((x - cx) + (y - cy)) / (d || 1);
+      p.set(x, y, lit > 0.5 ? C.brass2 : lit > -0.4 ? C.brass1 : C.brass0);
+    }
+  p.disc(cx, cy, r, C.paper3);
+  // The face's shade: the lower right falls away from the lamp.
+  p.ditherFn(
+    (x, y) => {
+      const d = Math.hypot(x - cx, y - cy);
+      if (d > r - 0.5) return -1;
+      const lit = ((x - cx) + (y - cy)) / (r * 1.4);
+      return Math.max(0, Math.min(16, Math.round(lit * 14)));
+    },
+    C.paper3,
+    C.paper0,
+  );
+}
+
+/** Tick marks and figures around a paper dial's arc (fractions of the arc, 0..1). */
+export function dialTicks(p: Pix, cx: number, cy: number, r: number, arc: number, ticks: number, major: number, red = 2): void {
+  for (let k = 0; k < ticks; k++) {
+    const t = k / (ticks - 1);
+    const a = ((-arc + 2 * arc * t) * Math.PI) / 180;
+    const big = k % major === 0;
+    const r0 = r - (big ? 5 : 3);
+    const col = t >= red ? C.red0 : C.ink0;
+    p.line(cx + Math.sin(a) * r0, cy - Math.cos(a) * r0, cx + Math.sin(a) * (r - 1), cy - Math.cos(a) * (r - 1), col);
+  }
+}
+
+/** A red zone painted on a dial's edge from fraction `from` to the end of the arc. */
+export function dialRedZone(p: Pix, cx: number, cy: number, r: number, arc: number, from: number, width = 2): void {
+  for (let d = -arc + 2 * arc * from; d <= arc; d += 0.4) {
+    const a = (d * Math.PI) / 180;
+    for (let k = 0; k < width; k++) p.set(Math.round(cx + Math.sin(a) * (r - 1 - k)), Math.round(cy - Math.cos(a) * (r - 1 - k)), k ? C.red0 : C.red1);
+  }
+}
+
+/**
+ * A small round brass-rimmed dial (plane angle, rate, speed, battery, air) with a red
+ * needle and a caption plate under it; origin at the pivot.
+ */
+export function roundDial(
+  ticker: KitContext['ticker'],
+  r: number,
+  o: { arc?: number; ticks?: number; major?: number; red?: number; figures?: [frac: number, text: string][]; caption?: string } = {},
+): { root: Container; meter: NeedleMeter } {
+  const arc = o.arc ?? 120;
+  const root = new Container();
+  const cap = o.caption ?? '';
+  const W = Math.max(r * 2 + 10, measure(cap) + 6);
+  const H = r * 2 + 8 + (cap ? 9 : 0);
+  const cx = Math.floor(W / 2);
+  const cy = r + 4;
+  root.addChild(
+    Object.assign(
+      art(W, H, (p) => {
+        paperDial(p, cx, cy, r);
+        if (o.red !== undefined && o.red < 1) dialRedZone(p, cx, cy, r, arc, o.red);
+        dialTicks(p, cx, cy, r, arc, o.ticks ?? 9, o.major ?? 4, o.red ?? 2);
+        for (const [t, text] of o.figures ?? []) {
+          const a = ((-arc + 2 * arc * t) * Math.PI) / 180;
+          const fr = r - 6;
+          drawText(p, text, Math.round(cx + Math.sin(a) * fr - measure(text) / 2), Math.round(cy - Math.cos(a) * fr - 3), C.ink0);
+        }
+        if (cap) drawText(p, cap, cx - Math.floor(measure(cap) / 2), r * 2 + 10, C.paper2, C.black);
+      }),
+      { x: -cx, y: -cy },
+    ),
+  );
+  const meter = new NeedleMeter(ticker, r - 3, arc, Math.round(arc * 1.2) + 1, C.red0, 90, 14);
+  root.addChild(meter.root);
+  return { root, meter };
 }
 
 /**

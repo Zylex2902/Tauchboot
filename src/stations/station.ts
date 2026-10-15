@@ -5,7 +5,7 @@ import { C } from '../core/palette';
 import { Pix } from '../core/pixels';
 import { createControl, Crank, type AnyControl, type ControlSpec, type KitContext } from '../controls';
 import { panelArt, PANEL_H, plate } from './panel-art';
-import { Board, GAP, layout, type LayoutNode, type PinOpts, type Rect } from './boards';
+import { Board, GAP, layout, type LayoutNode, type PinOpts, type Rect, type Skin } from './boards';
 import { ART_W } from '../core/display';
 
 /**
@@ -58,6 +58,8 @@ export abstract class StationScene {
   private tree: LayoutNode | null = null;
   protected readonly boards = new Map<string, Board>();
   private header: Sprite | null = null;
+  /** Pipe runs along the deckhead, behind the header (stations that have them). */
+  private pipes: TilingSprite | null = null;
   readonly controls = new Map<string, AnyControl>();
   /** Controls whose position mirrors the sim (restored from the sim, not from the UI save). */
   readonly noSave = new Set<string>();
@@ -93,11 +95,11 @@ export abstract class StationScene {
    * Build the station from boards: a name plate in the header strip, then the boards laid
    * out below it by `tree`. Pin things into them with `pin` / `pinControl`.
    */
-  protected useBoards(tree: LayoutNode): void {
+  protected useBoards(tree: LayoutNode, skin: Skin = 'iron'): void {
     this.tree = tree;
     const walk = (n: LayoutNode) => {
       if ('board' in n) {
-        const b = new Board(n.board, n.title ?? n.board.toUpperCase(), n.min[0], n.min[1]);
+        const b = new Board(n.board, n.title ?? n.board.toUpperCase(), n.min[0], n.min[1], skin);
         this.boards.set(n.board, b);
         this.root.addChild(b.root);
       } else n.kids.forEach(walk);
@@ -110,6 +112,16 @@ export abstract class StationScene {
     this.header = new Sprite(p.toTexture());
     this.header.position.set(GAP + 2, 3);
     this.root.addChild(this.header);
+  }
+
+  /** Finish the bare bulkhead: a wall texture for the plating, and pipe runs in the header strip. */
+  protected paintWall(wall: Texture, pipes?: Texture): void {
+    this.bg.texture = wall;
+    if (pipes) {
+      this.pipes = new TilingSprite({ texture: pipes, width: this.w, height: pipes.height });
+      this.pipes.eventMode = 'none';
+      this.root.addChildAt(this.pipes, 1);
+    }
   }
 
   protected pin(board: string, node: Container, ax: number, ay: number, x = 0, y = 0, o: PinOpts = {}): Container {
@@ -146,6 +158,7 @@ export abstract class StationScene {
     this.h = h;
     this.bg.width = w;
     this.bg.height = h;
+    if (this.pipes) this.pipes.width = w;
     if (this.tree) {
       const rects = new Map<string, Rect>();
       layout(this.tree, { x: GAP, y: HEADER_H, w: w - GAP * 2, h: h - HEADER_H - GAP }, rects);

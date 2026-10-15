@@ -17,7 +17,7 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 const QUIET = 'ALL QUIET.';
 

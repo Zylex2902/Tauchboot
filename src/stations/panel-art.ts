@@ -165,3 +165,67 @@ export function maskRect(x: number, y: number, w: number, h: number): Graphics {
   return new Graphics().rect(x, y, w, h).fill(0xffffff);
 }
 
+
+/** A painted rivet head: the paint's own colours, lit upper left. */
+export function paintRivet(p: Pix, x: number, y: number): void {
+  p.set(x, y, C.bilge3);
+  p.set(x + 1, y, C.bilge2);
+  p.set(x, y + 1, C.bilge2);
+  p.set(x + 1, y + 1, C.bilge1);
+  p.set(x + 2, y + 1, C.black);
+  p.set(x + 1, y + 2, C.black);
+  p.set(x + 2, y + 2, C.black);
+}
+
+/**
+ * Control-room bulkhead (art test): bilge-green paint over steel, a fine diagonal grain,
+ * paint chips and rust weeping from the rivets, and a dark frame (rib) down one side.
+ * Tiles seamlessly at 160 x 120.
+ */
+export function paintedWall(seed = 31): Pix {
+  const W = 160;
+  const H = 120;
+  const r = rng(seed);
+  const p = new Pix(W, H, C.bilge1);
+  p.ditherFn((x, y) => (((x + y) & 3) === 0 ? 7 : ((x - y) & 7) === 0 ? 3 : 1), C.bilge1, C.bilge0);
+  for (let k = 0; k < 40; k++) p.set(Math.floor(r() * W), Math.floor(r() * H), r() < 0.7 ? C.bilge2 : C.iron7);
+  // The rib: a T-section frame with a rivet row, rust weeping down from some rivets.
+  const rx = 132;
+  p.rect(rx, 0, 12, H, C.iron2);
+  p.rect(rx, 0, 1, H, C.iron4);
+  p.rect(rx + 11, 0, 1, H, C.black);
+  p.rect(rx + 3, 0, 6, H, C.iron3);
+  for (let y = 5; y < H; y += 15) {
+    p.set(rx + 5, y, C.iron6);
+    p.set(rx + 6, y, C.iron5);
+    p.set(rx + 5, y + 1, C.iron5);
+    p.set(rx + 6, y + 1, C.iron1);
+    if (r() < 0.45) for (let k = 2; k < 4 + r() * 9; k++) p.set(rx + 5 + (k > 5 ? 1 : 0), y + k, k < 4 ? C.rust1 : C.rust0);
+  }
+  return p;
+}
+
+/**
+ * Pipe runs along the deckhead (art test): a grey service main, a brass air line and a
+ * red line, clamped to the frames. 21 px tall, tiles across at 96 px.
+ */
+export function pipeRun(): Pix {
+  const W = 96;
+  const p = new Pix(W, 21);
+  const pipe = (y: number, rows: number[], shadow = true) => {
+    rows.forEach((c, i) => p.rect(0, y + i, W, 1, c));
+    if (shadow) p.rect(0, y + rows.length, W, 1, C.black);
+  };
+  pipe(2, [C.iron4, C.iron7, C.iron6, C.iron5, C.iron3]);
+  pipe(10, [C.brass1, C.brass2, C.brass0]);
+  pipe(15, [C.red0, C.red1, C.rust0]);
+  // Clamps and a flange.
+  for (const x of [14, 62]) {
+    p.rect(x, 1, 3, 7, C.iron2);
+    p.rect(x, 1, 1, 7, C.iron5);
+  }
+  p.rect(40, 9, 2, 5, C.brass0);
+  p.rect(40, 9, 1, 5, C.brass2);
+  p.rect(84, 14, 3, 5, C.rust1);
+  return p;
+}

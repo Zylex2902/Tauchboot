@@ -5,6 +5,7 @@ import { Pix } from '../core/pixels';
 import { SFX } from '../core/sfx';
 import { ease } from '../core/tween';
 import { capTexture, collar, labelSprite, type CapColor } from './art';
+import { coverFrames, HINGE } from './button';
 import { Control, type BaseSpec, type KitContext } from './control';
 
 export interface HoldSpec extends BaseSpec {
@@ -18,6 +19,10 @@ export interface HoldSpec extends BaseSpec {
   drainGain?: number;
   color?: CapColor;
   radius?: number;
+  /** A hinged safety cover: the first touch lifts it, then the button can be held. */
+  cover?: boolean;
+  /** The cover drops shut again after this long untouched (ms). */
+  coverTimeout?: number;
 }
 
 const SEG_W = 4;
@@ -47,6 +52,12 @@ export class Hold extends Control<number> {
   private forced = 0;
   /** Showing a valve someone else is working: the gauge follows it, nothing drains. */
   private following = false;
+  private cover: Sprite | null = null;
+  private coverTex: Texture[] = [];
+  private coverOpen = false;
+  private coverTimer = 0;
+  /** This touch only lifted the cover: it does not work the valve. */
+  private lifting = false;
 
   constructor(readonly s: HoldSpec, ctx: KitContext) {
     super(s, ctx, 0);
@@ -78,9 +89,28 @@ export class Hold extends Control<number> {
       l.position.set(-Math.floor(l.width / 2), gy - r - 5 + SEG_H + 7);
       this.root.addChild(l);
     }
+    if (s.cover) {
+      this.coverTex = coverFrames(r);
+      this.cover = new Sprite(this.coverTex[0]);
+      this.cover.position.set(-(r + 6), -(r + 6) - HINGE);
+      this.root.addChild(this.cover);
+    }
 
     this.track({
-      down: () => {
+      down: (e) => {
+        if (this.cover) {
+          if (!this.coverOpen) {
+            this.lifting = true;
+            this.setCover(true);
+            return;
+          }
+          if (e.getLocalPosition(this.root).y < -(r + 6)) {
+            this.lifting = true;
+            this.setCover(false); // tap the raised flap to close it
+            return;
+          }
+          clearTimeout(this.coverTimer);
+        }
         this.forced = 0;
         void ctx.tw.to(this.cap, { y: this.capY + 2 }, { duration: 50 });
         this.sfx('press', SFX.press, { gain: 0.7, rate: 1.2 });
@@ -90,6 +120,11 @@ export class Hold extends Control<number> {
         if (this.value < 1) this.loopSnd = mixer.loop(s.sounds?.loop ?? SFX.hiss, s.bus ?? 'machinery', { gain: 0.6, rate: 0.8 + this.value * 0.5 });
       },
       up: () => {
+        if (this.lifting) {
+          this.lifting = false;
+          return;
+        }
+        if (this.cover) this.armTimer();
         void ctx.tw.to(this.cap, { y: this.capY }, { duration: 160, ease: ease.outBack });
         this.sfx('release', SFX.release, { gain: 0.5 });
         this.buzz('release', 'release');
@@ -105,7 +140,7 @@ export class Hold extends Control<number> {
     const dt = Math.min(50, t.deltaMS) / 1000;
     if (this.following && !this.held) return;
     let v = this.value;
-    if (this.held && v < 1) {
+    if (this.held && !this.lifting && v < 1) {
       v = Math.min(1, v + this.s.rate * dt);
       this.loopSnd?.setRate(0.8 + v * 0.5);
       if (v >= 1 && !this.full) {
@@ -129,6 +164,31 @@ export class Hold extends Control<number> {
     this.emit(v, !this.held);
     this.drawGauge();
   };
+
+  /** Lift or drop the safety cover (by hand, or someone else at the valve). Animated, with sound. */
+  setCover(open: boolean): void {
+    if (!this.cover || open === this.coverOpen) return;
+    if (!open && this.held && !this.lifting) return;
+    this.coverOpen = open;
+    const seq = open ? [0, 1, 2, 3, 4] : [4, 3, 2, 1, 0];
+    void this.ctx.tw.frames(5, open ? 150 : 120, (i) => (this.cover!.texture = this.coverTex[seq[i]]));
+    this.sfx(open ? 'coverOpen' : 'coverClose', open ? SFX.coverOpen : SFX.coverClose);
+    this.buzz(open ? 'coverOpen' : 'coverClose', open ? 'tick' : 'press');
+    if (open) this.armTimer();
+    else clearTimeout(this.coverTimer);
+  }
+
+  get isCoverOpen(): boolean {
+    return this.coverOpen;
+  }
+
+  private armTimer(): void {
+    clearTimeout(this.coverTimer);
+    this.coverTimer = window.setTimeout(() => {
+      if (this.held || (this.following && this.value > 0)) return this.armTimer();
+      this.setCover(false);
+    }, this.s.coverTimeout ?? 5000);
+  }
 
   override get persistent(): boolean {
     return true;
@@ -181,10 +241,12 @@ export class Hold extends Control<number> {
 
   protected coreRect(): Rectangle {
     const r = (this.s.radius ?? 12) + 4;
-    return new Rectangle(-r, -r, r * 2, r * 2);
+    const up = this.s.cover ? 8 : 0;
+    return new Rectangle(-r, -r - up, r * 2, r * 2 + up);
   }
 
   override destroy(): void {
+    clearTimeout(this.coverTimer);
     this.ctx.ticker.remove(this.tick);
     this.loopSnd?.stop();
     this.drainSnd?.stop();

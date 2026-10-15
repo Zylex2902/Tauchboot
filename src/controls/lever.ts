@@ -16,16 +16,30 @@ export interface LeverSpec extends BaseSpec {
   initial?: number;
   /** Lag behind the finger in ms: heavier levers feel slower. */
   weight?: number;
+  /** 'grip': a knurled brass grip. 'red': a red ball on a short stem (valve levers). */
+  knob?: 'grip' | 'red';
 }
 
 const GRIP_LONG = 22;
 const GRIP_SHORT = 12;
 const SLOT = 6;
 
-function gripTexture(axis: 'x' | 'y'): Texture {
+function gripTexture(axis: 'x' | 'y', knob: LeverSpec['knob'] = 'grip'): Texture {
   const w = axis === 'y' ? GRIP_LONG : GRIP_SHORT;
   const h = axis === 'y' ? GRIP_SHORT : GRIP_LONG;
   const p = new Pix(w + 1, h + 1);
+  if (knob === 'red') {
+    // Stem across the slot, red ball on it, lit from the upper left.
+    const cx = Math.floor(w / 2);
+    const cy = Math.floor(h / 2);
+    if (axis === 'y') p.rect(cx - 7, cy - 1, 14, 3, C.iron2);
+    else p.rect(cx - 1, cy - 7, 3, 14, C.iron2);
+    p.disc(cx + 1, cy + 1, 5, C.black);
+    p.disc(cx, cy, 5, C.red0);
+    p.disc(cx - 1, cy - 1, 3, C.red1);
+    p.set(cx - 2, cy - 2, C.paper3);
+    return p.toTexture();
+  }
   p.rect(1, 1, w, h, C.black); // drop shadow
   p.rect(0, 0, w, h, C.brass1);
   p.rect(0, 0, w, 1, C.brass2);
@@ -83,7 +97,7 @@ export class Lever extends Control<number> {
     plate.position.set(-sx, -sy);
     this.root.addChild(plate);
 
-    this.grip = new Sprite(gripTexture(s.axis));
+    this.grip = new Sprite(gripTexture(s.axis, s.knob));
     this.root.addChild(this.grip);
     this.pos = this.targetPos = along(this.value);
     this.lastNearest = this.value;

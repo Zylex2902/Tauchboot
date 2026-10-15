@@ -48,13 +48,14 @@ The game boots into a 5-minute drill: one merchant crossing ahead. Orders card -
 3. Swing MAG to 6X, match her shape on the recognition card (sets her mast height), turn the STADIMETER: an amber copy of her rises; stop when its keel sits on her tallest masthead, then MARK. The range drum reads metres.
 Keep looks short: the UP counter shows seconds the glass is out of the water; too long and she sees the scope and runs. After about 5.5 minutes she has crossed. The drill report grades bearing, range, type and scope time; AGAIN starts a new ship. Keyboard: Enter/Space presses the card's key.
 
-## Control room and dive drill (chunk 1.2, compartment 4)
+## Control room and dive drill (chunks 1.2 and 1.4, compartment 4)
+The control room is laid out as in the art test: BOW PLANES wheel on the left (with its plane indicator and the M/MIN rate dial the bow planesman steers by), STERN PLANES on the right (indicator, ANGLE bubble, the CREW/HAND switch), the DEPTH board in the middle (depth column, big depth gauge, KNOTS, BATTERY, HP AIR, HELD S), the tank valves under it (FWD and AFT flood levers with their ballast glasses and lamps, BLOW under a red cover, REG and TRIM), and ORDERS at the far right (telegraph, ORDER M crank).
 On the orders card, DIVE DRILL swaps drills (PERISCOPE DRILL swaps back). The boat starts on the surface, a tonne or so out of trim, with the planes in your hands.
-1. Dive: drag both VENT levers to OPEN, ring HALF on the TELEGRAPH, turn the BOW PLANES wheel to dive (D on its dial).
-2. Take her to 60 m (the brass pointer on the FINE tape). STERN PLANES set her angle (the bubble), BOW PLANES push her depth; take the angle off well before the mark.
-3. Hold 60 m within 2 m for 60 s (HELD S drum). If she keeps wanting to sink she is heavy: REGULATING to PUMP for a few seconds. Rising: FLOOD. TRIM moves water fore and aft to level her.
-4. Surface: vents SHUT, hold BLOW, planes to rise (R).
-The report grades the dive, hold, angles, air and time. Past 150 m (red) the hull groans and rivets go; somewhere deeper she is crushed. Touching any wheel or valve while the crew has the boat takes the planes; the PLANES switch gives them back, and the crew keeps the ORDER M depth (crank). Voice pipe PERISCOPE DEPTH and SURFACE THE BOAT now act. In the periscope drill the crew keeps her at 13 m; if she broaches, the merchant sees her.
+1. Dive: pull both red flood levers down (the lamps light), ring HALF on the telegraph (the brass pointer beside it swings to HALF when the engine room answers, with the gong), turn the bow wheel to dive (D on its dial).
+2. Take her to 60 m (the brass pointer on the depth column; the water line in the column is her depth). STERN PLANES set her angle (the bubble), BOW PLANES push her depth; take the angle off well before the mark.
+3. Hold 60 m within 2 m for 60 s (HELD S drum). If she keeps wanting to sink she is heavy: REG to PUMP for a few seconds. Rising: FLOOD. TRIM moves water fore and aft to level her.
+4. Surface: flood levers up, tap BLOW once to lift its cover, then hold BLOW; planes to rise (R). The cover drops shut by itself a few seconds after you let go.
+The report grades the dive, hold, angles, air and time. Past 150 m (red) the hull groans and rivets go; somewhere deeper she is crushed. Touching any wheel or valve while the crew has the boat takes the planes; the CREW/HAND switch gives them back, and the crew keeps the ORDER M depth. Voice pipe PERISCOPE DEPTH and SURFACE THE BOAT now act. In the periscope drill the crew keeps her at 13 m; if she broaches, the merchant sees her. Tap the CONTROL ROOM name plate for the layout readout and touch-target outlines.
 
 ## Power (chunk 1.3, Engine Room, compartment 8)
 Dived, two motors run her off the battery; on the surface two diesels drive her and charge it. The engine room (still a grey box) shows BATTERY charge, AMPS (charging left, discharging right), FUEL, lamps for DIESELS (blinking on start air), MOTORS and CHARGE, and the engineer's card: hours to flat and how far off an escort hears her at each telegraph speed.

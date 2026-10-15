@@ -19,16 +19,74 @@ export interface CrankSpec extends BaseSpec {
   initial?: number;
   /** Output steps per turn (default 100). Fine instruments need more. */
   resolution?: number;
+  /** 'plain': thin rim, four iron spokes. 'spoked': a heavy brass handwheel, six spokes. */
+  style?: 'plain' | 'spoked';
 }
 
 const FRAMES = 48;
 const TAU = Math.PI * 2;
-const cache = new Map<number, Texture[]>();
+const cache = new Map<string, Texture[]>();
+
+/**
+ * A heavy brass handwheel (dive planes): a thick rim lit from the upper left, six spokes,
+ * a hub and a turned grip on the rim. The light stays put as the wheel turns.
+ */
+function spokedFrames(r: number): Texture[] {
+  const frames: Texture[] = [];
+  const size = r * 2 + 4;
+  const c = r + 1;
+  const band = Math.max(4, Math.round(r / 7));
+  for (let f = 0; f < FRAMES; f++) {
+    const a0 = (f / FRAMES) * TAU;
+    const p = new Pix(size, size);
+    p.disc(c + 1, c + 2, r, C.black); // shadow
+    p.disc(c, c, r, C.black);
+    // Rim: shaded by where it faces the lamp (upper left).
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) {
+        const d = Math.hypot(x - c, y - c);
+        if (d > r - 0.6 || d < r - band) continue;
+        const lit = -((x - c) + (y - c)) / (d || 1); // +1 upper left .. -1 lower right
+        const edge = d > r - 1.6 || d < r - band + 1;
+        p.set(x, y, edge ? (lit > 0.3 ? C.brass1 : C.rust1) : lit > 0.55 ? C.brass2 : lit > -0.35 ? C.brass1 : C.brass0);
+      }
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (Math.hypot(x - c, y - c) < r - band - 0.4) p.set(x, y, -1);
+    // Six spokes with a shadowed edge, into the hub.
+    for (let k = 0; k < 6; k++) {
+      const a = a0 + (k * TAU) / 6;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      p.line(c + ca * 5 + 1, c + sa * 5 + 1, c + ca * (r - band) + 1, c + sa * (r - band) + 1, C.rust0, 2);
+      p.line(c + ca * 5, c + sa * 5, c + ca * (r - band), c + sa * (r - band), C.brass1, 2);
+    }
+    p.disc(c + 1, c + 1, 7, C.black);
+    p.disc(c, c, 7, C.brass0);
+    p.disc(c - 1, c - 1, 5, C.brass1);
+    p.set(c - 3, c - 3, C.brass2);
+    p.set(c - 2, c - 3, C.brass2);
+    p.disc(c, c, 2, C.iron1);
+    // Turned grip on the rim.
+    const kx = c + Math.round(Math.cos(a0) * (r - band / 2));
+    const ky = c + Math.round(Math.sin(a0) * (r - band / 2));
+    p.disc(kx + 1, ky + 1, 4, C.black);
+    p.disc(kx, ky, 4, C.iron2);
+    p.disc(kx - 1, ky - 1, 2, C.iron5);
+    p.set(kx - 2, ky - 2, C.iron8);
+    frames.push(p.toTexture());
+  }
+  return frames;
+}
 
 /** Pre-rendered rotation frames: pixel art never rotates by transform. */
-function wheelFrames(r: number): Texture[] {
-  const hit = cache.get(r);
+function wheelFrames(r: number, style: CrankSpec['style'] = 'plain'): Texture[] {
+  const key = `${style}:${r}`;
+  const hit = cache.get(key);
   if (hit) return hit;
+  if (style === 'spoked') {
+    const f = spokedFrames(r);
+    cache.set(key, f);
+    return f;
+  }
   const frames: Texture[] = [];
   const size = r * 2 + 4;
   const c = r + 1;
@@ -59,7 +117,7 @@ function wheelFrames(r: number): Texture[] {
     p.disc(kx - 1, ky - 1, 1, C.red1);
     frames.push(p.toTexture());
   }
-  cache.set(r, frames);
+  cache.set(key, frames);
   return frames;
 }
 
@@ -83,7 +141,7 @@ export class Crank extends Control<number> {
   constructor(readonly s: CrankSpec, ctx: KitContext) {
     super(s, ctx, s.initial ?? 0);
     this.r = s.radius;
-    this.frames = wheelFrames(s.radius);
+    this.frames = wheelFrames(s.radius, s.style);
     this.wheel = new Sprite(this.frames[0]);
     this.wheel.position.set(-s.radius - 1, -s.radius - 1);
     this.angle = this.value * TAU;
@@ -218,7 +276,7 @@ export class Crank extends Control<number> {
   setRadius(r: number): void {
     if (r === this.r) return;
     this.r = r;
-    this.frames = wheelFrames(r);
+    this.frames = wheelFrames(r, this.s.style);
     this.wheel.position.set(-r - 1, -r - 1);
     if (this.labelSprite) this.labelSprite.y = r + 6;
     this.draw();

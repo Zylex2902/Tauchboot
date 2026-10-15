@@ -19,10 +19,10 @@ export interface ButtonSpec extends BaseSpec {
   pressHaptic?: HapticKind;
 }
 
-const HINGE = 8; // rows above the hinge line inside each cover frame
+export const HINGE = 8; // rows above the hinge line inside each cover frame
 
 /** Safety cover frames, 0 = shut over the button .. 4 = folded up past the hinge. */
-function coverFrames(r: number): Texture[] {
+export function coverFrames(r: number): Texture[] {
   const w = r * 2 + 12;
   const full = r * 2 + 12;
   const heights = [full, Math.round(full * 0.55), 2, -4, -6];

@@ -42,6 +42,8 @@ const SQUEEZE = 0.012;
 /** HP air bank volume, m^3 (bar x m^3 = free air). */
 const BANK = 4;
 const PLANE_RATE = 5; // deg/s
+/** Seconds for the engine room to answer a telegraph order. */
+const ANSWER_S = 1.6;
 
 export interface BoatState {
   depth: number;
@@ -80,6 +82,9 @@ export interface BoatState {
   flow: BoatObs['flow'];
   /** Diesels, motors, battery and fuel. */
   power: PowerState;
+  /** The engine room's answer on the telegraph (what the shafts are doing), and how long the order has waited. */
+  answered: number;
+  ansT: number;
 }
 
 export interface BoatHost {
@@ -146,6 +151,8 @@ function blank(r: Rng): BoatState {
     rate: 0,
     flow: { vent: 0, blow: 0, spill: 0, flood: 0, pump: 0, trim: 0, bilge: 0 },
     power: newPower(),
+    answered: TELEGRAPH_STOP,
+    ansT: 0,
   };
 }
 
@@ -224,8 +231,16 @@ export const boat = {
     const surfaced = isSurfaced(b);
     const flow = b.flow;
 
+    // The engine room answers the telegraph a moment after it rings, then the shafts change.
+    if (b.answered !== s.telegraph) {
+      b.ansT += dt;
+      if (b.ansT >= ANSWER_S) {
+        b.answered = s.telegraph;
+        b.ansT = 0;
+      }
+    } else b.ansT = 0;
     // Speed: diesels on the surface, motors on the battery; a heavy hull is slow to change.
-    const pin = { surfaced, diving: s.ventF || s.ventA, telegraph: s.telegraph, depth: b.depth, lost: false, flow };
+    const pin = { surfaced, diving: s.ventF || s.ventA, telegraph: b.answered, depth: b.depth, lost: false, flow };
     const kn = power.drive(b.power, pin);
     const live = power.pumpsLive(b.power);
     b.speed += ((kn * KN - b.speed) * dt) / (surfaced ? 15 : 25);
@@ -325,6 +340,7 @@ export const boat = {
     o.bow = b.bow;
     o.stern = b.stern;
     o.set = { ...b.set };
+    o.answered = b.answered;
     const m = mbtWater(b);
     o.mbtF = m.f / MBT_CAP;
     o.mbtA = m.a / MBT_CAP;

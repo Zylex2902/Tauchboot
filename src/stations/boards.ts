@@ -2,7 +2,8 @@ import { Container, Sprite, Texture } from 'pixi.js';
 import { drawText, measure, textSprite } from '../core/font';
 import { C, type ColorIndex } from '../core/palette';
 import { Pix } from '../core/pixels';
-import { rivet } from './panel-art';
+import { paintRivet, rivet } from './panel-art';
+import { rng } from '../core/pixels';
 
 /**
  * Instrument boards: a station is a few framed boards, each one job (DEPTH, PLANES,
@@ -68,14 +69,51 @@ export function minOf(n: LayoutNode): [number, number] {
 
 const frameCache = new Map<string, Texture>();
 
+/** How a station's boards are finished: bare steel trays, or painted plates (art test). */
+export type Skin = 'iron' | 'paint';
+
+/**
+ * A painted instrument plate: lighter bilge green, a fine grain heavier toward the edges,
+ * a lit top edge and a shadowed bottom, painted-over rivets, a few paint chips.
+ */
+function paintTexture(w: number, h: number, title: string): Texture {
+  const p = new Pix(w, h, C.bilge2);
+  const r = rng(w * 131 + h * 17 + title.length);
+  p.ditherFn((x, y) => {
+    const e = Math.min(x, y, w - 1 - x, h - 1 - y);
+    return Math.min(14, (((x + 2 * y) & 3) === 0 ? 4 : 1) + (e < 7 ? (7 - e) * 1.4 : 0));
+  }, C.bilge2, C.bilge1);
+  for (let k = 0; k < (w * h) / 220; k++) p.set(3 + Math.floor(r() * (w - 6)), 3 + Math.floor(r() * (h - 6)), r() < 0.6 ? C.bilge3 : C.iron7);
+  p.frame(0, 0, w, h, C.black);
+  p.rect(1, 1, w - 2, 1, C.bilge3);
+  p.rect(1, 1, 1, h - 2, C.bilge3);
+  p.rect(1, h - 2, w - 2, 1, C.bilge0);
+  p.rect(w - 2, 1, 1, h - 2, C.bilge0);
+  for (const [x, y] of [[3, 3], [w - 6, 3], [3, h - 6], [w - 6, h - 6]]) paintRivet(p, x, y);
+  if (title) {
+    const tw = measure(title) + 8;
+    p.rect(8, 2, tw + 1, 10, C.black);
+    p.rect(8, 2, tw, 9, C.brass1);
+    p.rect(8, 2, tw, 1, C.brass2);
+    p.rect(8, 10, tw, 1, C.brass0);
+    drawText(p, title, 12, 4, C.ink0, C.brass2);
+  }
+  return p.toTexture();
+}
+
 /**
  * A board: a recessed steel tray with a lipped edge, screws in the corners and its job
  * stamped on a small plate in the top-left. Drawn per size and cached.
  */
-export function boardTexture(w: number, h: number, title: string): Texture {
-  const key = `${w}x${h}:${title}`;
+export function boardTexture(w: number, h: number, title: string, skin: Skin = 'iron'): Texture {
+  const key = `${w}x${h}:${title}:${skin}`;
   const hit = frameCache.get(key);
   if (hit) return hit;
+  if (skin === 'paint') {
+    const t = paintTexture(w, h, title);
+    frameCache.set(key, t);
+    return t;
+  }
   const p = new Pix(w, h, C.iron1);
   // Lip: lit top-left, shadowed bottom-right, a dark joint all round.
   p.frame(0, 0, w, h, C.black);
@@ -135,6 +173,7 @@ export class Board {
     readonly title: string,
     readonly minW: number,
     readonly minH: number,
+    readonly skin: Skin = 'iron',
   ) {
     this.root.addChild(this.frame);
   }
@@ -151,7 +190,7 @@ export class Board {
     if (r.w !== this.w || r.h !== this.h) {
       this.w = r.w;
       this.h = r.h;
-      this.frame.texture = boardTexture(r.w, r.h, this.title);
+      this.frame.texture = boardTexture(r.w, r.h, this.title, this.skin);
     }
     const cw = r.w - PAD * 2;
     const ch = r.h - TOP - PAD;
