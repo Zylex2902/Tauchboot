@@ -175,6 +175,26 @@ export const SFX = {
   wash: 'wash',
   /** Magnification lever swings the prism over. */
   prism: 'prism',
+  /** Engine telegraph: the answering gong, struck twice. */
+  telegraph: 'telegraph',
+  /** Main vents open: ballast air roaring out overhead (loop). */
+  vent: 'vent',
+  /** HP air driving water out of the ballast tanks (loop). */
+  blowAir: 'blowAir',
+  /** Sea water rushing in through a flood valve (loop). */
+  flood: 'flood',
+  /** Reciprocating trim and bilge pump, motor and valve knock (loop). */
+  pump: 'pump',
+  /** Air escaping from the flood holes as bubbles (loop). */
+  bubbles: 'bubbles',
+  /** The hull taking up the pressure: a long low steel groan. */
+  creak: 'creak',
+  /** A rivet head shearing off: a gunshot ring through the hull. */
+  rivet: 'rivet',
+  /** The hull giving way. */
+  crush: 'crush',
+  /** Bridge breaking the surface: water cascading off the casing. */
+  breach: 'breach',
 } as const;
 
 /** Turns per minute the screw loop is rendered at. */
@@ -216,6 +236,16 @@ export const SFX_NOTES: Record<string, string> = {
   hoist: 'periscope hoist motor and cable, loops',
   wash: 'sea washing over the scope head',
   prism: 'magnification prism swinging over',
+  telegraph: 'engine telegraph answering gong',
+  vent: 'main vents open, air roaring out, loops',
+  blowAir: 'HP air into the ballast tanks, loops',
+  flood: 'sea rushing in through a flood valve, loops',
+  pump: 'trim pump motor and valve knock, loops',
+  bubbles: 'air bubbling out of the flood holes, loops',
+  creak: 'hull groaning under pressure',
+  rivet: 'rivet shearing, a ring through the hull',
+  crush: 'the hull giving way',
+  breach: 'water cascading off the casing as she surfaces',
 };
 
 /** A small hard contact (switch blade, pawl, type bar tip). */
@@ -552,4 +582,142 @@ export function defineSounds(): void {
     }
     return loopable(out, sr, 0.1);
   }, 0.5);
+
+  d(SFX.telegraph, (sr) => {
+    // A brass gong on the telegraph pedestal, struck twice by its hammer.
+    const gong: Mode[] = [[742, 0.7, 1], [1863, 0.45, 0.45], [2410, 0.3, 0.3], [3920, 0.18, 0.18], [371, 0.5, 0.2]];
+    const out = len(sr, 1.4);
+    add(out, strike(sr, 1.4, 2, 351, 0.25, gong), 1, 0, sr);
+    add(out, strike(sr, 1.4, 2, 352, 0.25, gong), 0.8, 0.19, sr);
+    add(out, contact(sr, 1.4, 353, 1500, 4500, 0.006), 0.3, 0, sr);
+    add(out, contact(sr, 1.4, 354, 1500, 4500, 0.006), 0.25, 0.19, sr);
+    return grit(out, 1.3);
+  }, 0.8);
+
+  /** Seamless noise bed shaped by a one-pole low pass and a slow random swell. */
+  const rush = (sr: number, dur: number, seed: number, cut: number, wander: number) => {
+    const out = len(sr, dur + 0.1);
+    const r = rng(seed);
+    let lp = 0;
+    let sw = 0;
+    let swv = 0;
+    const a = Math.exp((-TAU * cut) / sr);
+    for (let i = 0; i < out.length; i++) {
+      swv += (r() - 0.5) * 0.0006;
+      swv *= 0.9995;
+      sw = Math.max(-0.6, Math.min(0.6, sw + swv * wander));
+      lp = lp * a + (r() * 2 - 1) * (1 - a);
+      out[i] = lp * (1 + sw);
+    }
+    return out;
+  };
+
+  /** Bubbles: little air pockets ringing as they break free, rising in pitch. */
+  const bubbleTrain = (sr: number, dur: number, seed: number, rate: number, lo: number, hi: number) => {
+    const out = len(sr, dur + 0.1);
+    const r = rng(seed);
+    for (let t = 0; t < dur; t += -Math.log(1 - r() * 0.999) / rate) {
+      const f = lo * (hi / lo) ** r();
+      const n = Math.floor(sr * 0.05);
+      const o = Math.floor(t * sr);
+      let ph = 0;
+      for (let k = 0; k < n && o + k < out.length; k++) {
+        const p = k / n;
+        ph += (f * (1 + p * 0.6)) / sr; // the pocket shrinks as it rises: the pitch climbs
+        out[o + k] += Math.sin(TAU * ph) * Math.exp(-p * 5) * (1 - Math.exp(-k / 20)) * (0.4 + r() * 0.6);
+      }
+    }
+    return out;
+  };
+
+  d(SFX.vent, (sr) => {
+    const dur = 2.4;
+    const roar = rush(sr, dur, 361, 900, 1);
+    const pipe = resonate(sr, roar, [[210, 0.02, 1], [460, 0.015, 0.6], [790, 0.01, 0.4]]);
+    const out = len(sr, dur + 0.1);
+    for (let i = 0; i < out.length; i++) out[i] = roar[i] * 2.2 + pipe[i] * 0.6;
+    add(out, bubbleTrain(sr, dur, 362, 30, 120, 420), 0.12);
+    return loopable(grit(highpass(out, 60, sr), 1.5), sr, 0.1);
+  }, 0.75);
+
+  d(SFX.blowAir, (sr) => {
+    const dur = 1.8;
+    const r = rng(371);
+    const out = len(sr, dur + 0.1);
+    for (let i = 0; i < out.length; i++) out[i] = r() * 2 - 1;
+    // HP air through a reducing valve: a hard high hiss with a steady whistle in the pipe.
+    const piped = resonate(sr, out, [[1240, 0.004, 1], [2650, 0.003, 0.7], [4100, 0.002, 0.5], [610, 0.006, 0.6]]);
+    const deep = rush(sr, dur, 372, 300, 0.5);
+    for (let i = 0; i < out.length; i++) out[i] = out[i] * 0.25 + piped[i] + deep[i] * 2.5;
+    return loopable(highpass(out, 120, sr), sr, 0.1);
+  }, 0.6);
+
+  d(SFX.flood, (sr) => {
+    const dur = 2.2;
+    const out = rush(sr, dur, 381, 650, 2);
+    for (let i = 0; i < out.length; i++) out[i] *= 2.6;
+    add(out, bubbleTrain(sr, dur, 382, 60, 200, 900), 0.18);
+    return loopable(lowpass(highpass(out, 70, sr), 2400, sr), sr, 0.1);
+  }, 0.6);
+
+  d(SFX.pump, (sr) => {
+    // Piston pump at 5 strokes a second (whole strokes per loop): a valve knock each
+    // stroke, the motor's whine under it.
+    const dur = 1.2;
+    const X = 0.08;
+    const out = len(sr, dur + X);
+    for (let k = 0; k * 0.2 < dur + X; k++) {
+      add(out, strike(sr, 0.2, 5, 391 + (k % 2), 0.6, cluster(393 + (k % 2), 140, 900, 10, 0.025)), k % 2 ? 0.6 : 1, k * 0.2, sr);
+      add(out, contact(sr, 0.2, 395 + (k % 2), 900, 3200, 0.008), 0.25, k * 0.2 + 0.09, sr);
+    }
+    const mesh = buzz(sr, dur + X, 300, 0.08, () => 1);
+    add(out, resonate(sr, mesh, cluster(397, 300, 2200, 10, 0.01, 0.7)), 0.18);
+    return loopable(lowpass(grit(out, 1.6), 3000, sr), sr, X);
+  }, 0.55);
+
+  d(SFX.bubbles, (sr) => {
+    const dur = 2;
+    const out = bubbleTrain(sr, dur, 401, 45, 90, 380);
+    add(out, rush(sr, dur, 402, 250, 1), 1.2);
+    return loopable(lowpass(out, 1800, sr), sr, 0.1);
+  }, 0.55);
+
+  d(SFX.creak, (sr) => {
+    // Stick-slip of plates against frames: a slow train of impacts exciting the hull's
+    // lowest modes, swelling and dying.
+    const dur = 2.6;
+    const fr = scrape(sr, dur, 38, 411, (p) => Math.sin(Math.PI * p) ** 1.5 * (0.6 + 0.4 * Math.sin(p * 9)));
+    const out = resonate(sr, fr, [...cluster(412, 38, 160, 14, 0.35), ...cluster(413, 180, 700, 10, 0.08, 0.8)]);
+    add(out, resonate(sr, scrape(sr, dur, 260, 414, (p) => Math.sin(Math.PI * p) ** 3), cluster(415, 500, 1800, 8, 0.02)), 0.15);
+    return grit(lowpass(out, 1400, sr), 1.8);
+  }, 0.8);
+
+  d(SFX.rivet, (sr) => {
+    const out = strike(sr, 1.6, 1.2, 421, 0, [...cluster(422, 900, 6000, 14, 0.35, 1, 0.3), ...cluster(423, 60, 400, 10, 0.5)]);
+    add(out, burst(sr, 1.6, 30, 424, 0.1), 0.6, 0, sr);
+    add(out, resonate(sr, burst(sr, 1.6, 300, 425, 0.3, 0.05), [[2100, 0.004, 1], [3500, 0.003, 0.7]]), 0.25, 0, sr); // a jet of water
+    return grit(out, 3);
+  }, 0.95);
+
+  d(SFX.crush, (sr) => {
+    const dur = 3.5;
+    const out = len(sr, dur);
+    // Frames buckling one after another, then the sea.
+    for (let k = 0; k < 9; k++) add(out, strike(sr, dur, 30 + k * 6, 431 + k, 0.5, cluster(440 + k, 30, 500, 14, 0.4)), 1 - k * 0.07, k * 0.07, sr);
+    add(out, rush(sr, dur, 450, 400, 2), 3.5, 0.5, sr);
+    for (let i = 0; i < out.length; i++) out[i] *= Math.min(1, (dur - i / sr) / 1.2);
+    return grit(lowpass(out, 2500, sr), 3.5);
+  }, 1);
+
+  d(SFX.breach, (sr) => {
+    const dur = 2.4;
+    const out = rush(sr, dur, 461, 1200, 2);
+    for (let i = 0; i < out.length; i++) {
+      const t = i / sr;
+      out[i] *= 3 * Math.min(1, t / 0.15) * Math.exp(-t / 0.9);
+    }
+    add(out, bubbleTrain(sr, dur, 462, 70, 250, 1300), 0.12);
+    add(out, strike(sr, dur, 40, 463, 0.9, cluster(464, 50, 240, 8, 0.15)), 0.6, 0, sr); // the hull lifting
+    return lowpass(highpass(out, 60, sr), 3000, sr);
+  }, 0.7);
 }

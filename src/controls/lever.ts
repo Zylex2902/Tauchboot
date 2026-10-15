@@ -163,7 +163,7 @@ export class Lever extends Control<number> {
 
   /** Move by code (e.g. crew acting on an order). Animated, with sound. */
   set(i: number): void {
-    if (this.held) return;
+    if (this.held || this.settling) return; // a hand's settle, or code already on its way
     this.lastNearest = i;
     const state = { p: this.pos };
     this.settling = true;
@@ -172,7 +172,7 @@ export class Lever extends Control<number> {
       .then(() => {
         this.settling = false;
         this.sfx('lock', SFX.press, { gain: 0.5, rate: 1.3 });
-        if (i !== this.value) this.emit(i);
+        if (i !== this.value) this.emit(i, true);
       });
   }
 

@@ -45,6 +45,8 @@ export class Hold extends Control<number> {
   private drainSnd: LoopHandle | null = null;
   private full = false;
   private forced = 0;
+  /** Showing a valve someone else is working: the gauge follows it, nothing drains. */
+  private following = false;
 
   constructor(readonly s: HoldSpec, ctx: KitContext) {
     super(s, ctx, 0);
@@ -101,6 +103,7 @@ export class Hold extends Control<number> {
 
   private tick = (t: Ticker): void => {
     const dt = Math.min(50, t.deltaMS) / 1000;
+    if (this.following && !this.held) return;
     let v = this.value;
     if (this.held && v < 1) {
       v = Math.min(1, v + this.s.rate * dt);
@@ -123,7 +126,7 @@ export class Hold extends Control<number> {
         this.sfx('empty', SFX.lampOff, { gain: 0.4 });
       }
     } else return;
-    this.emit(v);
+    this.emit(v, !this.held);
     this.drawGauge();
   };
 
@@ -141,6 +144,25 @@ export class Hold extends Control<number> {
 
   private get decayRate(): number {
     return this.forced > 0 ? this.forced : (this.s.decay ?? 0);
+  }
+
+  /**
+   * Show a valve opening worked by someone else (null: back to the hand's own). The gauge
+   * runs to it a segment at a time; the valve's sound is the boat's, not the button's.
+   */
+  follow(v: number | null): void {
+    if (v === null) {
+      this.following = false;
+      return;
+    }
+    this.following = true;
+    if (this.held) return;
+    const to = Math.max(0, Math.min(1, v));
+    const next = this.value + Math.max(-0.05, Math.min(0.05, to - this.value));
+    if (next === this.value) return;
+    this.value = next;
+    this.full = next >= 1;
+    this.drawGauge();
   }
 
   /** Run the gauge down to empty at this rate per second (DOWN SCOPE), unless pressed again. */

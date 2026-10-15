@@ -13,7 +13,7 @@ function needleFrames(len: number, arc: number, n: number, color: ColorIndex): T
   const c = len + 1;
   for (let f = 0; f < n; f++) {
     const a = ((-arc + (2 * arc * f) / (n - 1)) * Math.PI) / 180; // 0 = straight up
-    const p = new Pix(len * 2 + 3, len + 4);
+    const p = new Pix(len * 2 + 3, arc > 90 ? len * 2 + 3 : len + 4); // past 90 degrees the needle points down too
     const dx = Math.sin(a);
     const dy = -Math.cos(a);
     p.line(c - dx * 5, c - dy * 5, c + dx * len, c + dy * len, color);

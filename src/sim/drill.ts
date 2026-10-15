@@ -1,4 +1,4 @@
-import { obs, SCOPE_FOV, SCOPE_SURFACE, SHIP_CLASSES, type DrillObs, type DrillResult, type ShipClassKey, type Sight } from '../obs';
+import { BOAT, obs, SCOPE_FOV, SCOPE_SURFACE, SHIP_CLASSES, type DrillObs, type ScopeResult, type ShipClassKey, type Sight } from '../obs';
 import type { Rng } from './rng';
 
 /**
@@ -42,11 +42,11 @@ export interface DrillState {
   warned: number;
   scopeUp: number;
   foundAt: number | null;
-  heard: DrillResult['heard'];
+  heard: ScopeResult['heard'];
   height: number;
   trained: number;
   high: boolean;
-  ending: { at: number; result: DrillResult } | null;
+  ending: { at: number; result: ScopeResult } | null;
 }
 
 /** What the drill may do to the world outside itself (voice lines, lamps, timers). */
@@ -63,7 +63,7 @@ export type Effect =
   | { kind: 'alarm'; station: number; level: 0 | 1 | 2; report: string };
 
 /** Sea surface at the scope head, metres: a long swell and a shorter chop. */
-const sea = (s: number) => 0.42 * Math.sin(0.83 * s) + 0.22 * Math.sin(2.05 * s + 1.3) + 0.1 * Math.sin(4.4 * s + 0.4);
+export const sea = (s: number) => 0.42 * Math.sin(0.83 * s) + 0.22 * Math.sin(2.05 * s + 1.3) + 0.1 * Math.sin(4.4 * s + 0.4);
 
 export const bearingOf = (s: Ship) => norm(Math.atan2(s.x, s.y) / D2R);
 export const rangeOf = (s: Ship) => Math.hypot(s.x, s.y);
@@ -93,7 +93,7 @@ export function newDrillState(r: Rng, clock = 0, scope?: { height: number; train
     ship: freshShip(r),
     t: 0,
     clock,
-    obs: { phase: 'brief', t: 0, reported: null, result: null },
+    obs: { kind: 'scope', phase: 'brief', t: 0, reported: null, held: 0, result: null },
     exposure: 0,
     warned: 0,
     scopeUp: 0,
@@ -113,11 +113,11 @@ function publish(d: DrillState, p: Partial<DrillObs>): void {
   obs.publish({ type: 'drill', drill: d.obs });
 }
 
-function finish(d: DrillState, outcome: DrillResult['outcome'], ranged: DrillResult['ranged'], delay: number): void {
+function finish(d: DrillState, outcome: ScopeResult['outcome'], ranged: ScopeResult['ranged'], delay: number): void {
   if (d.ending || d.obs.phase === 'over') return;
   d.ending = {
     at: d.t + delay,
-    result: { outcome, cls: d.ship.cls, heard: d.heard, foundAt: d.foundAt, ranged, scopeUp: Math.round(d.scopeUp), seconds: Math.round(d.t) },
+    result: { kind: 'scope', outcome, cls: d.ship.cls, heard: d.heard, foundAt: d.foundAt, ranged, scopeUp: Math.round(d.scopeUp), seconds: Math.round(d.t) },
   };
 }
 
@@ -156,8 +156,15 @@ export const drill = {
     finish(d, 'ranged', { estimate: Math.round(est), truth: Math.round(rangeOf(d.ship)), mast }, 1.8);
   },
 
-  /** One fixed sim step of dt seconds. */
-  step(d: DrillState, h: DrillHost, dt: number): void {
+  /** The boat is lost: the drill ends there. */
+  lose(d: DrillState): void {
+    if (!live(d)) return;
+    d.ending = null;
+    finish(d, 'crushed', null, 0);
+  },
+
+  /** One fixed sim step of dt seconds; `own` is the boat the scope stands on. */
+  step(d: DrillState, h: DrillHost, dt: number, own: Own): void {
     d.clock += dt;
     if (live(d)) {
       d.t += dt;
@@ -168,7 +175,7 @@ export const drill = {
         finish(d, 'lost', null, 3);
       }
     } else if (d.ship.turnTo !== null) moveShip(d.ship, dt);
-    exposure(d, h, dt);
+    exposure(d, h, dt, own);
     if (d.ending && d.t >= d.ending.at) {
       const res = d.ending.result;
       d.ending = null;
@@ -177,17 +184,18 @@ export const drill = {
   },
 
   /** Write what the glass sees, between steps: ship position lerped, sea at the in-between time. */
-  present(d: DrillState, prev: { x: number; y: number; clock: number }, a: number): void {
+  present(d: DrillState, prev: { x: number; y: number; clock: number }, a: number, own: Own): void {
     const s = obs.scope;
     const x = prev.x + (d.ship.x - prev.x) * a;
     const y = prev.y + (d.ship.y - prev.y) * a;
     const clock = prev.clock + (d.clock - prev.clock) * a;
-    const lens = ((d.height - SCOPE_SURFACE) / (1 - SCOPE_SURFACE)) * LENS_TOP;
+    const lens = lensAbove(d.height, own.depth);
     s.height = d.height;
     s.trained = d.trained;
     s.high = d.high;
     s.awash = awashAt(d.height, lens, clock);
-    s.swell = 0.22 * Math.sin(0.61 * clock) + 0.1 * Math.sin(1.47 * clock + 0.8);
+    // The boat's own angle tilts the view: bow down, looking ahead, lifts the horizon.
+    s.swell = 0.22 * Math.sin(0.61 * clock) + 0.1 * Math.sin(1.47 * clock + 0.8) - own.pitch * Math.cos(d.trained * D2R);
     const R = Math.hypot(x, y);
     const sights: Sight[] = [];
     if (s.awash < 1) {
@@ -198,8 +206,19 @@ export const drill = {
   },
 };
 
+/** What the scope stands on: own boat's keel depth and pitch. */
+export interface Own {
+  depth: number;
+  pitch: number;
+}
+
+/** Lens height above the mean sea at a hoist position and keel depth, metres. */
+export function lensAbove(height: number, depth: number): number {
+  return ((height - SCOPE_SURFACE) / (1 - SCOPE_SURFACE)) * LENS_TOP - (depth - BOAT.periscopeDepth);
+}
+
 function awashAt(height: number, lens: number, clock: number): number {
-  if (height < SCOPE_SURFACE) return 1;
+  if (height < SCOPE_SURFACE - 0.05) return 1; // housed in the fairing
   return Math.max(0, Math.min(1, (sea(clock) - lens + 0.12) / 0.3));
 }
 
@@ -213,14 +232,17 @@ function moveShip(ship: Ship, dt: number): void {
   ship.y += Math.cos(ship.course * D2R) * v * dt;
 }
 
-function exposure(d: DrillState, h: DrillHost, dt: number): void {
+function exposure(d: DrillState, h: DrillHost, dt: number, own: Own): void {
   if (!live(d)) return;
-  const lens = ((d.height - SCOPE_SURFACE) / (1 - SCOPE_SURFACE)) * LENS_TOP;
+  const lens = lensAbove(d.height, own.depth);
   const awash = awashAt(d.height, lens, d.clock);
-  const lift = Math.max(0, Math.min(1, lens / LENS_TOP));
+  const lift = Math.max(0, Math.min(2, lens / LENS_TOP));
   const R = rangeOf(d.ship);
   const b = bearingOf(d.ship);
-  if (d.height > SCOPE_SURFACE && awash < 0.9) {
+  // A bridge or a hull breaking the surface is seen at once; a boat surfaced, sooner still.
+  const broach = Math.max(0, Math.min(1, (10.5 - own.depth) / 4));
+  if (broach > 0) d.exposure += (0.25 + 0.75 * broach) * Math.max(0.6, Math.min(2, 2400 / R)) * (1 / 6) * dt;
+  if (d.height >= SCOPE_SURFACE - 0.05 && awash < 0.9) {
     d.scopeUp += dt;
     d.exposure += (0.3 + 0.7 * lift) * Math.max(0.6, Math.min(2, 2400 / R)) * EXPOSURE_RATE * dt;
     const fov = d.high ? SCOPE_FOV.high : SCOPE_FOV.low;

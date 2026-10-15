@@ -10,11 +10,12 @@ import { C, hexNum } from './core/palette';
 import { Pix, rng } from './core/pixels';
 import { RotatePrompt } from './core/rotate-prompt';
 import { loadSettings } from './core/settings';
-import { defineSounds, SFX } from './core/sfx';
+import { defineSounds } from './core/sfx';
 import { Tweens } from './core/tween';
 import { Hull } from './hull/hull';
 import { obs } from './obs';
 import { runSim, Sim, type Snapshot } from './sim/core';
+import { BoatSound } from './hull/boat-sound';
 import { newSeed } from './sim/rng';
 import { readStore, writeStore } from './core/store';
 import type { UiState } from './hull/hull';
@@ -91,8 +92,6 @@ async function boot(): Promise<void> {
   lockdown();
   mixer.install();
   defineSounds();
-  // The boat is never silent: motors, mains hum and ventilation under everything.
-  mixer.whenRunning(() => mixer.loop(SFX.hull, 'bed', { gain: 0.3, fadeMs: 2500 }));
   await loadSettings();
   hapticsInit();
   void lockLandscape();
@@ -125,6 +124,7 @@ async function boot(): Promise<void> {
   const restored = saved ? Sim.load(saved.sim) : null;
   const sim = restored ?? Sim.fresh(newSeed());
   runSim(sim, app.ticker);
+  new BoatSound(app.ticker);
   const hull = new Hull(tweens, { tw: tweens, ticker: app.ticker });
   if (restored && saved?.ui) hull.restoreUi(saved.ui);
   world.addChild(hull.root);

@@ -57,6 +57,7 @@ export class TypedText {
 
   /** Show the first n characters across all lines. */
   reveal(n: number): void {
+    if (this.root.destroyed) return; // replaced while still typing
     let left = n;
     for (const row of this.rows) {
       const { line, full, sprite } = row;

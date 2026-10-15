@@ -3,7 +3,7 @@
 Landscape-only pixel-art WW2-style submarine station sim. iOS + Android (Capacitor), PWA for testing. Fictional 1940s regime; never real Nazi symbols. 9 hand-operated stations, 44-man crew runs the rest. Single-player, offline, free + one unlock.
 
 GDD + build plan: https://claude.ai/code/artifact/1bff9637-acf4-4053-9c8a-9a09e4b62e39
-Status: chunks 0.1-0.5 and 1.1 done (shell, kit, stations, hydrophone, periscope drill, sim core with saves); Gate 1 (five cold testers) still open; next 1.2 buoyancy and trim. Work one chunk at a time, then stop and report.
+Status: chunks 0.1-0.5, 1.1 and 1.2 done (shell, kit, stations, hydrophone, periscope drill, sim core with saves, buoyancy/trim + control room + dive drill); Gate 1 (five cold testers) still open; next 1.3. Work one chunk at a time, then stop and report.
 
 ## Standing rules
 - Everything that changes on screen animates (tween); nothing snaps.
@@ -27,13 +27,13 @@ Status: chunks 0.1-0.5 and 1.1 done (shell, kit, stations, hydrophone, periscope
 ## Code map
 - src/core/: display (integer scaler, bleed, safe area), lockdown, haptics, audio (buses ui/machinery/bed/sensors/voices/music, mixer.duck), sfx (procedural foley), store (patrol storage), settings, tween, typed, font, pixels, palette
 - src/controls/: data-driven kit (lever, crank, hold, switch, button+cover, key, drag; createControl(spec)); hitPolicy (44 pt min targets); persistent controls restore(v) from saves; meter, tape, odometer displays
-- src/obs/: observation layer + send(command); ships.ts (recognition manual, SCOPE_FOV/SURFACE), TIME_SCALES. The UI imports only this, never src/sim.
-- src/sim/: core.ts (Sim: fixed 10 Hz tick, commands land on tick boundaries, effects + schedule as data, time compression with auto-drop on voice/alarm/phase, snapshot/load, lerped presentation), rng.ts (one-integer state), drill.ts (0.5 drill as plain state)
+- src/obs/: observation layer + send(command); ships.ts (recognition manual, SCOPE_FOV/SURFACE), boat.ts (BOAT manual, BoatSet/BoatObs, TELEGRAPH, DIVE_DRILL), TIME_SCALES. The UI imports only this, never src/sim.
+- src/sim/: core.ts (Sim: fixed 10 Hz tick, commands land on tick boundaries, effects + schedule as data, time compression with auto-drop on voice/alarm/phase, snapshot/load, lerped presentation), rng.ts (one-integer state), drill.ts (scope drill; lens height uses boat depth), boat.ts (tanks/air/planes/depth/pitch physics, crew depth keeping, test/crush depth), dive.ts (dive drill)
 - src/main.ts: boots sim from the save (or ?fresh / ?seed=), then the hull; autosave every 4 s, on drill phase and on hide/pagehide
-- src/hull/: hull.ts (travel, swipe, keys, uiState/restoreUi), strip, report slips, voice-pipe, pause, drill-card, time-plate, transit-art
-- src/stations/: station.ts (base; noSave, saveExtra/restoreExtra), control-room (0.2 kit), radio-room (hydrophone), conning-tower + scope-view + ship-art (periscope), placeholders (data-driven grey boxes; chart table time lever wired), panel-art
-- Layout: stations keep top centre (VOICE_TAB_ZONE) free; top-right corner is the time plate; strip right end is the pause tab. No stencil masks on frame-level layers.
-- Test hook `?test`: window.__hull, __app, __mixer, __sim, __obs, __save; __noSave stops writes. Tests live in /home/claude/pw (drill.mjs, save.mjs, timescale.mjs, hull.mjs).
+- src/hull/: hull.ts (travel, swipe, keys, uiState/restoreUi), strip, report slips, voice-pipe, pause, drill-card (both drills), time-plate, transit-art, boat-sound (vents/blow/pumps/creaks from obs.boat.flow + hull events)
+- src/stations/: station.ts (base; noSave, saveExtra/restoreExtra), control-room (depth keeping + tanks; controls mirror obs.boat.set, crew drives them via Lever.set/Crank.drive/Hold.follow, byCode flag), gauges (depth tape, sight columns, bubble), radio-room (hydrophone), conning-tower + scope-view + ship-art (periscope), placeholders (data-driven grey boxes; chart table time lever wired), panel-art
+- Layout: stations keep top centre free (voice tab, and the subtitle plate over x 180-300 down to y 46); top-right corner is the time plate; strip right end is the pause tab. No stencil masks on frame-level layers.
+- Test hook `?test`: window.__hull, __app, __mixer, __sim, __obs, __save; __noSave stops writes. Tests live in /home/claude/pw (drill.mjs, dive.mjs, save.mjs, timescale.mjs, hull.mjs); headless runs ~8 fps at 960x540 dpr 1, each CDP touch ~300 ms.
 - Playtest: `npm run build:single` -> artifact https://claude.ai/artifact/Sss2vfG49S3UZXYkCwJ46K
 - Never edit ios/ or android/ by hand except Info.plist / AndroidManifest.xml orientation keys.
 

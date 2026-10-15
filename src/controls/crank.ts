@@ -74,6 +74,8 @@ export class Crank extends Control<number> {
   private lastTick: number;
   private lastHaptic = 0;
   private emitted: number;
+  /** Where code (a crewman) is turning the wheel to, in radians; null when nobody is. */
+  private driveTo: number | null = null;
 
   constructor(readonly s: CrankSpec, ctx: KitContext) {
     super(s, ctx, s.initial ?? 0);
@@ -126,10 +128,24 @@ export class Crank extends Control<number> {
     const dt = Math.min(50, t.deltaMS);
     const mass = this.s.mass ?? 0.5;
     const before = this.angle;
+    let driving = false;
     if (this.held) {
+      this.driveTo = null;
       this.angle = approach(this.angle, this.finger, dt, 20 + mass * 120);
       const v = ((this.angle - before) / dt) * 1000;
       this.vel = this.vel + (v - this.vel) * 0.5;
+    } else if (this.driveTo !== null) {
+      // A crewman's hands: brisk, steady, no coasting.
+      const step = (2.2 * TAU * dt) / 1000;
+      const d = this.driveTo - this.angle;
+      if (Math.abs(d) < 1e-3) {
+        this.driveTo = null;
+        this.vel = 0;
+        return;
+      }
+      this.angle += Math.max(-step, Math.min(step, d));
+      this.vel = ((this.angle - before) / dt) * 1000;
+      driving = true;
     } else if (Math.abs(this.vel) > 0.05) {
       this.angle += (this.vel * dt) / 1000;
       this.vel *= Math.exp((-(this.s.friction ?? 3) * dt) / 1000 / Math.max(0.15, mass));
@@ -167,9 +183,18 @@ export class Crank extends Control<number> {
     const turns = Math.round((this.angle / TAU) * res) / res;
     if (turns !== this.emitted) {
       this.emitted = turns;
-      this.emit(turns);
+      this.emit(turns, driving);
     }
   };
+
+  /** Turn the wheel by code to a reading in turns (ignored while a finger holds it). */
+  drive(turns: number): void {
+    if (this.held) return;
+    const a = turns * TAU;
+    if (Math.abs(a - this.angle) < 1e-3) return;
+    this.driveTo = a;
+    this.finger = a;
+  }
 
   override get persistent(): boolean {
     return true;

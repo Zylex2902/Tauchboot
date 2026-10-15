@@ -1,5 +1,7 @@
-import { connectSim, obs, TIME_SCALES, type AlarmLevel, type AlarmObs, type Command } from '../obs';
-import { bearingOf, drill, newDrillState, wrap, type DrillHost, type DrillState, type Effect } from './drill';
+import { BOAT, connectSim, DIVE_DRILL, obs, TIME_SCALES, type AlarmLevel, type AlarmObs, type Command, type DrillKind } from '../obs';
+import { boat, boatAtPeriscopeDepth, boatSurfaced, type BoatHost, type BoatState } from './boat';
+import { dive, newDiveState, type DiveState } from './dive';
+import { bearingOf, drill, newDrillState, sea, wrap, type DrillHost, type DrillState, type Effect } from './drill';
 import { Rng } from './rng';
 
 /**
@@ -15,12 +17,12 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 const QUIET = 'ALL QUIET.';
 
 const REPLIES: Record<string, [station: string, text: string]> = {
-  periscope: ['CONTROL ROOM', 'PERISCOPE DEPTH, AYE.'],
+  periscope: ['CONTROL ROOM', 'PERISCOPE DEPTH, AYE. ONE THREE METRES.'],
   silent: ['ENGINE ROOM', 'SILENT RUNNING, AYE. MOTORS SLOW.'],
   battle: ['CONTROL ROOM', 'BATTLE STATIONS, AYE.'],
   reload: ['BOW TORPEDO ROOM', 'RELOADING TUBE 2, AYE.'],
@@ -49,12 +51,16 @@ export interface SimState {
   tick: number;
   scale: number;
   paused: boolean;
-  rng: { drill: number; hydro: number };
+  rng: { drill: number; hydro: number; boat: number };
   sched: Scheduled[];
   alarms: AlarmObs[];
   nextTest: number;
   hydro: { trained: number; marks: number };
+  /** Which drill is set up: the periscope drill or the dive drill. */
+  kind: DrillKind;
   drill: DrillState;
+  dive: DiveState;
+  boat: BoatState;
 }
 
 export interface Snapshot {
@@ -66,41 +72,58 @@ export class Sim {
   private s: SimState;
   private rngDrill: Rng;
   private rngHydro: Rng;
+  private rngBoat: Rng;
   private queue: Command[] = [];
   private acc = 0;
   /** Ship and sea clock at the previous step, for drawing between steps (not saved). */
-  private prev = { x: 0, y: 0, clock: 0 };
+  private prev = { x: 0, y: 0, clock: 0, depth: 0, pitch: 0 };
   private host: DrillHost;
+  private boatHost: BoatHost;
+  /** Orders by voice pipe are already answered by the reply table. */
+  private silentHost: BoatHost;
 
   private constructor(s: SimState) {
     this.s = s;
     this.rngDrill = new Rng(s.rng.drill);
     this.rngHydro = new Rng(s.rng.hydro);
+    this.rngBoat = new Rng(s.rng.boat);
     this.host = {
       rng: this.rngDrill,
       say: (from, text) => this.effect({ kind: 'voice', from, text }),
       alarm: (station, level, report) => this.effect({ kind: 'alarm', station, level, report }),
       later: (seconds, fx) => this.s.sched.push({ at: this.s.tick + Math.round(seconds / TICK_S), fx }),
     };
+    this.boatHost = {
+      rng: this.rngBoat,
+      say: this.host.say,
+      alarm: this.host.alarm,
+      hull: (kind) => obs.publish({ type: 'hull', kind }),
+    };
+    this.silentHost = { ...this.boatHost, say: () => {} };
     this.keepPrev();
   }
 
   static fresh(seed: number): Sim {
     const drillRng = new Rng(seed ^ 0x9e3779b9);
+    const boatRng = new Rng((seed ^ 0x85ebca6b) >>> 0 || 3);
     const s: SimState = {
       v: SAVE_VERSION,
       seed,
       tick: 0,
       scale: 1,
       paused: false,
-      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7 },
+      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0 },
       sched: [],
       alarms: Array.from({ length: 9 }, () => ({ level: 0 as AlarmLevel, report: QUIET })),
       nextTest: 0,
       hydro: { trained: 0, marks: 0 },
+      kind: 'scope',
       drill: newDrillState(drillRng),
+      dive: newDiveState(),
+      boat: boatAtPeriscopeDepth(boatRng),
     };
     s.rng.drill = drillRng.s;
+    s.rng.boat = boatRng.s;
     return new Sim(s);
   }
 
@@ -116,16 +139,26 @@ export class Sim {
   /** Publish everything the UI needs to draw the restored (or new) boat. */
   announce(): void {
     this.s.alarms.forEach((a, station) => obs.publish({ type: 'alarm', station, obs: { ...a } }));
-    obs.publish({ type: 'drill', drill: this.s.drill.obs });
+    obs.publish({ type: 'drill', drill: this.drillObs });
     obs.publish({ type: 'timeScale', scale: this.s.scale, dropped: false });
     obs.publish({ type: 'paused', paused: this.s.paused });
     this.hydroTick(false);
-    drill.present(this.s.drill, this.prev, 1);
+    this.present(1);
+  }
+
+  private get drillObs() {
+    return this.s.kind === 'dive' ? this.s.dive.obs : this.s.drill.obs;
+  }
+
+  private present(a: number): void {
+    boat.present(this.s.boat, obs.boat, this.prev, a);
+    drill.present(this.s.drill, this.prev, a, obs.boat);
   }
 
   snapshot(): Snapshot {
     this.s.rng.drill = this.rngDrill.s;
     this.s.rng.hydro = this.rngHydro.s;
+    this.s.rng.boat = this.rngBoat.s;
     return { v: SAVE_VERSION, sim: structuredClone(this.s) };
   }
 
@@ -156,7 +189,7 @@ export class Sim {
       this.acc = 0; // behind: run slower than asked rather than freeze
     } else this.acc -= n * TICK_MS;
     for (let i = 0; i < n && !this.s.paused; i++) this.step();
-    drill.present(this.s.drill, this.prev, this.s.scale > 1 ? 1 : this.acc / TICK_MS);
+    this.present(this.s.scale > 1 ? 1 : this.acc / TICK_MS);
   }
 
   /** One fixed 100 ms tick. */
@@ -166,12 +199,23 @@ export class Sim {
     this.queue = [];
     for (const c of q) this.apply(c);
     this.s.tick++;
-    const phase = this.s.drill.obs.phase;
-    drill.step(this.s.drill, this.host, TICK_S);
-    if (this.s.drill.obs.phase !== phase) {
+    const b = this.s.boat;
+    const phase = this.drillObs.phase;
+    const wasLost = b.lost;
+    boat.step(b, this.boatHost, TICK_S, sea(this.s.drill.clock));
+    if (b.lost && !wasLost) {
+      drill.lose(this.s.drill);
+      dive.lose(this.s.dive, b);
+      for (let i = 0; i < 9; i++) this.effect({ kind: 'alarm', station: i, level: 2, report: 'THE HULL HAS GIVEN WAY.' });
+    }
+    if (this.s.kind === 'dive') {
+      this.s.drill.clock += TICK_S;
+      dive.step(this.s.dive, b, this.host, TICK_S);
+    } else drill.step(this.s.drill, this.host, TICK_S, b);
+    if (this.drillObs.phase !== phase) {
       this.setScale(1, true);
-      // A drill that has ended clears its lamps.
-      if (this.s.drill.obs.phase === 'over')
+      // A drill that has ended clears its lamps (a lost boat keeps them).
+      if (this.drillObs.phase === 'over' && !b.lost)
         for (let i = 0; i < 9; i++) if (this.s.alarms[i].level) this.effect({ kind: 'alarm', station: i, level: 0, report: QUIET });
     }
     this.hydroTick(true);
@@ -184,10 +228,12 @@ export class Sim {
     }
     this.s.rng.drill = this.rngDrill.s;
     this.s.rng.hydro = this.rngHydro.s;
+    this.s.rng.boat = this.rngBoat.s;
   }
 
   private keepPrev(): void {
-    this.prev = { x: this.s.drill.ship.x, y: this.s.drill.ship.y, clock: this.s.drill.clock };
+    const d = this.s.drill;
+    this.prev = { x: d.ship.x, y: d.ship.y, clock: d.clock, depth: this.s.boat.depth, pitch: this.s.boat.pitch };
   }
 
   private apply(c: Command): void {
@@ -196,8 +242,15 @@ export class Sim {
       case 'order': {
         const r = REPLIES[c.order];
         if (r) this.host.later(0.9, [{ kind: 'voice', from: r[0], text: r[1] }]);
+        // The control room acts on depth orders: the chief takes the boat.
+        if (c.order === 'periscope') boat.order(this.s.boat, this.silentHost, BOAT.periscopeDepth);
+        if (c.order === 'surface') boat.order(this.s.boat, this.silentHost, 0);
+        if (c.order === 'silent' && this.s.boat.set.telegraph < 2) boat.set(this.s.boat, this.boatHost, { telegraph: 2 });
         break;
       }
+      case 'boatSet':
+        boat.set(this.s.boat, this.boatHost, c.set);
+        break;
       case 'acknowledge':
         if (this.s.alarms[c.station].level > 0) this.host.later(0.7, [{ kind: 'alarm', station: c.station, level: 0, report: QUIET }]);
         break;
@@ -205,6 +258,7 @@ export class Sim {
         this.s.hydro.trained = ((c.bearing % 360) + 360) % 360;
         break;
       case 'hydroMark': {
+        if (this.s.kind !== 'scope') break;
         const h = this.s.hydro;
         obs.publish({
           type: 'hydroMark',
@@ -214,20 +268,28 @@ export class Sim {
         break;
       }
       case 'drillNew': {
+        // A drill sets the boat up for itself: trimmed at periscope depth, or on the surface.
+        const kind = c.kind ?? this.s.kind;
+        this.s.kind = kind;
         this.s.drill = newDrillState(this.rngDrill, d.clock, d);
+        this.s.dive = newDiveState();
+        this.s.boat = kind === 'dive' ? boatSurfaced(this.rngBoat) : boatAtPeriscopeDepth(this.rngBoat);
+        // The dive drill's mark goes on the ordered-depth pointer (and is what the chief keeps if handed the boat).
+        if (kind === 'dive') this.s.boat.set.ordered = DIVE_DRILL.target;
         this.keepPrev();
         for (let i = 0; i < 9; i++) this.effect({ kind: 'alarm', station: i, level: 0, report: QUIET });
-        obs.publish({ type: 'drill', drill: this.s.drill.obs });
+        obs.publish({ type: 'drill', drill: this.drillObs });
         break;
       }
       case 'drillBegin':
-        drill.begin(d, this.host);
+        if (this.s.kind === 'dive') dive.begin(this.s.dive, this.s.boat, this.host);
+        else drill.begin(d, this.host);
         break;
       case 'scopeSet':
         drill.setScope(d, c.height, c.trained, c.high);
         break;
       case 'scopeMark':
-        drill.markRange(d, this.host, c.range, c.mast);
+        if (this.s.kind === 'scope') drill.markRange(d, this.host, c.range, c.mast);
         break;
       case 'debugAlarm': {
         const [st, l, text] = TEST_ALARMS[this.s.nextTest++ % TEST_ALARMS.length];
@@ -265,7 +327,7 @@ export class Sim {
   private hydroTick(draw: boolean): void {
     const d = this.s.drill;
     const err = (wrap(bearingOf(d.ship) - this.s.hydro.trained) * Math.PI) / 180;
-    const beam = Math.abs(Math.cos(err / 2)) ** 40;
+    const beam = this.s.kind === 'scope' ? Math.abs(Math.cos(err / 2)) ** 40 : 0; // no contact in the dive drill
     const flutter = draw ? 1 + (this.rngHydro.next() - 0.5) * 0.04 : 1; // sea and flow noise
     const h = obs.hydro;
     h.trained = this.s.hydro.trained;

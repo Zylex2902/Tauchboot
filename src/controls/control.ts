@@ -87,9 +87,19 @@ export abstract class Control<V> {
     return this;
   }
 
-  protected emit(v: V): void {
+  /** True while listeners hear a change made by code (crew at the wheel), not a hand. */
+  byCode = false;
+
+  protected emit(v: V, byCode = false): void {
     this.value = v;
+    this.byCode = byCode;
     for (const l of this.listeners) l(v);
+    this.byCode = false;
+  }
+
+  /** A finger is on it right now. */
+  get isHeld(): boolean {
+    return this.activePointer !== null;
   }
 
   /** Hit rect in the parent's coordinates (for the debug overlay). */

@@ -88,7 +88,7 @@ export class Switch extends Control<boolean> {
     this.finish();
   }
 
-  toggle(): void {
+  toggle(byCode = false): void {
     const next = !this.value;
     const seq = next ? [0, 1, 2] : [2, 1, 0];
     void this.ctx.tw.frames(3, 70, (i) => (this.bat.texture = this.frames[seq[i]]));
@@ -103,7 +103,7 @@ export class Switch extends Control<boolean> {
       });
       this.sfx(next ? 'lampOn' : 'lampOff', next ? SFX.lampOn : SFX.lampOff, { gain: 0.5 });
     }
-    this.emit(next);
+    this.emit(next, byCode);
   }
 
   override get persistent(): boolean {

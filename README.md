@@ -36,7 +36,6 @@ In the Control Room, tap the CONTROL ROOM plate (top left) to slide out the read
 - Swipe left/right on bare plating to walk to the next station.
 - Voice pipe (brass tab, top centre): pull down or tap, pick an order.
 - Pause tab (right end of the strip): resume, haptics, volume. The app also pauses when it goes to the background or the phone is turned upright.
-- ALARM TEST (Control Room) raises the next canned alarm somewhere in the boat.
 - Desktop: arrow keys or 1-9 travel, V voice pipe, Esc or P pause.
 
 ## Hydrophone (chunk 0.4, Radio and Sound Room, compartment 3)
@@ -48,6 +47,14 @@ The game boots into a 5-minute drill: one merchant crossing ahead. Orders card -
 2. Conning tower (6): hold RAISE (DOWN drops the scope), TRAIN to the bearing, find her at 1.5X.
 3. Swing MAG to 6X, match her shape on the recognition card (sets her mast height), turn the STADIMETER: an amber copy of her rises; stop when its keel sits on her tallest masthead, then MARK. The range drum reads metres.
 Keep looks short: the UP counter shows seconds the glass is out of the water; too long and she sees the scope and runs. After about 5.5 minutes she has crossed. The drill report grades bearing, range, type and scope time; AGAIN starts a new ship. Keyboard: Enter/Space presses the card's key.
+
+## Control room and dive drill (chunk 1.2, compartment 4)
+On the orders card, DIVE DRILL swaps drills (PERISCOPE DRILL swaps back). The boat starts on the surface, a tonne or so out of trim, with the planes in your hands.
+1. Dive: drag both VENT levers to OPEN, ring HALF on the TELEGRAPH, turn the BOW PLANES wheel to dive (D on its dial).
+2. Take her to 60 m (the brass pointer on the FINE tape). STERN PLANES set her angle (the bubble), BOW PLANES push her depth; take the angle off well before the mark.
+3. Hold 60 m within 2 m for 60 s (HELD S drum). If she keeps wanting to sink she is heavy: REGULATING to PUMP for a few seconds. Rising: FLOOD. TRIM moves water fore and aft to level her.
+4. Surface: vents SHUT, hold BLOW, planes to rise (R).
+The report grades the dive, hold, angles, air and time. Past 150 m (red) the hull groans and rivets go; somewhere deeper she is crushed. Touching any wheel or valve while the crew has the boat takes the planes; the PLANES switch gives them back, and the crew keeps the ORDER M depth (crank). Voice pipe PERISCOPE DEPTH and SURFACE THE BOAT now act. In the periscope drill the crew keeps her at 13 m; if she broaches, the merchant sees her.
 
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
