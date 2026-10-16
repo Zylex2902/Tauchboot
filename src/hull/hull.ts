@@ -196,6 +196,7 @@ export class Hull {
     let s = this.scenes[i];
     if (!s) {
       s = createStation(i, this.ctx);
+      s.requestTravel = (to) => this.goTo(to);
       s.setSize(this.W, this.H);
       if (this.layout) s.setLayout(this.layout);
       this.bindSwipe(s);

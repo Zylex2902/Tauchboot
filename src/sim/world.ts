@@ -1,3 +1,4 @@
+import { newAirWorld, type AirWorld } from './air';
 import { HULLS, logTrack, makeGroup, progress, stepGroup, stepShip, TRACK_EVERY, type ConvoyPlan, type GroupState, type ShipState } from './fleet';
 import { newOcean, stepOcean, type OceanState } from './ocean';
 import type { Rng } from './rng';
@@ -43,6 +44,8 @@ export interface WorldOpts {
   convoy?: ConvoyOpts | false;
   independents?: number;
   ownCourse?: number;
+  /** Patrol aircraft per daylight hour (chunk 2.4). */
+  air?: number;
 }
 
 export interface WorldState {
@@ -61,6 +64,8 @@ export interface WorldState {
   groups: GroupState[];
   ships: ShipState[];
   nextShip: number;
+  /** Patrol aircraft (chunk 2.4): stepped by the sim core, which knows the boat's depth. */
+  air: AirWorld;
 }
 
 const YEAR_ESCORTS: Record<number, [number, number]> = { 1939: [1, 2], 1940: [1, 3], 1941: [3, 4], 1942: [4, 6], 1943: [6, 8], 1944: [7, 8], 1945: [7, 8] };
@@ -97,6 +102,7 @@ export function newWorld(r: Rng, opts: WorldOpts = {}): WorldState {
     groups: [],
     ships: [],
     nextShip: 1,
+    air: newAirWorld(opts.air),
   };
   w.sky = sky(start, ...latLon(w), weather.cloud);
   const y = Math.min(1945, Math.max(1939, year));

@@ -124,6 +124,21 @@ export function mountTruth(sim: Sim): void {
       g.lineTo(x + Math.sin(sh.course * D2R) * 7, y - Math.cos(sh.course * D2R) * 7);
       g.stroke();
     }
+    // Aircraft (chunk 2.4): a cross with its heading, its mode, and its height.
+    for (const a of w.air.list) {
+      const [x, y] = P(a.x, a.y);
+      if (x < -20 || y < -20 || x > W || y > H) continue;
+      g.strokeStyle = g.fillStyle = COL.escort;
+      g.beginPath();
+      g.moveTo(x - 4, y);
+      g.lineTo(x + 4, y);
+      g.moveTo(x, y - 3);
+      g.lineTo(x, y + 3);
+      g.moveTo(x, y);
+      g.lineTo(x + Math.sin(a.course * D2R) * 10, y - Math.cos(a.course * D2R) * 10);
+      g.stroke();
+      g.fillText(`${a.mode.toUpperCase()} ${Math.round(a.alt)}M${a.cloud ? ' CLOUD' : ''}`, x + 6, y - 4);
+    }
     // The scope drill's merchant, laid out around own boat heading 000.
     if (s.kind === 'scope') {
       const d = s.drill.ship;

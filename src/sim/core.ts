@@ -1,11 +1,14 @@
 import { BOAT, connectSim, DIVE_DRILL, obs, TELEGRAPH, TIME_SCALES, type AlarmLevel, type AlarmObs, type Command, type DrillKind } from '../obs';
 import { boat, boatAtPeriscopeDepth, boatSurfaced, isSurfaced, type BoatHost, type BoatState } from './boat';
 import { power } from './power';
+import { stepAir, type Drop } from './air';
+import { airDrill, airDrillBoat, newAirDrill, type AirDrillState } from './airdrill';
 import { dive, newDiveState, type DiveState } from './dive';
 import { drill, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
 import { Rng } from './rng';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
 import { beam, newSense, stepSense, type SenseHost, type SenseState } from './sense';
+import { newAirWorld } from './air';
 import { newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
 
 /**
@@ -21,17 +24,19 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 7;
-/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3). */
-const MIGRATES = [4, 5, 6];
+export const SAVE_VERSION = 8;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4). */
+const MIGRATES = [4, 5, 6, 7];
 
 const QUIET = 'ALL QUIET.';
+
+/** The chief takes her this deep on the dive alarm, metres. */
+const CRASH_DEPTH = 40;
 
 const REPLIES: Record<string, [station: string, text: string]> = {
   periscope: ['CONTROL ROOM', 'PERISCOPE DEPTH, AYE. ONE THREE METRES.'],
   silent: ['ENGINE ROOM', 'SILENT RUNNING, AYE. MOTORS SLOW.'],
   battle: ['CONTROL ROOM', 'BATTLE STATIONS, AYE.'],
-  reload: ['BOW TORPEDO ROOM', 'RELOADING TUBE 2, AYE.'],
   surface: ['CONTROL ROOM', 'SURFACING, AYE. BLOWING MAIN BALLAST.'],
   gun: ['BRIDGE', 'GUN CREW TO THE BRIDGE, AYE.'],
 };
@@ -57,7 +62,7 @@ export interface SimState {
   tick: number;
   scale: number;
   paused: boolean;
-  rng: { drill: number; hydro: number; boat: number; world: number; sense: number };
+  rng: { drill: number; hydro: number; boat: number; world: number; sense: number; air: number };
   sched: Scheduled[];
   alarms: AlarmObs[];
   nextTest: number;
@@ -67,6 +72,8 @@ export interface SimState {
   kind: DrillKind;
   drill: DrillState;
   dive: DiveState;
+  /** The air drill (chunk 2.4). */
+  air: AirDrillState;
   boat: BoatState;
   /** The true world: ships, weather, sky and water (chunk 2.1). */
   world: WorldState;
@@ -86,6 +93,7 @@ export class Sim {
   private rngBoat: Rng;
   private rngWorld: Rng;
   private rngSense: Rng;
+  private rngAir: Rng;
   private senseHost: SenseHost;
   private opHost: OperatorHost;
   private queue: Command[] = [];
@@ -104,6 +112,7 @@ export class Sim {
     this.rngBoat = new Rng(s.rng.boat);
     this.rngWorld = new Rng(s.rng.world);
     this.rngSense = new Rng(s.rng.sense);
+    this.rngAir = new Rng(s.rng.air);
     this.senseHost = { rng: this.rngSense, effect: (f) => this.effect(f) };
     this.opHost = { rng: this.rngHydro, effect: (f) => this.effect(f), publish: (call) => obs.publish({ type: 'hydroCall', call }) };
     this.host = {
@@ -133,7 +142,7 @@ export class Sim {
       tick: 0,
       scale: 1,
       paused: false,
-      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0, sense: 0 },
+      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0, sense: 0, air: (seed ^ 0x165667b1) >>> 0 || 11 },
       sched: [],
       alarms: Array.from({ length: 9 }, () => ({ level: 0 as AlarmLevel, report: QUIET })),
       nextTest: 0,
@@ -141,6 +150,7 @@ export class Sim {
       kind: 'scope',
       drill: newDrillState(drillRng),
       dive: newDiveState(),
+      air: newAirDrill(),
       boat: boatAtPeriscopeDepth(boatRng),
       world: newWorld(worldRng, world),
       sense: null as unknown as SenseState,
@@ -166,11 +176,15 @@ export class Sim {
     s.world.current ??= { set: 45, kn: 0.3 };
     s.hydro.hand ??= false;
     s.hydro.op ??= newOperator();
+    s.air ??= newAirDrill();
+    s.rng.air ??= (s.seed ^ 0x165667b1) >>> 0 || 11;
+    s.world.air ??= newAirWorld();
     if (!s.sense) {
       const r = new Rng((s.seed ^ 0x27d4eb2f) >>> 0 || 9);
       s.sense = newSense(r, s.world);
       s.rng.sense = r.s;
     }
+    s.sense.vis ??= {};
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -190,7 +204,7 @@ export class Sim {
   }
 
   private get drillObs() {
-    return this.s.kind === 'dive' ? this.s.dive.obs : this.s.drill.obs;
+    return this.s.kind === 'dive' ? this.s.dive.obs : this.s.kind === 'air' ? this.s.air.obs : this.s.drill.obs;
   }
 
   private present(a: number): void {
@@ -204,6 +218,7 @@ export class Sim {
     this.s.rng.boat = this.rngBoat.s;
     this.s.rng.world = this.rngWorld.s;
     this.s.rng.sense = this.rngSense.s;
+    this.s.rng.air = this.rngAir.s;
     return { v: SAVE_VERSION, sim: structuredClone(this.s) };
   }
 
@@ -251,11 +266,15 @@ export class Sim {
     if (b.lost && !wasLost) {
       drill.lose(this.s.drill);
       dive.lose(this.s.dive, b);
+      airDrill.lose(this.s.air);
       for (let i = 0; i < 9; i++) this.effect({ kind: 'alarm', station: i, level: 2, report: 'THE HULL HAS GIVEN WAY.' });
     }
     if (this.s.kind === 'dive') {
       this.s.drill.clock += TICK_S;
       dive.step(this.s.dive, b, this.host, TICK_S);
+    } else if (this.s.kind === 'air') {
+      this.s.drill.clock += TICK_S;
+      airDrill.step(this.s.air, b, this.host, TICK_S, this.s.world.air);
     } else drill.step(this.s.drill, this.host, TICK_S, b);
     if (this.drillObs.phase !== phase) {
       this.setScale(1, true);
@@ -264,6 +283,7 @@ export class Sim {
         for (let i = 0; i < 9; i++) if (this.s.alarms[i].level) this.effect({ kind: 'alarm', station: i, level: 0, report: QUIET });
     }
     stepWorld(this.s.world, this.rngWorld, TICK_S, b.lost ? 0 : b.speed);
+    stepAir(this.s.world.air, this.s.world, this.rngAir, TICK_S, { depth: b.depth, speedKn: b.speed / 0.5144 }, (d) => this.bombs(d));
     stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S);
     if (this.s.world.n % 10 === 0) {
       const h = this.s.hydro;
@@ -283,6 +303,7 @@ export class Sim {
     this.s.rng.boat = this.rngBoat.s;
     this.s.rng.world = this.rngWorld.s;
     this.s.rng.sense = this.rngSense.s;
+    this.s.rng.air = this.rngAir.s;
   }
 
   private keepPrev(): void {
@@ -297,6 +318,7 @@ export class Sim {
         const r = REPLIES[c.order];
         if (r) this.host.later(0.9, [{ kind: 'voice', from: r[0], text: r[1] }]);
         // The control room acts on depth orders: the chief takes the boat.
+        if (c.order === 'alarm') this.crashDive();
         if (c.order === 'periscope') boat.order(this.s.boat, this.silentHost, BOAT.periscopeDepth);
         if (c.order === 'surface') boat.order(this.s.boat, this.silentHost, 0);
         if (c.order === 'silent' && this.s.boat.set.telegraph < 2) boat.set(this.s.boat, this.boatHost, { telegraph: 2 });
@@ -337,7 +359,9 @@ export class Sim {
         this.s.kind = kind;
         this.s.drill = newDrillState(this.rngDrill, d.clock, d);
         this.s.dive = newDiveState();
-        this.s.boat = kind === 'dive' ? boatSurfaced(this.rngBoat) : boatAtPeriscopeDepth(this.rngBoat);
+        this.s.air = newAirDrill();
+        this.s.world.air.list = this.s.world.air.list.filter((a) => !a.drill);
+        this.s.boat = kind === 'dive' ? boatSurfaced(this.rngBoat) : kind === 'air' ? airDrillBoat(this.rngBoat) : boatAtPeriscopeDepth(this.rngBoat);
         // The dive drill's mark goes on the ordered-depth pointer (and is what the chief keeps if handed the boat).
         if (kind === 'dive') this.s.boat.set.ordered = DIVE_DRILL.target;
         this.keepPrev();
@@ -347,10 +371,14 @@ export class Sim {
       }
       case 'drillBegin':
         if (this.s.kind === 'dive') dive.begin(this.s.dive, this.s.boat, this.host);
+        else if (this.s.kind === 'air') airDrill.begin(this.s.air, this.s.world.air, this.s.world, this.rngAir, this.host, TICK_S);
         else drill.begin(d, this.host);
         break;
       case 'scopeSet':
         drill.setScope(d, c.height, c.trained, c.high);
+        break;
+      case 'crashDive':
+        this.crashDive();
         break;
       case 'scopeMark':
         if (this.s.kind === 'scope') drill.markRange(d, this.host, c.range, c.mast);
@@ -383,8 +411,49 @@ export class Sim {
     }
   }
 
+  /**
+   * The dive alarm: the bell rings through the boat, the bridge is cleared and the hatch
+   * shut (a few seconds on the surface), then the chief floods, planes hard down, full
+   * ahead on the motors, and takes her deep.
+   */
+  private crashDive(): void {
+    const b = this.s.boat;
+    if (b.lost) return;
+    obs.publish({ type: 'hull', kind: 'alarm' });
+    const up = b.depth < 9;
+    this.effect({ kind: 'voice', from: up ? 'BRIDGE' : 'CONTROL ROOM', text: up ? 'ALARM! CLEAR THE BRIDGE!' : 'ALARM! TAKING HER DOWN!' });
+    if (this.s.kind === 'air') airDrill.alarm(this.s.air);
+    this.s.sched.push({ at: this.s.tick + Math.round((up ? 3 : 0.5) / TICK_S), fx: [{ kind: 'crash' }] });
+  }
+
+  /** Bombs from an aircraft: how close, and how deep she was when they fell. */
+  private bombs(d: Drop): void {
+    const b = this.s.boat;
+    if (b.lost) return;
+    // Bombs set shallow: a boat still up is hit, one going down is shaken, one past 18 m hears them overhead.
+    const sev = d.dist < 70 && d.keel < 12 ? 'hit' : d.dist < 160 && d.keel < 18 ? 'shaken' : 'far';
+    obs.publish({ type: 'hull', kind: sev === 'far' ? 'bombFar' : 'bomb' });
+    if (sev === 'hit') {
+      b.rivets += 3;
+      this.boatHost.hull('rivet');
+      this.effect({ kind: 'alarm', station: 3, level: 2, report: 'BOMBS CLOSE ABOARD. WATER COMING IN AFT. PUMPS ON IT.' });
+      this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'WE ARE HIT! WATER IN THE BOAT AFT!' });
+    } else if (sev === 'shaken') {
+      this.effect({ kind: 'alarm', station: 3, level: 1, report: 'BOMBS CLOSE. GLASS BROKEN, NO LEAKS.' });
+      this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'CLOSE! SHE HOLDS, CAPTAIN.' });
+    } else this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'BOMBS, WELL ABOVE US.' });
+    if (this.s.kind === 'air') airDrill.drop(this.s.air, d, sev);
+  }
+
   /** Voice lines and raised lamps pull time compression back to real time. */
   private effect(f: Effect): void {
+    if (f.kind === 'crash') {
+      const b = this.s.boat;
+      if (b.lost) return;
+      boat.set(b, this.silentHost, { hand: false, ordered: CRASH_DEPTH, telegraph: 0 });
+      this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: `FLOODING! FULL AHEAD, PLANES HARD DOWN. GOING TO ${CRASH_DEPTH}.` });
+      return;
+    }
     if (f.kind === 'voice') {
       obs.publish({ type: 'voice', line: { from: f.from, text: f.text } });
       if (!f.keep) this.setScale(1, true);

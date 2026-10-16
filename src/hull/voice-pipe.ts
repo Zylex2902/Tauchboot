@@ -16,7 +16,7 @@ export const ORDERS: { id: string; text: [string, string]; say: string; station:
   { id: 'periscope', text: ['PERISCOPE', 'DEPTH'], say: 'PERISCOPE DEPTH.', station: 3 },
   { id: 'silent', text: ['SILENT', 'RUNNING'], say: 'SILENT RUNNING.', station: 7 },
   { id: 'battle', text: ['BATTLE', 'STATIONS'], say: 'BATTLE STATIONS.', station: 3 },
-  { id: 'reload', text: ['RELOAD', 'TUBE 2'], say: 'RELOAD TUBE 2.', station: 0 },
+  { id: 'alarm', text: ['ALARM', 'DIVE'], say: 'ALARM! DIVE!', station: 3 },
   { id: 'surface', text: ['SURFACE', 'THE BOAT'], say: 'SURFACE THE BOAT.', station: 3 },
   { id: 'gun', text: ['MAN THE', 'GUN'], say: 'MAN THE GUN.', station: 6 },
 ];

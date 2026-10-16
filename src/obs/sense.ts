@@ -63,7 +63,7 @@ export interface SoundObs {
   own: number;
 }
 
-export type SightingKind = 'smoke' | 'masts' | 'ship' | 'shadow';
+export type SightingKind = 'smoke' | 'masts' | 'ship' | 'shadow' | 'aircraft';
 
 /** A lookout's call from the bridge. */
 export interface LookoutReport {

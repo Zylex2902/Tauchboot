@@ -5,6 +5,7 @@
 import { freshBoatObs, type BoatObs, type BoatSet } from './boat';
 import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type NavObs, type Signal, type Signature, type SoundObs } from './sense';
 import type { ShipClassKey } from './ships';
+import { freshBridge, type BridgeObs } from './bridge';
 
 /** Time compression steps, real time first. */
 export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
@@ -12,6 +13,7 @@ export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
 export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassKey } from './ships';
 export { CHARGE_HOURS, DIESEL_RPM, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type EngineSet, type PowerObs } from './power';
 export { BLIND, freshEnv, freshNav, freshSound, sigKey, type DayPhase, type Engine, type Signature, type EnvObs, type LookoutReport, type NavObs, type SightingKind, type Signal, type SoundObs, type SoundSource, type Tone } from './sense';
+export { freshBridge, WARSHIP_DIMS, type BridgeObs, type BridgeSight, type BridgeView, type Outline } from './bridge';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
@@ -103,10 +105,10 @@ export interface ScopeObs {
   sights: Sight[];
 }
 
-export type DrillKind = 'scope' | 'dive';
+export type DrillKind = 'scope' | 'dive' | 'air';
 
-/** Scope drill: listen, scope, over. Dive drill: dive, hold, surface, over. */
-export type DrillPhase = 'brief' | 'listen' | 'scope' | 'dive' | 'hold' | 'surface' | 'over';
+/** Scope drill: listen, scope, over. Dive drill: dive, hold, surface, over. Air drill: watch, over. */
+export type DrillPhase = 'brief' | 'listen' | 'scope' | 'dive' | 'hold' | 'surface' | 'watch' | 'over';
 
 export interface ScopeResult {
   kind: 'scope';
@@ -141,7 +143,22 @@ export interface DiveResult {
   seconds: number;
 }
 
-export type DrillResult = ScopeResult | DiveResult;
+/** The air drill: an aircraft out of low cloud; dive before it is over you. */
+export interface AirResult {
+  kind: 'air';
+  /** clean: deep before the bombs; shaken: going down, a near miss; caught: still up when they fell. */
+  outcome: 'clean' | 'shaken' | 'caught' | 'crushed';
+  /** Drill seconds: the lookout's call, the dive alarm, the bridge under water, the bombs. */
+  calledAt: number | null;
+  alarmAt: number | null;
+  underAt: number | null;
+  dropAt: number | null;
+  /** Keel depth when the bombs fell, metres. */
+  depthAtDrop: number | null;
+  seconds: number;
+}
+
+export type DrillResult = ScopeResult | DiveResult | AirResult;
 
 export interface DrillObs {
   kind: DrillKind;
@@ -156,7 +173,8 @@ export interface DrillObs {
 }
 
 /** Heard all over the boat. */
-export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan';
+/** alarm: the dive alarm bell, rung through the boat. bomb / bombFar: aircraft bombs close aboard or off. */
+export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar';
 
 export type ObsEvent =
   | { type: 'alarm'; station: number; obs: AlarmObs }
@@ -189,7 +207,9 @@ export type Command =
   /** The captain has left a station: its crew carry on from where things stand. */
   | { type: 'leave'; station: number }
   | { type: 'scopeSet'; height: number; trained: number; high: boolean }
-  | { type: 'scopeMark'; range: number; mast: number };
+  | { type: 'scopeMark'; range: number; mast: number }
+  /** The dive alarm: clear the bridge, flood, planes hard down, full ahead on the motors. */
+  | { type: 'crashDive' };
 
 type Listener = (e: ObsEvent) => void;
 
@@ -210,6 +230,8 @@ class Observation {
   readonly nav: NavObs = freshNav();
   /** Weather as last seen from the bridge or scope, and the hull thermometer. */
   env: EnvObs = freshEnv();
+  /** What can be seen from the bridge right now (5 times a second). */
+  bridge: BridgeObs = freshBridge();
   /** Lookout calls and signals from command, newest last (the last 40 of each). */
   readonly lookouts: LookoutReport[] = [];
   readonly signals: Signal[] = [];

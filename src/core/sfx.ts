@@ -217,6 +217,16 @@ export const SFX = {
   selfNoise: 'selfNoise',
   /** Hydrophone: a convoy's many distant screws together (loop). */
   churn: 'churn',
+  /** Bridge: wind over the bridge and in the jumping wire (loop). */
+  wind: 'wind',
+  /** Bridge: rain on the steel and the sea (loop). */
+  rain: 'rain',
+  /** Bridge: an aircraft's twin radial engines (loop; gain with closeness). */
+  aircraft: 'aircraft',
+  /** The dive alarm: electric bells ringing through the boat. */
+  alarmBell: 'alarmBell',
+  /** Bombs exploding in the water near the hull. */
+  bomb: 'bomb',
 } as const;
 
 /**
@@ -283,6 +293,11 @@ export const SFX_NOTES: Record<string, string> = {
   cav: 'cavitation hiss off hard-driven blades, loops',
   selfNoise: 'own flow and machinery noise in the hydrophone, loops',
   churn: 'a convoy of distant screws together, loops',
+  wind: 'wind over the bridge and in the wires, loops',
+  rain: 'rain on steel and sea, loops',
+  aircraft: 'twin radial aircraft engines, loops',
+  alarmBell: 'dive alarm bells',
+  bomb: 'bombs exploding close to the hull',
   'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
   'screw-steam4-1': 'merchant, second voice (a nicked blade, a bigger hull), loops',
   'screw-steam3-0': 'corvette: lighter three-blade screw, fast steam, loops',
@@ -648,6 +663,67 @@ export function defineSounds(): void {
     }
     return loopable(lowpass(resonate(sr, out, cluster(540, 50, 260, 10, 0.06)), 900, sr), sr, 0.2);
   }, 0.6, true);
+
+  d(SFX.wind, (sr) => {
+    // Gusting rush, and the jumping wire and rails singing in it (noise ringing thin modes).
+    const dur = 4;
+    const out = len(sr, dur + 0.15);
+    const r = rng(601);
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < out.length; i++) {
+      const t = i / sr;
+      const gust = 0.55 + 0.45 * Math.sin((TAU * t) / dur) * Math.sin((TAU * 2 * t) / dur + 1);
+      a += (r() * 2 - 1 - a) * 0.03;
+      b += (r() * 2 - 1 - b) * 0.25;
+      out[i] = (a * 4 + b * 0.35) * gust;
+    }
+    const sing = resonate(sr, out.slice(), [[612, 0.4, 1], [941, 0.3, 0.6], [1377, 0.2, 0.3]]);
+    add(out, sing, 0.12);
+    return loopable(lowpass(out, 2400, sr), sr, 0.15);
+  }, 0.55, true);
+
+  d(SFX.rain, (sr) => {
+    const dur = 2;
+    const out = scrape(sr, dur + 0.1, 2600, 611, () => 1);
+    const r = rng(612);
+    for (let i = 0; i < out.length; i++) out[i] = out[i] * 0.7 + (r() * 2 - 1) * 0.12;
+    return loopable(lowpass(highpass(out, 900, sr), 7000, sr), sr, 0.1);
+  }, 0.45, true);
+
+  d(SFX.aircraft, (sr) => {
+    // Two nine-cylinder radials: firing pulses ringing the cowlings, a little apart so they
+    // beat; three-blade propellers chopping the air. Whole cycles in 2 s: a clean loop.
+    const dur = 2;
+    const out = len(sr, dur);
+    for (const [f, seed] of [[165, 621], [167, 622]] as const) {
+      const pulses = len(sr, dur);
+      const r = rng(seed);
+      for (let k = 0; k < f * dur; k++) pulses[Math.floor((k / f) * sr)] += 0.7 + r() * 0.3;
+      add(out, resonate(sr, pulses, cluster(seed + 10, 180, 1400, 10, 0.012)), 0.5);
+    }
+    for (let i = 0; i < out.length; i++) out[i] *= 0.65 + 0.35 * Math.abs(Math.sin((Math.PI * 70 * i) / sr));
+    return grit(lowpass(out, 3000, sr), 1.6);
+  }, 0.6, true);
+
+  d(SFX.alarmBell, (sr) => {
+    // Electric bells: a clapper hammering a steel gong about 18 times a second.
+    const dur = 2.4;
+    const out = len(sr, dur);
+    const modes = cluster(631, 900, 4200, 9, 0.25, 1, 0.35);
+    for (let t = 0; t < 2.0; t += 1 / 18) add(out, strike(sr, 0.4, 1.2, 632 + Math.floor(t * 18) % 3, 0.1, modes), 0.5, t, sr);
+    for (let i = 0; i < out.length; i++) out[i] *= Math.min(1, (dur - i / sr) / 0.4);
+    return grit(out, 1.5);
+  }, 0.75);
+
+  d(SFX.bomb, (sr) => {
+    // A charge going off in the water: a deep thud through the hull, plating ringing, loose gear rattling.
+    const dur = 2.6;
+    const out = strike(sr, dur, 60, 641, 0.95, cluster(642, 22, 110, 10, 0.6));
+    add(out, strike(sr, dur, 8, 643, 0.4, cluster(644, 300, 2200, 12, 0.08)), 0.35, 0.02, sr);
+    add(out, scrape(sr, dur, 120, 645, (p) => Math.exp(-p * 6)), 0.25);
+    return grit(lowpass(out, 1800, sr), 3);
+  }, 1);
 
   d(SFX.sea, (sr) => {
     const dur = 4;

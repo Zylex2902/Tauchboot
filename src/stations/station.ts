@@ -242,6 +242,9 @@ export abstract class StationScene {
 
   restoreExtra(_x: unknown): void {}
 
+  /** Ask the hull to take the captain to another station (set by the hull). */
+  requestTravel: (index: number) => void = () => {};
+
   /** Called when the camera has arrived here. */
   enter(): void {}
   /** Called when the camera has left. */

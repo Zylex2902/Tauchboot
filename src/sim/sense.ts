@@ -1,8 +1,9 @@
-import { BLIND, BOAT, freshEnv, obs, type EnvObs, type HydroVoice, type LookoutReport, type SightingKind, type Signal, type SoundSource } from '../obs';
+import { BLIND, BOAT, freshEnv, obs, type BridgeSight, type EnvObs, type HydroVoice, type LookoutReport, type SightingKind, type Signal, type SoundSource } from '../obs';
 import type { BoatState } from './boat';
 import { isSurfaced } from './boat';
 import type { DrillState, Effect } from './drill';
 import { HULLS, type Hull } from './fleet';
+import { lightVis } from './air';
 import { layerLoss, waterTemp } from './ocean';
 import type { Rng } from './rng';
 import { beaufortOf, seaStateOf, waveHeight } from './weather';
@@ -42,6 +43,14 @@ const ARRAY_GAIN = 12;
 const LOST_BELOW = -4;
 /** A sound unheard this long gets a new key when it comes back. */
 const KEY_FORGET = 120;
+/** The bridge's station index (for its alarm lamp). */
+const BRIDGE_STATION = 6;
+
+/** How far off an aircraft is seen against the sky, metres (it stands out more than a hull). */
+export function airSight(w: WorldState): number {
+  return Math.min(25000, lightVis(w) * 1.1);
+}
+
 /** A drill is staged in sheltered water: its merchant is heard as in a force 3 breeze. */
 const DRILL_SEA = 3;
 /** Antenna above water: surfaced or at periscope depth. */
@@ -91,6 +100,8 @@ export interface SenseState {
   thermoBias: number;
   env: EnvObs;
   nextEnv: number;
+  /** What the eye keeps track of from the bridge: world id -> its own opaque key (chunk 2.4). */
+  vis: Record<string, string>;
 }
 
 /** What the senses may know about how the sim runs them (voice lines and lamps). */
@@ -139,6 +150,7 @@ export function newSense(r: Rng, w: WorldState): SenseState {
     thermoBias: (r.next() - 0.5) * 0.2,
     env: freshEnv(),
     nextEnv: 0,
+    vis: {},
   };
 }
 
@@ -353,6 +365,28 @@ function look(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, em: Emi
     const range = can === 1 ? 'far' : can === 2 ? 'hull down' : Math.round((e.range * Math.exp(gauss(r) * 0.25)) / 500) * 500;
     se.pending.push({ at: t + 4 + r.next() * 8, report: { n: 0, at: 0, what, several: false, bearing, range, text: '' } });
   }
+  // Aircraft: everyone looks up at once. Out of cloud or over the horizon, one is called fast.
+  const Ra = airSight(w);
+  for (const a of w.air.list) {
+    const id = `a${a.id}`;
+    const seen = (se.seen[id] ??= { lvl: 0, gone: 0 });
+    const dx = a.x - w.own.x;
+    const dy = a.y - w.own.y;
+    const dist = Math.hypot(dx, dy);
+    const can = !a.cloud && dist < Ra;
+    seen.gone = can ? 0 : seen.gone + 1;
+    if (seen.gone > 300) seen.lvl = 0;
+    if (!surfaced || !can || seen.lvl) continue;
+    if (r.next() >= (fresh / 2) * (1 - dist / Ra) ** 0.5) continue;
+    seen.lvl = 4;
+    const abs = Math.atan2(dx, dy) * R2D;
+    const bearing = (Math.round(norm(abs - w.own.course + gauss(r) * 3) / 5) * 5) % 360;
+    const elev = Math.atan2(a.alt, dist) * R2D;
+    // Coming at us: its heading points back along the line to the boat.
+    const at = Math.abs(wrap(a.course - (abs + 180))) < 25;
+    const text = `AIRCRAFT! BEARING ${pad3(bearing)}, ${elev < 4 ? 'LOW' : 'HIGH'}, ${at ? 'COMING STRAIGHT FOR US!' : 'CROSSING.'}`;
+    se.pending.push({ at: t + 1 + r.next() * 1.5, report: { n: 0, at: 0, what: 'aircraft', several: false, bearing, range: null, text } });
+  }
   // A tired eye in poor light sees a shadow now and then.
   const poor = w.weather.vis < 4 || w.sky.phase === 'night';
   if (t >= se.nextShadow) {
@@ -368,9 +402,10 @@ function look(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, em: Emi
     const rep = p.report;
     rep.n = ++se.lookN;
     rep.at = t;
-    rep.text = callText(rep);
+    if (rep.what !== 'aircraft') rep.text = callText(rep);
     obs.publish({ type: 'lookout', report: { ...rep } });
     h.effect({ kind: 'voice', from: 'BRIDGE', text: rep.text });
+    if (rep.what === 'aircraft') h.effect({ kind: 'alarm', station: BRIDGE_STATION, level: 2, report: rep.text });
   }
 }
 
@@ -476,6 +511,7 @@ export function stepSense(se: SenseState, h: SenseHost, w: WorldState, b: BoatSt
   n.dr.y = se.dr.y;
   n.fixAge = se.fixAge;
   n.clock = w.t0 + t * 1000;
+  if (w.n % 2 === 0) bridge(se, w, b, t);
   if (w.n % Math.round(1 / dt) !== 0) return;
   // Hull thermometer: lags the water by a minute or so.
   const water = waterTemp(w.ocean, t, b.depth);
@@ -487,6 +523,92 @@ export function stepSense(se: SenseState, h: SenseHost, w: WorldState, b: BoatSt
   judgeWeather(se, h.rng, w, b, t);
   se.env.seaTemp = Math.round((se.thermo + se.thermoBias) * 10) / 10;
   obs.env = { ...se.env };
+}
+
+const RAIN: Record<string, number> = { none: 0, drizzle: 0.3, rain: 0.7, squalls: 1 };
+
+/**
+ * From the bridge (five times a second): the look of the day, and everything in sight at
+ * its bearing and apparent size. Ships show smoke, then masts, then hull as the horizon and
+ * the visibility allow; aircraft once out of cloud and inside the visibility.
+ */
+function bridge(se: SenseState, w: WorldState, b: BoatState, t: number): void {
+  const o = obs.bridge;
+  const own = w.own.course;
+  const wx = w.weather;
+  const ss = seaStateOf(waveHeight(wx));
+  const visL = lightVis(w);
+  o.open = isSurfaced(b);
+  // The bridge rolls and pitches on the swell (the view sways with it).
+  const amp = 0.8 + 1.2 * ss;
+  o.roll = amp * Math.sin(t * 0.72) + amp * 0.35 * Math.sin(t * 1.9 + 1);
+  o.pitch = amp * 0.25 * Math.sin(t * 0.55 + 0.6);
+  const v = o.view;
+  v.light = w.sky.light;
+  v.cloud = wx.cloud;
+  v.seaState = ss;
+  v.vis = visL;
+  v.rain = RAIN[wx.precip] ?? 0;
+  v.windFrom = norm(wx.dir - own);
+  v.force = beaufortOf(wx.wind + wx.gust);
+  v.sunAz = norm(w.sky.sunAz - own);
+  v.sunElev = w.sky.sunElev;
+  v.moonAz = norm(w.sky.moonAz - own);
+  v.moonElev = w.sky.moonElev;
+  v.moonLit = w.sky.moonLit;
+  const out: BridgeSight[] = [];
+  const keep = new Set<string>();
+  const key = (id: string) => {
+    keep.add(id);
+    return (se.vis[id] ??= Math.floor((1 + out.length) * 7919 + t * 13).toString(36).toUpperCase());
+  };
+  const haze = (r: number) => clamp((r / Math.max(200, visL)) ** 1.6, 0, 1);
+  for (const s of w.ships) {
+    if (s.gone) continue;
+    const dx = s.x - w.own.x;
+    const dy = s.y - w.own.y;
+    if (Math.abs(dx) > 40000 || Math.abs(dy) > 40000) continue;
+    const r = Math.hypot(dx, dy);
+    const hull = HULLS[s.hull];
+    const [smokeR, mastR, hullR] = sightRanges(w, hull);
+    const shapeR = Math.max(mastR, hullR);
+    if (r > Math.max(smokeR, shapeR)) continue;
+    const abs = Math.atan2(dx, dy) * R2D;
+    // Metres of her below the horizon from a 6 m eye.
+    const hid = Math.max(0, r / 3860 - Math.sqrt(EYE)) ** 2;
+    out.push({
+      key: key(`w${s.id}`),
+      kind: 'ship',
+      bearing: norm(abs - own),
+      degPerM: R2D / Math.max(50, r),
+      low: hid,
+      aob: wrap(abs + 180 - s.course),
+      outline: s.hull,
+      haze: r > shapeR ? 1 : haze(r),
+      smoke: r < smokeR && hull.smoke > 0 ? clamp(1.2 - r / Math.max(1, smokeR), 0.15, 1) : 0,
+    });
+  }
+  const Ra = airSight(w);
+  for (const a of w.air.list) {
+    const dx = a.x - w.own.x;
+    const dy = a.y - w.own.y;
+    const r = Math.hypot(dx, dy);
+    if (a.cloud || r > Ra) continue;
+    const abs = Math.atan2(dx, dy) * R2D;
+    out.push({
+      key: key(`a${a.id}`),
+      kind: 'aircraft',
+      bearing: norm(abs - own),
+      degPerM: R2D / Math.max(30, Math.hypot(r, a.alt)),
+      low: Math.atan2(a.alt, r) * R2D,
+      aob: Math.sin((a.course - abs) * D2R),
+      outline: null,
+      haze: haze(r) * 0.8,
+      smoke: 0,
+    });
+  }
+  for (const id of Object.keys(se.vis)) if (!keep.has(id)) delete se.vis[id];
+  o.sights = out;
 }
 
 /** For the debug overlay only (it may read truth): which world ship a sound key belongs to. */

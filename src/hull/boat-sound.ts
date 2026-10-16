@@ -120,6 +120,21 @@ export class BoatSound {
         mixer.play(SFX.wash, 'machinery', { gain: 0.9, rate: 0.55 });
         mixer.play(SFX.breach, 'machinery', { gain: 0.35, rate: 0.6 });
         break;
+      case 'alarm':
+        // The dive alarm: bells through every compartment.
+        mixer.play(SFX.alarmBell, 'machinery', { gain: 0.9 });
+        haptic('impact');
+        break;
+      case 'bomb':
+        mixer.play(SFX.bomb, 'machinery', { gain: 1 });
+        this.creak(0.6, 1.2);
+        haptic('heavy');
+        setTimeout(() => haptic('heavy'), 140); // close hits: a heavy double pulse
+        break;
+      case 'bombFar':
+        mixer.play(SFX.bomb, 'machinery', { gain: 0.55, rate: 0.75 });
+        haptic('impact');
+        break;
     }
   }
 }

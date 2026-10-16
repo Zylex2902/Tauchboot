@@ -1,4 +1,4 @@
-import { SHIP_CLASSES, type ShipClassKey } from '../obs';
+import { SHIP_CLASSES, WARSHIP_DIMS, type Outline } from '../obs';
 import { C, type ColorIndex } from '../core/palette';
 
 /**
@@ -15,7 +15,7 @@ interface Profile {
   masts: [number, number][];
 }
 
-const PROFILES: Record<ShipClassKey, Profile> = {
+const PROFILES: Record<Outline, Profile> = {
   coaster: {
     hull: [[0, 6], [9, 5], [50, 4], [62, 4.6]],
     blocks: [[43, 57, 8.6], [46, 54, 11.2]],
@@ -34,7 +34,31 @@ const PROFILES: Record<ShipClassKey, Profile> = {
     funnels: [[124, 130.5, 18.5]],
     masts: [[16, 21], [108, 19]],
   },
+  // Escorts (seen from the bridge): raised fo'c'sles, a tall bridge, one or two funnels.
+  corvette: {
+    hull: [[0, 7], [8, 6.6], [22, 5], [55, 4], [62, 4.4]],
+    blocks: [[17, 28, 9.5], [19, 25, 12.5], [44, 50, 6.8]],
+    funnels: [[29, 33, 13.5]],
+    masts: [[21, 22]],
+  },
+  sloop: {
+    hull: [[0, 7.4], [10, 7], [34, 6], [90, 4.6]],
+    blocks: [[22, 36, 10], [25, 32, 14], [62, 72, 8.2]],
+    funnels: [[39, 44, 14.5]],
+    masts: [[31, 24], [76, 14]],
+  },
+  destroyer: {
+    hull: [[0, 6.8], [9, 6.2], [32, 5.6], [100, 4]],
+    blocks: [[17, 29, 9.2], [20, 27, 12.4], [72, 80, 7.4]],
+    funnels: [[34, 39, 11.8], [47, 52, 11.8]],
+    masts: [[28, 26], [62, 13]],
+  },
 };
+
+/** Length and masthead height of an outline, metres. */
+export function dims(o: Outline): { length: number; mast: number } {
+  return o in WARSHIP_DIMS ? WARSHIP_DIMS[o as keyof typeof WARSHIP_DIMS] : SHIP_CLASSES[o as keyof typeof SHIP_CLASSES];
+}
 
 /** A rendered silhouette: palette indices, -1 transparent. Bottom row is the waterline. */
 export interface Silhouette {
@@ -63,13 +87,12 @@ const cache = new Map<string, Silhouette>();
  * Silhouette at s px per metre, foreshortened by k = |sin AOB| (0..1), bow to the right
  * when dir = 1. Hull darkest, houses a step lighter, so the shape reads at any size.
  */
-export function silhouette(cls: ShipClassKey, s: number, k: number, dir: 1 | -1, hullC: ColorIndex = C.iron0, houseC: ColorIndex = C.iron1): Silhouette {
+export function silhouette(cls: Outline, s: number, k: number, dir: 1 | -1, hullC: ColorIndex = C.iron0, houseC: ColorIndex = C.iron1): Silhouette {
   const key = `${cls}:${s.toFixed(3)}:${k.toFixed(2)}:${dir}:${hullC}:${houseC}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const p = PROFILES[cls];
-  const L = SHIP_CLASSES[cls].length;
-  const mast = SHIP_CLASSES[cls].mast;
+  const { length: L, mast } = dims(cls);
   const sx = s * Math.max(0.12, k);
   const w = Math.max(1, Math.round(L * sx)) + 2;
   const h = Math.max(1, Math.round(mast * s)) + 1;

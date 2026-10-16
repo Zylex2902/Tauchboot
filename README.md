@@ -94,6 +94,17 @@ Every ship you hear plays as its own screw in the phones, panned to her side of 
 - While you are elsewhere the wheel is his: he sweeps and holds on new sounds. Coming into the sound room hands you the phones and the wheel.
 Node checks outside the repo: `node pw/hydro23.mjs`; browser: `node pw/twin.mjs` (a merchant and a corvette four degrees apart).
 
+## Bridge and aircraft (chunk 2.4, compartment 7)
+The bridge is open only while she is surfaced; dived, its hatch is shut over the view.
+- The view: sky, cloud, sea and swell by the real weather and light (day, dusk, moonlight, fog, rain), the bridge rolling with the sea. Drag to sweep left and right, and up and down to look at the sky; flick to swing. Ships show smoke first, then mastheads, then hulls as they come over the horizon; escorts have their own outlines.
+- GLASSES (switch): 7x binoculars, a narrow field inside twin circles.
+- LOOKOUTS board: the weather as the watch officer judges it, and every lookout call, written as it comes. Calls are marked on the bearing tape (red for aircraft), with an arrow at the edge when they are off it.
+- Aircraft: patrol planes by day. One that sees a surfaced boat (her wake, mostly) turns in, glides down and drops where it last saw her. The lookouts call it, the bridge lamp goes red, and you hear its engines grow.
+- DIVE ALARM (lift the cover, press), or ALARM DIVE on the voice pipe from anywhere: bells through the boat, the bridge is cleared (the captain goes down to the control room), and three seconds later the chief floods, planes hard down, full ahead on the motors, to 40 m. Nobody dives without your order.
+- Bombs: still up, she is hit (leaks aft); going down, shaken; past 18 m, they go off well above.
+- Air drill (third drill on the drill card): on the surface under low cloud; a plane comes out of the cloud base about 4 km off with some 40 seconds to spare. React within about 10 seconds of the call and she is deep; much later and she is caught.
+Node checks outside the repo: `node pw/air24.mjs`; browser: `node pw/airdrill.mjs` (the done-when, once reacting and once not).
+
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
 

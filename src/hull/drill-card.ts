@@ -9,7 +9,7 @@ import { SFX } from '../core/sfx';
 import { TypedText, wrap, type TypedLine } from '../core/typed';
 import { ease, type Tweens } from '../core/tween';
 import { createControl, type AnyControl, type KitContext } from '../controls';
-import { BOAT, DIVE_DRILL, obs, send, SHIP_CLASSES, type DiveResult, type DrillKind, type DrillObs, type DrillResult, type ScopeResult } from '../obs';
+import { BOAT, DIVE_DRILL, obs, send, SHIP_CLASSES, type AirResult, type DiveResult, type DrillKind, type DrillObs, type DrillResult, type ScopeResult } from '../obs';
 
 const CARD = { x: 84, y: 22, w: 312, h: 196 };
 const TEXT_W = CARD.w - 24;
@@ -52,10 +52,50 @@ function diveOrders(): TypedLine[] {
   return L;
 }
 
+function airOrders(): TypedLine[] {
+  const { L, para, gap } = paras();
+  para('WE ARE ON THE SURFACE UNDER LOW CLOUD, RUNNING ON THE DIESELS. AN AIRCRAFT HAS SEEN OUR WAKE FROM ABOVE THE CLOUD.');
+  gap();
+  para('1  KEEP WATCH FROM THE BRIDGE (7). DRAG THE VIEW TO SWEEP, RAISE THE GLASSES TO LOOK CLOSER.');
+  para('2  WHEN YOU SEE IT, OR THE LOOKOUTS CALL IT, SOUND THE DIVE ALARM: THE RED BUTTON ON THE BRIDGE, OR ALARM DIVE ON THE VOICE PIPE.');
+  para('3  THE CHIEF FLOODS AND TAKES HER DOWN. BE DEEP BEFORE IT IS OVER US.');
+  gap();
+  para('IT WILL NOT WAIT. NEITHER WILL THE CREW: NOBODY DIVES WITHOUT YOUR ORDER.', C.red0);
+  return L;
+}
+
+function airReport(r: AirResult): TypedLine[] {
+  const L: TypedLine[] = [];
+  const head: Record<AirResult['outcome'], string> = {
+    clean: 'DEEP BEFORE THE BOMBS. THEY FELL WELL ABOVE US.',
+    shaken: 'GOING DOWN WHEN THEY FELL. SHAKEN, NOT HOLED.',
+    caught: 'CAUGHT ON THE SURFACE. WE ARE HIT.',
+    crushed: 'THE HULL GAVE WAY.',
+  };
+  L.push({ text: head[r.outcome], color: r.outcome === 'clean' ? C.ink1 : C.red0 });
+  L.push({ text: '', color: C.ink0 });
+  const at = (x: number | null) => (x === null ? 'NEVER' : `AT ${clock(x)}`);
+  row(L, 'CALLED', at(r.calledAt));
+  const react = r.alarmAt !== null && r.calledAt !== null ? r.alarmAt - r.calledAt : null;
+  row(L, 'ALARM', r.alarmAt === null ? 'NEVER SOUNDED' : `${at(r.alarmAt)}${react !== null ? `  (${react >= 0 ? react : 0} S AFTER THE CALL)` : '  (BEFORE THE CALL)'}`, r.alarmAt === null || (react ?? 0) > 15 ? C.red0 : C.ink0);
+  row(L, 'UNDER', at(r.underAt));
+  row(L, 'BOMBS', r.dropAt === null ? 'NONE' : `${at(r.dropAt)}, KEEL AT ${r.depthAtDrop} M`, r.outcome === 'clean' ? C.ink0 : C.red0);
+  row(L, 'TIME', clock(r.seconds));
+  L.push({ text: '', color: C.ink0 });
+  const v =
+    r.outcome === 'crushed' ? 'VERDICT: LOST WITH ALL HANDS.'
+    : r.alarmAt === null ? 'VERDICT: THE ALARM IS YOURS TO SOUND. NOBODY ELSE WILL.'
+    : r.outcome === 'clean' ? 'VERDICT: GOOD. THAT IS HOW BOATS COME HOME.'
+    : r.outcome === 'shaken' ? 'VERDICT: FAIR. A FEW SECONDS SOONER AND THEY MISS BY A MILE.'
+    : 'VERDICT: TOO LATE. WATCH THE CLOUD BASE, NOT THE SEA.';
+  L.push({ text: v, color: C.ink1 });
+  return L;
+}
+
 const row = (L: TypedLine[], k: string, v: string, c: ColorIndex = C.ink0) => L.push({ text: `${k.padEnd(9, ' ')}${v}`, color: c });
 
 function report(r: DrillResult): TypedLine[] {
-  return r.kind === 'dive' ? diveReport(r) : scopeReport(r);
+  return r.kind === 'dive' ? diveReport(r) : r.kind === 'air' ? airReport(r) : scopeReport(r);
 }
 
 function scopeReport(r: ScopeResult): TypedLine[] {
@@ -128,7 +168,10 @@ function diveVerdict(r: DiveResult): string {
   return 'VERDICT: GOOD. THE CHIEF WOULD SIGN FOR THAT.';
 }
 
-const DRILL_NAME: Record<DrillKind, string> = { scope: 'PERISCOPE', dive: 'DIVE' };
+const DRILL_NAME: Record<DrillKind, string> = { scope: 'PERISCOPE', dive: 'DIVE', air: 'AIR' };
+/** The card's second key offers the next drill in turn. */
+const NEXT: Record<DrillKind, DrillKind> = { scope: 'dive', dive: 'air', air: 'scope' };
+const ORDERS_FOR: Record<DrillKind, () => TypedLine[]> = { scope: scopeOrders, dive: diveOrders, air: airOrders };
 
 /**
  * Drill orders before, drill report after: a typed sheet on a clipboard that drops in
@@ -202,7 +245,7 @@ export class DrillCard {
 
   private makeOther(text: string, ctx: KitContext): AnyControl {
     const k = createControl({ kind: 'key', id: 'drill-other', style: 'paper', w: 84, h: 20, text, x: 10, y: CARD.h - 29 }, ctx);
-    k.onChange(() => send({ type: 'drillNew', kind: this.kind === 'dive' ? 'scope' : 'dive' }));
+    k.onChange(() => send({ type: 'drillNew', kind: NEXT[this.kind] }));
     this.card.addChild(k.root);
     return k;
   }
@@ -210,7 +253,7 @@ export class DrillCard {
   private sync(d: DrillObs): void {
     this.kind = d.kind;
     const name = DRILL_NAME[d.kind];
-    if (d.phase === 'brief') this.open(`${d.kind}:brief`, `${name} DRILL ORDERS`, d.kind === 'dive' ? diveOrders() : scopeOrders(), 'BEGIN');
+    if (d.phase === 'brief') this.open(`${d.kind}:brief`, `${name} DRILL ORDERS`, ORDERS_FOR[d.kind](), 'BEGIN');
     else if (d.phase === 'over' && d.result) this.open(`${d.kind}:over`, `${name} DRILL REPORT`, report(d.result), 'AGAIN');
     else this.close();
   }
@@ -231,7 +274,7 @@ export class DrillCard {
       this.setKeyText(keyText);
       const ctxKey = (this.other as unknown as { ctx: KitContext }).ctx;
       this.other.destroy();
-      this.other = this.makeOther(`${DRILL_NAME[this.kind === 'dive' ? 'scope' : 'dive']} DRILL`, ctxKey);
+      this.other = this.makeOther(`${DRILL_NAME[NEXT[this.kind]]} DRILL`, ctxKey);
       this.card.visible = true;
       this.card.y = -CARD.h - 6;
       mixer.play(SFX.pickup, 'ui', { gain: 0.7 });
