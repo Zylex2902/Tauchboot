@@ -2,8 +2,9 @@ import { BOAT, connectSim, DIVE_DRILL, obs, TELEGRAPH, TIME_SCALES, type AlarmLe
 import { boat, boatAtPeriscopeDepth, boatSurfaced, isSurfaced, type BoatHost, type BoatState } from './boat';
 import { power } from './power';
 import { dive, newDiveState, type DiveState } from './dive';
-import { bearingOf, drill, newDrillState, sea, wrap, type DrillHost, type DrillState, type Effect } from './drill';
+import { drill, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
 import { Rng } from './rng';
+import { beam, newSense, stepSense, type SenseHost, type SenseState } from './sense';
 import { newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
 
 /**
@@ -19,9 +20,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 5;
-/** Saves from before the world sim (chunk 2.1) load with a fresh world added. */
-const MIGRATES = [4];
+export const SAVE_VERSION = 6;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2). */
+const MIGRATES = [4, 5];
 
 const QUIET = 'ALL QUIET.';
 
@@ -55,7 +56,7 @@ export interface SimState {
   tick: number;
   scale: number;
   paused: boolean;
-  rng: { drill: number; hydro: number; boat: number; world: number };
+  rng: { drill: number; hydro: number; boat: number; world: number; sense: number };
   sched: Scheduled[];
   alarms: AlarmObs[];
   nextTest: number;
@@ -67,6 +68,8 @@ export interface SimState {
   boat: BoatState;
   /** The true world: ships, weather, sky and water (chunk 2.1). */
   world: WorldState;
+  /** What the boat can sense of it (chunk 2.2): the observation layer's sim side. */
+  sense: SenseState;
 }
 
 export interface Snapshot {
@@ -80,6 +83,8 @@ export class Sim {
   private rngHydro: Rng;
   private rngBoat: Rng;
   private rngWorld: Rng;
+  private rngSense: Rng;
+  private senseHost: SenseHost;
   private queue: Command[] = [];
   private acc = 0;
   /** Ship and sea clock at the previous step, for drawing between steps (not saved). */
@@ -95,6 +100,8 @@ export class Sim {
     this.rngHydro = new Rng(s.rng.hydro);
     this.rngBoat = new Rng(s.rng.boat);
     this.rngWorld = new Rng(s.rng.world);
+    this.rngSense = new Rng(s.rng.sense);
+    this.senseHost = { rng: this.rngSense, effect: (f) => this.effect(f) };
     this.host = {
       rng: this.rngDrill,
       say: (from, text) => this.effect({ kind: 'voice', from, text }),
@@ -115,13 +122,14 @@ export class Sim {
     const drillRng = new Rng(seed ^ 0x9e3779b9);
     const boatRng = new Rng((seed ^ 0x85ebca6b) >>> 0 || 3);
     const worldRng = new Rng((seed ^ 0xc2b2ae35) >>> 0 || 5);
+    const senseRng = new Rng((seed ^ 0x27d4eb2f) >>> 0 || 9);
     const s: SimState = {
       v: SAVE_VERSION,
       seed,
       tick: 0,
       scale: 1,
       paused: false,
-      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0 },
+      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0, sense: 0 },
       sched: [],
       alarms: Array.from({ length: 9 }, () => ({ level: 0 as AlarmLevel, report: QUIET })),
       nextTest: 0,
@@ -131,7 +139,10 @@ export class Sim {
       dive: newDiveState(),
       boat: boatAtPeriscopeDepth(boatRng),
       world: newWorld(worldRng, world),
+      sense: null as unknown as SenseState,
     };
+    s.sense = newSense(senseRng, s.world);
+    s.rng.sense = senseRng.s;
     s.rng.drill = drillRng.s;
     s.rng.boat = boatRng.s;
     s.rng.world = worldRng.s;
@@ -143,9 +154,17 @@ export class Sim {
     if (snap.v === SAVE_VERSION) return new Sim(structuredClone(snap.sim));
     if (!MIGRATES.includes(snap.v)) return null;
     const s = structuredClone(snap.sim);
-    const r = new Rng((s.seed ^ 0xc2b2ae35) >>> 0 || 5);
-    s.world = newWorld(r);
-    s.rng.world = r.s;
+    if (!s.world) {
+      const r = new Rng((s.seed ^ 0xc2b2ae35) >>> 0 || 5);
+      s.world = newWorld(r);
+      s.rng.world = r.s;
+    }
+    s.world.current ??= { set: 45, kn: 0.3 };
+    if (!s.sense) {
+      const r = new Rng((s.seed ^ 0x27d4eb2f) >>> 0 || 9);
+      s.sense = newSense(r, s.world);
+      s.rng.sense = r.s;
+    }
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -178,6 +197,7 @@ export class Sim {
     this.s.rng.hydro = this.rngHydro.s;
     this.s.rng.boat = this.rngBoat.s;
     this.s.rng.world = this.rngWorld.s;
+    this.s.rng.sense = this.rngSense.s;
     return { v: SAVE_VERSION, sim: structuredClone(this.s) };
   }
 
@@ -238,6 +258,7 @@ export class Sim {
         for (let i = 0; i < 9; i++) if (this.s.alarms[i].level) this.effect({ kind: 'alarm', station: i, level: 0, report: QUIET });
     }
     stepWorld(this.s.world, this.rngWorld, TICK_S, b.lost ? 0 : b.speed);
+    stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S);
     this.hydroTick(true);
     if (this.s.sched.length) {
       const due = this.s.sched.filter((x) => x.at <= this.s.tick);
@@ -250,6 +271,7 @@ export class Sim {
     this.s.rng.hydro = this.rngHydro.s;
     this.s.rng.boat = this.rngBoat.s;
     this.s.rng.world = this.rngWorld.s;
+    this.s.rng.sense = this.rngSense.s;
   }
 
   private keepPrev(): void {
@@ -290,10 +312,7 @@ export class Sim {
       case 'hydroMark': {
         if (this.s.kind !== 'scope') break;
         const h = this.s.hydro;
-        obs.publish({
-          type: 'hydroMark',
-          mark: { n: ++h.marks, trained: Math.round(h.trained) % 360, truth: Math.round(bearingOf(d.ship)) % 360, rpm: d.ship.rpm },
-        });
+        obs.publish({ type: 'hydroMark', mark: { n: ++h.marks, trained: Math.round(h.trained) % 360, rpm: Math.round(obs.hydro.rpm) } });
         drill.reportBearing(d, this.host, h.trained);
         break;
       }
@@ -370,19 +389,17 @@ export class Sim {
   }
 
   /**
-   * The hydrophone on the drill's merchant. The beam is narrow: level falls off as
-   * cos(err/2)^40, and the balance swings hard toward the side the sound is on.
+   * The group listening apparatus: whatever the sound field holds (chunk 2.2: as heard,
+   * not as it is), through a narrow beam on the trained bearing.
    */
   private hydroTick(draw: boolean): void {
-    const d = this.s.drill;
-    const err = (wrap(bearingOf(d.ship) - this.s.hydro.trained) * Math.PI) / 180;
-    const beam = this.s.kind === 'scope' ? Math.abs(Math.cos(err / 2)) ** 40 : 0; // no contact in the dive drill
     const flutter = draw ? 1 + (this.rngHydro.next() - 0.5) * 0.04 : 1; // sea and flow noise
+    const out = beam(this.s.hydro.trained, flutter);
     const h = obs.hydro;
     h.trained = this.s.hydro.trained;
-    h.level = Math.min(1, beam * flutter);
-    h.pan = Math.max(-1, Math.min(1, Math.sin(err) * 2.5));
-    h.rpm = d.ship.rpm;
+    h.level = out.level;
+    h.pan = out.pan;
+    h.rpm = out.rpm;
   }
 }
 

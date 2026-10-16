@@ -74,6 +74,16 @@ Behind the stations the sim now runs the patrol area itself at the same 10 Hz: c
 - Water: a thermal layer in most summer and autumn patrols. Gales stir it deeper, the tide heaves it, and sound across it loses up to 22 dB.
 Check it: `node pw/world.mjs` (outside the repo) runs the convoy crossings and almanac checks; `pw/world-2.1.png` is a plot of one crossing.
 
+## Senses and the truth overlay (chunk 2.2)
+The game now shows only what the boat can sense. The true world (chunk 2.1) goes through the observation layer, and every report arrives with error, delay and gaps:
+- Hydrophone: every ship is a sound. Speed, range, the thermal layer, the sea's noise and your own noise decide what reaches you. FULL dived, the diesels or wave slap on the surface leave the sound room deaf. Sound comes faintly from dead ahead and not at all from astern. Bearings arrive late and wrong (a few degrees in a calm sea, about ten in a gale), levels fade and swell, and a sound lost for two minutes comes back as a new one. The sound room's MARK log no longer shows the true bearing.
+- Lookouts, surfaced: smoke first, then masts, then the hull, each from the range the horizon, visibility, light and sea allow. Calls come a few seconds after the sighting, to the nearest 5 degrees, with ranges estimated. By night there is no smoke or masts, and in poor light a tired lookout sometimes calls a shadow.
+- Command: convoy reports hours old and kilometres off, sometimes with the wrong course. They come in only with the aerial up (surfaced or at periscope depth).
+- Navigator: dead reckoning from compass and log. The current carries the boat off it.
+- Weather as the officer of the watch judges it, whenever he can see out, and a hull thermometer that lags the water.
+Truth overlay (development only): add `?debug` to the URL and tap the TRUTH tab at the bottom left (or press T). The map shows the true ships with the bearings as heard (amber), the lookouts' calls (green), command's reports (blue) and your dead reckoning against your true position; tap it to change the scale. Beside it, the weather, the water, each heard sound and each report are set against what is really there.
+The build refuses any UI code that reads the true world (`npm run check:fog`). Node checks outside the repo: `node pw/sense.mjs`.
+
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
 

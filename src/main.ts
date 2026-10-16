@@ -126,6 +126,8 @@ async function boot(): Promise<void> {
   world.addChild(hull.root);
   startAutosave(sim, hull);
   if (params.has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer, __sim: sim, __obs: obs, __save: () => savePatrol(sim, hull) });
+  // Truth overlay for development: what the boat senses laid over what is there. Only on ?debug.
+  if (params.has('debug')) void import('./debug/overlay').then((m) => m.mountTruth(sim));
   const prompt = new RotatePrompt(tweens);
   // Bleed drawn again over everything outside the art frame: clips sliding panels,
   // the travelling hull and pull-down boards for free (no stencil masks). Not interactive,

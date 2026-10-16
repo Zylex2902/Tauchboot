@@ -213,9 +213,9 @@ export class RadioRoom extends StationScene {
     obs.on((e) => {
       if (e.type !== 'hydroMark') return;
       const m = e.mark;
-      const err = Math.abs(((((m.trained - m.truth) % 360) + 540) % 360) - 180);
       const pad3 = (n: number) => String(n % 360).padStart(3, '0');
-      this.addLog(`${m.n} ${pad3(m.trained)} TRUE ${pad3(m.truth)} ERR ${err} RPM ${m.rpm}`);
+      // The sound room's own log: where the wheel was and the beat as heard. Nothing true.
+      this.addLog(`${m.n} BEARING ${pad3(m.trained)}  ${m.rpm ? `RPM ${m.rpm}` : 'NO BEAT'}`);
     });
     ctx.ticker.add((t) => this.update(t.deltaMS));
   }

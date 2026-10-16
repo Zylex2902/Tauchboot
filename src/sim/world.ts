@@ -53,6 +53,8 @@ export interface WorldState {
   lon0: number;
   month: number;
   own: { x: number; y: number; course: number };
+  /** Surface current: the direction it sets toward (deg) and its drift (kn). It carries own boat off her dead reckoning. */
+  current: { set: number; kn: number };
   weather: WeatherState;
   ocean: OceanState;
   sky: SkyNow;
@@ -88,6 +90,7 @@ export function newWorld(r: Rng, opts: WorldOpts = {}): WorldState {
     lon0: opts.lon ?? -22,
     month,
     own: { x: 0, y: 0, course: opts.ownCourse ?? 0 },
+    current: { set: 0, kn: 0 },
     weather,
     ocean: newOcean(r, month, SST[month], opts.layer),
     sky: null as unknown as SkyNow,
@@ -128,6 +131,7 @@ export function newWorld(r: Rng, opts: WorldOpts = {}): WorldState {
       independent: true,
     });
   }
+  w.current = { set: r.next() * 360, kn: 0.15 + r.next() * 0.45 };
   return w;
 }
 
@@ -185,8 +189,8 @@ function shipMap(w: WorldState): Map<number, ShipState> {
 export function stepWorld(w: WorldState, r: Rng, dt: number, ownSpeed: number): void {
   w.n++;
   const t = w.n * dt;
-  w.own.x += Math.sin(w.own.course * D2R) * ownSpeed * dt;
-  w.own.y += Math.cos(w.own.course * D2R) * ownSpeed * dt;
+  w.own.x += (Math.sin(w.own.course * D2R) * ownSpeed + Math.sin(w.current.set * D2R) * w.current.kn * KN) * dt;
+  w.own.y += (Math.cos(w.own.course * D2R) * ownSpeed + Math.cos(w.current.set * D2R) * w.current.kn * KN) * dt;
   const every = Math.round(ENV_EVERY / dt);
   if (w.n % every === 0) {
     const ms = w.t0 + t * 1000;

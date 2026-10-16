@@ -3,6 +3,7 @@
  */
 
 import { freshBoatObs, type BoatObs, type BoatSet } from './boat';
+import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type NavObs, type Signal, type SoundObs } from './sense';
 import type { ShipClassKey } from './ships';
 
 /** Time compression steps, real time first. */
@@ -10,6 +11,7 @@ export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
 
 export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassKey } from './ships';
 export { CHARGE_HOURS, DIESEL_RPM, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type EngineSet, type PowerObs } from './power';
+export { freshEnv, freshNav, freshSound, type DayPhase, type EnvObs, type LookoutReport, type NavObs, type SightingKind, type Signal, type SoundObs, type SoundSource, type Tone } from './sense';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
@@ -39,11 +41,10 @@ export interface HydroObs {
   rpm: number;
 }
 
-/** Grey-box test readout (chunk 0.4 only): the sim reveals truth for a marked bearing. */
+/** The sound room's log line when MARK is pressed: where the wheel was, and the beat as heard. */
 export interface HydroMark {
   n: number;
   trained: number;
-  truth: number;
   rpm: number;
 }
 
@@ -83,11 +84,11 @@ export interface ScopeResult {
   kind: 'scope';
   outcome: 'ranged' | 'seen' | 'lost' | 'crushed';
   cls: ShipClassKey;
-  /** Sound room's last reported bearing and the truth at that moment. */
-  heard: { reported: number; truth: number } | null;
+  /** Sound room's last reported bearing and the truth at that moment (debrief: filled when the drill is over). */
+  heard: { reported: number; truth: number } | null; // debrief
   /** Drill seconds when she was first on the glass (in the field of view, lens clear). */
   foundAt: number | null;
-  ranged: { estimate: number; truth: number; mast: number } | null;
+  ranged: { estimate: number; truth: number; mast: number } | null; // debrief: filled when the drill is over
   /** Seconds the lens was above water. */
   scopeUp: number;
   seconds: number;
@@ -136,7 +137,9 @@ export type ObsEvent =
   | { type: 'hydroMark'; mark: HydroMark }
   | { type: 'drill'; drill: DrillObs }
   | { type: 'timeScale'; scale: number; dropped: boolean }
-  | { type: 'hull'; kind: HullSound };
+  | { type: 'hull'; kind: HullSound }
+  | { type: 'lookout'; report: LookoutReport }
+  | { type: 'signal'; signal: Signal };
 
 export type Command =
   | { type: 'pause'; on: boolean }
@@ -170,6 +173,15 @@ class Observation {
   readonly boat: BoatObs = freshBoatObs();
   /** Time compression: sim seconds per real second (1, 8, 32, 128, 1024). */
   timeScale = 1;
+  /** The hydrophone's sound field (once a second). */
+  sound: SoundObs = freshSound();
+  /** Navigator's dead reckoning, compass, log and watch clock (every tick). */
+  readonly nav: NavObs = freshNav();
+  /** Weather as last seen from the bridge or scope, and the hull thermometer. */
+  env: EnvObs = freshEnv();
+  /** Lookout calls and signals from command, newest last (the last 40 of each). */
+  readonly lookouts: LookoutReport[] = [];
+  readonly signals: Signal[] = [];
   private listeners = new Set<Listener>();
 
   on(cb: Listener): () => void {
@@ -183,8 +195,15 @@ class Observation {
     if (e.type === 'paused') this.paused = e.paused;
     if (e.type === 'drill') this.drill = e.drill;
     if (e.type === 'timeScale') this.timeScale = e.scale;
+    if (e.type === 'lookout') keep(this.lookouts, e.report);
+    if (e.type === 'signal') keep(this.signals, e.signal);
     for (const l of this.listeners) l(e);
   }
+}
+
+function keep<T>(list: T[], x: T): void {
+  list.push(x);
+  if (list.length > 40) list.shift();
 }
 
 export const obs = new Observation();

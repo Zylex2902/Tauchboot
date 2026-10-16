@@ -33,17 +33,23 @@ export interface Hull {
   rpmPerKn: number;
   /** Gross tons (merchants) or displacement (warships). */
   tons: number;
+  /** Masthead and the top of her smoke above the water, metres (0 = she makes none to see). */
+  mast: number;
+  smoke: number;
+  /** Radiated noise at 10 knots, dB in the hydrophone's band, and her blade beat as heard. */
+  sl: number;
+  tone: 'heavy' | 'medium' | 'light';
   /** Fraction of top speed lost per metre of sea above 2.5 m. */
   seaLoss: number;
 }
 
 export const HULLS: Record<HullKey, Hull> = {
-  coaster: { key: 'coaster', cls: 'coaster', maxKn: 9.5, turn: 0.9, accel: 0.012, rpmPerKn: 13, tons: 1400, seaLoss: 0.06 },
-  freighter: { key: 'freighter', cls: 'freighter', maxKn: 11, turn: 0.6, accel: 0.008, rpmPerKn: 8.2, tons: 5500, seaLoss: 0.04 },
-  tanker: { key: 'tanker', cls: 'tanker', maxKn: 12, turn: 0.5, accel: 0.006, rpmPerKn: 8.5, tons: 8500, seaLoss: 0.035 },
-  corvette: { key: 'corvette', cls: null, maxKn: 16, turn: 2.4, accel: 0.05, rpmPerKn: 12, tons: 950, seaLoss: 0.05 },
-  sloop: { key: 'sloop', cls: null, maxKn: 19, turn: 2.2, accel: 0.06, rpmPerKn: 14, tons: 1250, seaLoss: 0.04 },
-  destroyer: { key: 'destroyer', cls: null, maxKn: 30, turn: 3, accel: 0.1, rpmPerKn: 11, tons: 1400, seaLoss: 0.05 },
+  coaster: { key: 'coaster', cls: 'coaster', maxKn: 9.5, turn: 0.9, accel: 0.012, rpmPerKn: 13, tons: 1400, mast: 17, smoke: 70, sl: 135, tone: 'medium', seaLoss: 0.06 },
+  freighter: { key: 'freighter', cls: 'freighter', maxKn: 11, turn: 0.6, accel: 0.008, rpmPerKn: 8.2, tons: 5500, mast: 27, smoke: 90, sl: 140, tone: 'heavy', seaLoss: 0.04 },
+  tanker: { key: 'tanker', cls: 'tanker', maxKn: 12, turn: 0.5, accel: 0.006, rpmPerKn: 8.5, tons: 8500, mast: 21, smoke: 45, sl: 141, tone: 'heavy', seaLoss: 0.035 },
+  corvette: { key: 'corvette', cls: null, maxKn: 16, turn: 2.4, accel: 0.05, rpmPerKn: 12, tons: 950, mast: 22, smoke: 35, sl: 138, tone: 'light', seaLoss: 0.05 },
+  sloop: { key: 'sloop', cls: null, maxKn: 19, turn: 2.2, accel: 0.06, rpmPerKn: 14, tons: 1250, mast: 24, smoke: 30, sl: 137, tone: 'light', seaLoss: 0.04 },
+  destroyer: { key: 'destroyer', cls: null, maxKn: 30, turn: 3, accel: 0.1, rpmPerKn: 11, tons: 1400, mast: 26, smoke: 40, sl: 139, tone: 'light', seaLoss: 0.05 },
 };
 
 /** Zigzag plans: (course offset deg, minutes) legs, sailed in turn by day. */

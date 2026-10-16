@@ -1,3 +1,5 @@
+import type { DayPhase } from '../obs';
+
 /**
  * Sun and moon over the patrol area (chunk 2.1): low-precision almanac formulas, good to
  * a fraction of a degree, which is all a lookout or a navigator's star sight needs.
@@ -8,7 +10,8 @@ const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 
-export type DayPhase = 'day' | 'civil' | 'nautical' | 'night';
+export type { DayPhase };
+
 
 export interface SkyNow {
   sunElev: number;

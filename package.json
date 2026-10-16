@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/check-fog.mjs && tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
     "cap:sync": "npm run build && cap sync",
     "ios": "npm run cap:sync && cap open ios",
     "android": "npm run cap:sync && cap open android",
     "build:sounds": "vite build -c vite.soundboard.config.ts && node scripts/artifact.mjs dist-sounds/index.html dist-sounds/sound-test.html \"Tiefgang sound test\"",
-    "build:single": "tsc --noEmit && vite build -c vite.singlefile.config.ts && node scripts/artifact.mjs"
+    "build:single": "node scripts/check-fog.mjs && tsc --noEmit && vite build -c vite.singlefile.config.ts && node scripts/artifact.mjs",
+    "check:fog": "node scripts/check-fog.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
