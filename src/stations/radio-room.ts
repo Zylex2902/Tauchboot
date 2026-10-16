@@ -3,22 +3,24 @@ import { mixer, type LoopHandle } from '../core/audio';
 import { drawText, measure } from '../core/font';
 import { C } from '../core/palette';
 import { Pix } from '../core/pixels';
-import { SCREW_RPM, SFX } from '../core/sfx';
+import { SFX, SIG_RPM, sigSound } from '../core/sfx';
 import { TypedText } from '../core/typed';
 import { ease } from '../core/tween';
-import type { ControlSpec, Key, KitContext } from '../controls';
+import type { ControlSpec, Crank, Key, KitContext } from '../controls';
 import { meterFace, NeedleMeter } from '../controls/meter';
 import { Odometer } from '../controls/odometer';
 import { BearingTape } from '../controls/tape';
-import { obs, send } from '../obs';
+import { BLIND, obs, send, sigKey, type HydroVoice } from '../obs';
+import { BeatRecorder } from './beat-recorder';
 import { plate } from './panel-art';
 import { art, group, label, type LayoutNode } from './boards';
 import { StationScene } from './station';
 
 /** Bearing degrees per turn of the handwheel: a full sweep is three turns. */
 export const DEG_PER_TURN = 120;
-/** Merchant screw: turns per minute for one knot (the speed card). */
+/** Screw turns per minute for one knot (the speed card): a merchant's, and an escort's. */
 export const RPM_PER_KNOT = 8;
+export const RPM_PER_KNOT_ESCORT = 12;
 
 /** Meter face (its own sprite, origin top-left) and the needle pivot inside it. */
 const METER = { w: 140, h: 90, pivotX: 70, pivotY: 78, len: 62 };
@@ -86,7 +88,14 @@ export class RadioRoom extends StationScene {
   private taps: number[] = [];
   private phones = true;
   private headset = false;
-  private loops: { sea: LoopHandle; screw: LoopHandle } | null = null;
+  private loops: { sea: LoopHandle; self: LoopHandle; churn: LoopHandle } | null = null;
+  /** One set of loops per sound in the beam: a loop per screw, and cavitation. */
+  private voices = new Map<string, { shafts: LoopHandle[]; cav: LoopHandle; sig: string }>();
+  private recorder = new BeatRecorder();
+  /** The wheel's reading in turns (to steer it to the operator's bearing). */
+  private turns = 0;
+  private restoring = false;
+  private synced = false;
   private beatPhase = 0;
   private kick = 0;
   private log = new Container();
@@ -123,6 +132,7 @@ export class RadioRoom extends StationScene {
     this.brg.root.position.set(6, 6);
     brg.addChild(this.brg.root);
     this.pin('hydro', group([tape, 0, 0], [brg, 45, 24], [label('TRAINED BEARING', C.paper1, true), 60, 50]), 0.5, 0, -60, 4, { spread: false });
+    this.tape.blind(blindSectors());
     this.pinControl('hydro', 'train', 0.5, 1, 0, -57);
     this.pin('hydro', label('TRAIN', C.iron7, true), 0.5, 1, 0, -5);
 
@@ -165,12 +175,13 @@ export class RadioRoom extends StationScene {
     const card = art(150, 13, (p) => {
       p.rect(0, 0, 150, 13, C.paper0);
       p.frame(0, 0, 150, 13, C.paper2);
-      drawText(p, `MERCHANT ${RPM_PER_KNOT} RPM = 1 KN`, 5, 4, C.ink1);
+      drawText(p, `1 KN: MERCHANT ${RPM_PER_KNOT}, ESCORT ${RPM_PER_KNOT_ESCORT} RPM`, 4, 4, C.ink1);
     });
     card.position.set(0, 42);
     speed.addChild(card);
-    // Count and its readouts sit right under the meter.
+    // Count and its readouts sit right under the meter; the beat recorder at the foot.
     this.pin('listen', speed, 0.5, 0, -75, 98, { spread: false });
+    this.pin('listen', this.recorder.root, 0.5, 1, -Math.floor(this.recorder.width / 2), -this.recorder.height - 1, { spread: false });
 
     // LOG: what the sound room reported, line by line.
     const pad = new Container();
@@ -192,11 +203,16 @@ export class RadioRoom extends StationScene {
     this.pinControl('test', 'mark', 1, 0, -52, 2);
     this.pinControl('test', 'newDrill', 1, 1, -52, -26);
     const c = (id: string) => this.controls.get(id)!;
-    c('train').onChange((turns) => {
+    const train = c('train');
+    // The wheel stands where the sim says (the operator may have turned it): not restored from the UI save.
+    this.noSave.add('train');
+    train.onChange((turns) => {
+      this.turns = turns as number;
       const b = ((((turns as number) * DEG_PER_TURN) % 360) + 360) % 360;
       this.tape.set(b);
       this.brg.set(Math.round(b) % 360);
-      send({ type: 'hydroTrain', bearing: b });
+      // The operator's hands turning it are not the captain's.
+      if (!train.byCode && !this.restoring) send({ type: 'hydroTrain', bearing: b });
     });
     const count = c('count') as Key;
     count.onChange(() => this.countTap(count.firedAt));
@@ -209,6 +225,10 @@ export class RadioRoom extends StationScene {
     c('newDrill').onChange(() => send({ type: 'drillNew' }));
     obs.on((e) => {
       if (e.type === 'drill' && e.drill.phase === 'brief' && this.rows.length) this.addLog('-- NEW DRILL --');
+    });
+    // The operator's reports go on the pad as he makes them.
+    obs.on((e) => {
+      if (e.type === 'hydroCall') this.addLog(e.call.log);
     });
     obs.on((e) => {
       if (e.type !== 'hydroMark') return;
@@ -223,13 +243,16 @@ export class RadioRoom extends StationScene {
   /** Headset on when you arrive: the boat's bed ducks so you can listen. */
   override enter(): void {
     this.headset = true;
+    // The captain takes the phones and the wheel; the operator stands by with the spare headset.
+    send({ type: 'hydroHand', on: true });
     mixer.duck('headset', { bed: 0.3 });
     mixer.play(SFX.click, 'ui', { gain: 0.5, rate: 0.8 });
     mixer.whenRunning(() => {
       if (!this.headset || this.loops) return;
       this.loops = {
         sea: mixer.loop(SFX.sea, 'sensors', { gain: 0, fadeMs: 400 }),
-        screw: mixer.loop(SFX.screw, 'sensors', { gain: 0, fadeMs: 400 }),
+        self: mixer.loop(SFX.selfNoise, 'sensors', { gain: 0, fadeMs: 400 }),
+        churn: mixer.loop(SFX.churn, 'sensors', { gain: 0, fadeMs: 400 }),
       };
       this.applyAudio(0);
     });
@@ -239,12 +262,28 @@ export class RadioRoom extends StationScene {
     this.headset = false;
     mixer.duck('headset', null);
     this.loops?.sea.stop(300);
-    this.loops?.screw.stop(300);
+    this.loops?.self.stop(300);
+    this.loops?.churn.stop(300);
     this.loops = null;
+    for (const v of this.voices.values()) this.stopVoice(v);
+    this.voices.clear();
   }
 
   private update(dt: number): void {
     const h = obs.hydro;
+    if (!this.synced) {
+      this.synced = true;
+      this.restoring = true;
+      (this.controls.get('train') as Crank).restore(h.trained / DEG_PER_TURN);
+      this.restoring = false;
+    }
+    // The operator's hands on the wheel while the captain does not have it.
+    if (!h.hand) {
+      const now = this.turns * DEG_PER_TURN;
+      const d = ((((h.trained - now) % 360) + 540) % 360) - 180;
+      if (Math.abs(d) > 0.3) (this.controls.get('train') as Crank).drive(this.turns + d / DEG_PER_TURN);
+    }
+    this.recorder.update(dt, h.voices, Math.max(obs.sound.noise * 0.5, obs.sound.own), h.rest, true);
     // Level in decibels on the dial: -24 dB at the left peg, 0 dB at full scale.
     const db = 20 * Math.log10(Math.max(1e-4, h.level));
     const lvl = Math.max(0, Math.min(1, (db + 24) / 24));
@@ -265,12 +304,55 @@ export class RadioRoom extends StationScene {
     const L = this.loops;
     if (!L) return;
     const h = obs.hydro;
+    const so = obs.sound;
     const on = this.phones ? 1 : 0;
-    // Faintly audible from anywhere (so you know which way to turn), loud on the beam.
-    L.screw.setGain(on * (0.05 + 0.95 * h.level ** 0.7), 50);
-    L.screw.setPan(h.pan, 40);
-    L.screw.setRate(Math.max(0.3, h.rpm / SCREW_RPM));
-    L.sea.setGain(on * 0.3, 80);
+    // Own noise swamps the phones and buries the screws under it.
+    const mask = 1 - 0.8 * so.own;
+    L.sea.setGain(on * (0.12 + 0.3 * so.noise), 80);
+    L.self.setGain(on * 0.9 * so.own ** 1.3, 120);
+    L.churn.setGain(on * mask * Math.min(0.8, h.rest ** 0.7), 120);
+    const here = new Set<string>();
+    for (const v of h.voices) {
+      here.add(v.key);
+      const sig = sigKey(v.sig);
+      let vo = this.voices.get(v.key);
+      if (vo && vo.sig !== sig) {
+        this.stopVoice(vo);
+        vo = undefined;
+      }
+      if (!vo) {
+        const name = sigSound(sig, v.timbre);
+        const shafts = Array.from({ length: v.sig.shafts }, () => mixer.loop(name, 'sensors', { gain: 0, fadeMs: 300 }));
+        vo = { shafts, cav: mixer.loop(SFX.cav, 'sensors', { gain: 0, fadeMs: 300, rate: 0.9 + v.timbre * 0.15 }), sig };
+        this.voices.set(v.key, vo);
+      }
+      this.voiceAudio(vo, v, on * mask);
+    }
+    for (const [k, vo] of this.voices)
+      if (!here.has(k)) {
+        this.stopVoice(vo);
+        this.voices.delete(k);
+      }
+  }
+
+  /** One screw sound in the phones: loud and bright on the beam, faint and dull off it. */
+  private voiceAudio(vo: { shafts: LoopHandle[]; cav: LoopHandle; sig: string }, v: HydroVoice, on: number): void {
+    const g = Math.min(1, v.gain) ** 0.7;
+    const rate = Math.max(0.25, v.rpm / (SIG_RPM[vo.sig] ?? 80));
+    vo.shafts.forEach((l, i) => {
+      // Twin screws never turn quite together: the beat between them throbs.
+      l.setRate(rate * (1 + i * 0.013));
+      l.setGain(on * g * (i ? 0.7 : 1), 60);
+      l.setPan(v.pan, 40);
+      l.setTone(500 + 7000 * g * g, 100);
+    });
+    vo.cav.setGain(on * g * v.cav * 0.5, 80);
+    vo.cav.setPan(v.pan, 40);
+  }
+
+  private stopVoice(vo: { shafts: LoopHandle[]; cav: LoopHandle }): void {
+    for (const l of vo.shafts) l.stop(400);
+    vo.cav.stop(400);
   }
 
   private blindFrames = new Map<number, Texture>();
@@ -356,3 +438,12 @@ export class RadioRoom extends StationScene {
   }
 }
 
+/** The blind arcs as the manual gives them: full astern, dull ahead (degrees from-to, and how deaf). */
+function blindSectors(): { from: number; to: number; deep: boolean }[] {
+  const a = BLIND.aft + BLIND.aftFade / 2;
+  const f = BLIND.fwd + BLIND.fwdFade / 2;
+  return [
+    { from: 180 - a, to: 180 + a, deep: true },
+    { from: 360 - f, to: 360 + f, deep: false },
+  ];
+}

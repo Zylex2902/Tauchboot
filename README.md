@@ -84,11 +84,21 @@ The game now shows only what the boat can sense. The true world (chunk 2.1) goes
 Truth overlay (development only): add `?debug` to the URL and tap the TRUTH tab at the bottom left (or press T). In the playtest, where the URL is fixed, tap with four fingers or type TRUTH. The map shows the true ships with the bearings as heard (amber), the lookouts' calls (green), command's reports (blue) and your dead reckoning against your true position; tap it to change the scale. Beside it, the weather, the water, each heard sound and each report are set against what is really there.
 The build refuses any UI code that reads the true world (`npm run check:fog`). Node checks outside the repo: `node pw/sense.mjs`.
 
+## Hydrophone station (chunk 2.3, compartment 3)
+Every ship you hear plays as its own screw in the phones, panned to her side of the beam, bright when the beam is on her and dull off it. The beam is broad, so two ships a few degrees apart come through together: you tell them apart by how they sound.
+- Signatures: a merchant's slow, heavy four-blade beat with a crank knock; a coaster's diesel knock; a corvette's lighter, faster three-blade steam beat; a destroyer's thin fast blades, twin screws throbbing against each other, and a gear whine. Each ship also has one of two voices that stays hers. Screws driven hard hiss with cavitation, and a convoy's crowd comes through as churn.
+- Beat recorder (under the speed card) is the visual twin: three pens behind LOW, MID and HIGH filters on moving paper. A merchant writes slow tall beats on LOW, an escort fast short ones on MID or HIGH, a turbine's whine draws a line on HIGH. Own and sea noise fur the lines.
+- Own noise: at speed dived, or on the diesels surfaced, your own flow and machinery swamp the phones.
+- Blind arcs: hatched on the bearing tape (deep astern, dull right ahead).
+- The operator calls out what he hears, with bearings as heard, and writes it on the LOG pad: new screws and what they are (sure of loud ones, guessing at faint ones, sometimes wrong), a second set close to the first, a convoy's many screws (once, then only its warships), a bearing drawing left or right, a bearing steady while it gets louder, an escort working up speed, a contact lost astern, and own noise drowning the set. New sounds and danger drop time compression to 1X; small news does not.
+- While you are elsewhere the wheel is his: he sweeps and holds on new sounds. Coming into the sound room hands you the phones and the wheel.
+Node checks outside the repo: `node pw/hydro23.mjs`; browser: `node pw/twin.mjs` (a merchant and a corvette four degrees apart).
+
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
 
 ## Sound test
-`npm run build:sounds` -> dist-sounds/sound-test.html: every sound by name.
+`npm run build:sounds` -> dist-sounds/sound-test.html: every sound by name, including the hydrophone's screw signatures (loops toggle).
 
 ## Icons
 `node scripts/make-icons.mjs` regenerates the PWA icons from in-house pixel art. Native app icons are still the Capacitor defaults.

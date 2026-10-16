@@ -4,6 +4,7 @@ import { power } from './power';
 import { dive, newDiveState, type DiveState } from './dive';
 import { drill, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
 import { Rng } from './rng';
+import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
 import { beam, newSense, stepSense, type SenseHost, type SenseState } from './sense';
 import { newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
 
@@ -20,9 +21,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 6;
-/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2). */
-const MIGRATES = [4, 5];
+export const SAVE_VERSION = 7;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3). */
+const MIGRATES = [4, 5, 6];
 
 const QUIET = 'ALL QUIET.';
 
@@ -60,7 +61,8 @@ export interface SimState {
   sched: Scheduled[];
   alarms: AlarmObs[];
   nextTest: number;
-  hydro: { trained: number; marks: number };
+  /** The hydrophone wheel, MARKs, whose hand is on the wheel, and the operator (chunk 2.3). */
+  hydro: { trained: number; marks: number; hand: boolean; op: OperatorState };
   /** Which drill is set up: the periscope drill or the dive drill. */
   kind: DrillKind;
   drill: DrillState;
@@ -85,6 +87,7 @@ export class Sim {
   private rngWorld: Rng;
   private rngSense: Rng;
   private senseHost: SenseHost;
+  private opHost: OperatorHost;
   private queue: Command[] = [];
   private acc = 0;
   /** Ship and sea clock at the previous step, for drawing between steps (not saved). */
@@ -102,6 +105,7 @@ export class Sim {
     this.rngWorld = new Rng(s.rng.world);
     this.rngSense = new Rng(s.rng.sense);
     this.senseHost = { rng: this.rngSense, effect: (f) => this.effect(f) };
+    this.opHost = { rng: this.rngHydro, effect: (f) => this.effect(f), publish: (call) => obs.publish({ type: 'hydroCall', call }) };
     this.host = {
       rng: this.rngDrill,
       say: (from, text) => this.effect({ kind: 'voice', from, text }),
@@ -133,7 +137,7 @@ export class Sim {
       sched: [],
       alarms: Array.from({ length: 9 }, () => ({ level: 0 as AlarmLevel, report: QUIET })),
       nextTest: 0,
-      hydro: { trained: 0, marks: 0 },
+      hydro: { trained: 0, marks: 0, hand: false, op: newOperator() },
       kind: 'scope',
       drill: newDrillState(drillRng),
       dive: newDiveState(),
@@ -160,6 +164,8 @@ export class Sim {
       s.rng.world = r.s;
     }
     s.world.current ??= { set: 45, kn: 0.3 };
+    s.hydro.hand ??= false;
+    s.hydro.op ??= newOperator();
     if (!s.sense) {
       const r = new Rng((s.seed ^ 0x27d4eb2f) >>> 0 || 9);
       s.sense = newSense(r, s.world);
@@ -259,6 +265,11 @@ export class Sim {
     }
     stepWorld(this.s.world, this.rngWorld, TICK_S, b.lost ? 0 : b.speed);
     stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S);
+    if (this.s.world.n % 10 === 0) {
+      const h = this.s.hydro;
+      const drillKey = this.s.kind === 'scope' ? (this.s.sense.src.drill?.key ?? null) : null;
+      h.trained = stepOperator(h.op, this.opHost, obs.sound.sources, this.s.world.n * TICK_S, drillKey, h.hand, h.trained);
+    }
     this.hydroTick(true);
     if (this.s.sched.length) {
       const due = this.s.sched.filter((x) => x.at <= this.s.tick);
@@ -308,6 +319,10 @@ export class Sim {
         break;
       case 'hydroTrain':
         this.s.hydro.trained = ((c.bearing % 360) + 360) % 360;
+        this.s.hydro.hand = true;
+        break;
+      case 'hydroHand':
+        this.s.hydro.hand = c.on;
         break;
       case 'hydroMark': {
         if (this.s.kind !== 'scope') break;
@@ -355,6 +370,7 @@ export class Sim {
    */
   private leave(station: number): void {
     const b = this.s.boat;
+    if (station === 2) this.s.hydro.hand = false; // the operator has the wheel again
     if (b.lost) return;
     if (station === 3 && b.set.hand) {
       boat.set(b, this.boatHost, { ordered: isSurfaced(b) ? 0 : Math.round(b.depth), hand: false });
@@ -371,7 +387,7 @@ export class Sim {
   private effect(f: Effect): void {
     if (f.kind === 'voice') {
       obs.publish({ type: 'voice', line: { from: f.from, text: f.text } });
-      this.setScale(1, true);
+      if (!f.keep) this.setScale(1, true);
     } else {
       const was = this.s.alarms[f.station].level;
       this.s.alarms[f.station] = { level: f.level, report: f.report };
@@ -400,6 +416,9 @@ export class Sim {
     h.level = out.level;
     h.pan = out.pan;
     h.rpm = out.rpm;
+    h.voices = out.voices;
+    h.rest = out.rest;
+    h.hand = this.s.hydro.hand;
   }
 }
 

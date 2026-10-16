@@ -7,6 +7,8 @@ export interface LoopHandle {
   setGain(gain: number, tauMs?: number): void;
   /** -1 left .. 1 right, smoothed. */
   setPan(pan: number, tauMs?: number): void;
+  /** Low-pass corner, Hz, smoothed: distance and faintness take the top off a sound. */
+  setTone(hz: number, tauMs?: number): void;
 }
 
 /** bed: the boat's ambience; sensors: what comes through headphones (dry, no room). */
@@ -169,7 +171,7 @@ class Mixer {
   loop(name: string, bus: Bus, o: PlayOpts & { fadeMs?: number } = {}): LoopHandle {
     const ctx = this.ctx;
     const buf = this.buffers.get(name);
-    if (!ctx || ctx.state !== 'running' || !buf) return { stop: () => {}, setRate: () => {}, setGain: () => {}, setPan: () => {} };
+    if (!ctx || ctx.state !== 'running' || !buf) return { stop: () => {}, setRate: () => {}, setGain: () => {}, setPan: () => {}, setTone: () => {} };
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.loop = true;
@@ -180,7 +182,11 @@ class Mixer {
     g.gain.linearRampToValueAtTime(o.gain ?? 1, ctx.currentTime + fade);
     const pan = ctx.createStereoPanner();
     pan.pan.value = o.pan ?? 0;
-    src.connect(g).connect(pan).connect(this.bus[bus]);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 18000;
+    lp.Q.value = 0.5;
+    src.connect(lp).connect(g).connect(pan).connect(this.bus[bus]);
     src.start();
     let stopped = false;
     return {
@@ -196,6 +202,7 @@ class Mixer {
       setRate: (r) => src.playbackRate.setTargetAtTime(r, ctx.currentTime, 0.03),
       setGain: (v, tau = 60) => !stopped && g.gain.setTargetAtTime(v, ctx.currentTime, tau / 1000),
       setPan: (p, tau = 40) => pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, p)), ctx.currentTime, tau / 1000),
+      setTone: (hz, tau = 80) => lp.frequency.setTargetAtTime(Math.max(60, Math.min(18000, hz)), ctx.currentTime, tau / 1000),
     };
   }
 

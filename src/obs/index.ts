@@ -3,7 +3,7 @@
  */
 
 import { freshBoatObs, type BoatObs, type BoatSet } from './boat';
-import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type NavObs, type Signal, type SoundObs } from './sense';
+import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type NavObs, type Signal, type Signature, type SoundObs } from './sense';
 import type { ShipClassKey } from './ships';
 
 /** Time compression steps, real time first. */
@@ -11,7 +11,7 @@ export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
 
 export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassKey } from './ships';
 export { CHARGE_HOURS, DIESEL_RPM, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type EngineSet, type PowerObs } from './power';
-export { freshEnv, freshNav, freshSound, type DayPhase, type EnvObs, type LookoutReport, type NavObs, type SightingKind, type Signal, type SoundObs, type SoundSource, type Tone } from './sense';
+export { BLIND, freshEnv, freshNav, freshSound, sigKey, type DayPhase, type Engine, type Signature, type EnvObs, type LookoutReport, type NavObs, type SightingKind, type Signal, type SoundObs, type SoundSource, type Tone } from './sense';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
@@ -39,6 +39,34 @@ export interface HydroObs {
   level: number;
   pan: number;
   rpm: number;
+  /** Each sound coming through the beam, loudest first (the six loudest; the rest is churn). */
+  voices: HydroVoice[];
+  /** Everything else in the beam together, 0..1 (a convoy's many screws). */
+  rest: number;
+  /** The captain has the wheel; otherwise the operator trains it. */
+  hand: boolean;
+}
+
+/** One sound through the trained beam: how loud, which ear, and what she sounds like. */
+export interface HydroVoice {
+  key: string;
+  gain: number;
+  pan: number;
+  rpm: number;
+  sig: Signature;
+  timbre: number;
+  cav: number;
+}
+
+/** A hydrophone operator's report (also spoken): when, the bearing as heard, the log line. */
+export interface HydroCall {
+  n: number;
+  at: number;
+  kind: 'new' | 'second' | 'many' | 'class' | 'drift' | 'closing' | 'turns' | 'lost' | 'deaf' | 'clear';
+  bearing: number | null;
+  /** Short form for the sound room's log pad. */
+  log: string;
+  text: string;
 }
 
 /** The sound room's log line when MARK is pressed: where the wheel was, and the beat as heard. */
@@ -135,6 +163,7 @@ export type ObsEvent =
   | { type: 'voice'; line: VoiceLine }
   | { type: 'paused'; paused: boolean }
   | { type: 'hydroMark'; mark: HydroMark }
+  | { type: 'hydroCall'; call: HydroCall }
   | { type: 'drill'; drill: DrillObs }
   | { type: 'timeScale'; scale: number; dropped: boolean }
   | { type: 'hull'; kind: HullSound }
@@ -148,6 +177,8 @@ export type Command =
   | { type: 'debugAlarm' }
   | { type: 'hydroTrain'; bearing: number }
   | { type: 'hydroMark' }
+  /** The captain takes the hydrophone wheel (or gives it back to the operator). */
+  | { type: 'hydroHand'; on: boolean }
   | { type: 'timeScale'; scale: number }
   | { type: 'drillBegin' }
   | { type: 'drillNew'; kind?: DrillKind }
@@ -166,7 +197,7 @@ class Observation {
   readonly alarms: AlarmObs[] = Array.from({ length: 9 }, () => ({ level: 0, report: '' }));
   paused = false;
   /** Updated every sim tick (polled by the UI, not evented). */
-  readonly hydro: HydroObs = { trained: 0, level: 0, pan: 0, rpm: 0 };
+  readonly hydro: HydroObs = { trained: 0, level: 0, pan: 0, rpm: 0, voices: [], rest: 0, hand: false };
   readonly scope: ScopeObs = { height: 0, awash: 1, trained: 0, high: false, swell: 0, sights: [] };
   drill: DrillObs = { kind: 'scope', phase: 'brief', t: 0, reported: null, held: 0, result: null };
   /** Own boat's instruments, polled every frame. */
@@ -182,6 +213,8 @@ class Observation {
   /** Lookout calls and signals from command, newest last (the last 40 of each). */
   readonly lookouts: LookoutReport[] = [];
   readonly signals: Signal[] = [];
+  /** The hydrophone operator's reports, newest last (the last 40). */
+  readonly calls: HydroCall[] = [];
   private listeners = new Set<Listener>();
 
   on(cb: Listener): () => void {
@@ -197,6 +230,7 @@ class Observation {
     if (e.type === 'timeScale') this.timeScale = e.scale;
     if (e.type === 'lookout') keep(this.lookouts, e.report);
     if (e.type === 'signal') keep(this.signals, e.signal);
+    if (e.type === 'hydroCall') keep(this.calls, e.call);
     for (const l of this.listeners) l(e);
   }
 }

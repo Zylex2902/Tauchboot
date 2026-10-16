@@ -11,6 +11,29 @@ export type DayPhase = 'day' | 'civil' | 'nautical' | 'night';
 /** Blade beat as heard: a heavy slow merchant screw, a middling one, a fast thin warship's. */
 export type Tone = 'heavy' | 'medium' | 'light';
 
+/**
+ * What drives her screws, as it sounds: a merchant's slow reciprocating steam engine, a
+ * coaster's diesel knock, an escort's geared turbines whining over fast thin blades.
+ */
+export type Engine = 'steam' | 'diesel' | 'turbine';
+
+/** A ship's sound signature: the engine, blades per screw and how many screws. */
+export interface Signature {
+  engine: Engine;
+  blades: 3 | 4;
+  shafts: 1 | 2;
+}
+
+/** Signature key for the sound bank: engine and blade count, e.g. 'steam4'. */
+export const sigKey = (s: Signature) => `${s.engine}${s.blades}`;
+
+/**
+ * The hydrophone's blind arcs (the sound room's manual): the hull and screws shadow it
+ * astern and dull it right ahead. Half-widths in degrees where the loss is full, the width
+ * of the fade beyond, and the loss in dB.
+ */
+export const BLIND = { aft: 20, aftFade: 15, aftDb: 22, fwd: 10, fwdFade: 8, fwdDb: 8 } as const;
+
 /** One sound in the water, as the hydrophone hears it. */
 export interface SoundSource {
   /** Stays the same while the sound is held; a sound lost for minutes comes back as a new key. */
@@ -22,6 +45,12 @@ export interface SoundSource {
   /** Screw turns per minute as heard. */
   rpm: number;
   tone: Tone;
+  /** What she sounds like: engine, blades, screws. */
+  sig: Signature;
+  /** Her own voice within the type (a worn bearing, a nicked blade): 0 or 1. Stays with the ship. */
+  timbre: number;
+  /** Cavitation hiss off her blades, 0..1 (she is driving her screws hard). */
+  cav: number;
 }
 
 export interface SoundObs {
@@ -30,6 +59,8 @@ export interface SoundObs {
   noise: number;
   /** Own noise is drowning everything out: too fast, diesels, or wave slap on the surface. */
   deaf: boolean;
+  /** Own boat's noise in the phones against the sea's, 0 (well under) .. 1 (swamping it). */
+  own: number;
 }
 
 export type SightingKind = 'smoke' | 'masts' | 'ship' | 'shadow';
@@ -98,6 +129,6 @@ export interface EnvObs {
   seaTemp: number;
 }
 
-export const freshSound = (): SoundObs => ({ sources: [], noise: 0, deaf: false });
+export const freshSound = (): SoundObs => ({ sources: [], noise: 0, deaf: false, own: 0 });
 export const freshNav = (): NavObs => ({ heading: 0, log: 0, dr: { x: 0, y: 0 }, fixAge: 0, clock: 0 });
 export const freshEnv = (): EnvObs => ({ at: null, force: 0, windFrom: 0, seaState: 0, visMiles: 0, cloud: 0, rain: 'none', fog: false, phase: 'day', moonLit: 0, moonUp: false, seaTemp: 0 });

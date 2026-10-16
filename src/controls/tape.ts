@@ -15,6 +15,9 @@ export class BearingTape {
   readonly width: number;
   readonly height = 18;
   private source: Texture;
+  private pix: Pix;
+  private lo: number;
+  private cur = 0;
   private frames = new Map<number, Texture>();
   private sprite: Sprite;
 
@@ -35,6 +38,8 @@ export class BearingTape {
         drawText(p, t, x - Math.floor(measure(t) / 2), 2, C.paper1);
       }
     }
+    this.pix = p;
+    this.lo = lo;
     this.source = p.toTexture();
     this.sprite = new Sprite(this.frameAt(0));
     // Lubber line: fixed amber mark at the centre of the window.
@@ -56,9 +61,31 @@ export class BearingTape {
     return t;
   }
 
+  /**
+   * Hatch sectors the instrument cannot see well (the hydrophone's blind arcs): a band of
+   * rust hatching under the figures, solid for a deep blind arc, broken for a dull one.
+   */
+  blind(sectors: { from: number; to: number; deep: boolean }[]): void {
+    const p = this.pix;
+    for (let x = 0; x < p.w; x++) {
+      const d = ((x / PX_PER_DEG + this.lo) % 360 + 360) % 360;
+      for (const s of sectors) {
+        const span = ((s.to - s.from) % 360 + 360) % 360;
+        if (((d - s.from) % 360 + 360) % 360 > span) continue;
+        for (let y = 9; y < 12; y++) if ((x + y) % (s.deep ? 2 : 4) === 0) p.set(x, y, s.deep ? C.rust2 : C.rust1);
+      }
+    }
+    const old = this.source;
+    this.source = p.toTexture();
+    this.frames.clear();
+    this.sprite.texture = this.frameAt(this.cur);
+    old.destroy(true);
+  }
+
   /** Show a bearing (degrees, any value; wraps). */
   set(bearing: number): void {
     const b = ((bearing % 360) + 360) % 360;
-    this.sprite.texture = this.frameAt(Math.round(b * PX_PER_DEG));
+    this.cur = Math.round(b * PX_PER_DEG);
+    this.sprite.texture = this.frameAt(this.cur);
   }
 }

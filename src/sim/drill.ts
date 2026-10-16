@@ -59,7 +59,8 @@ export interface DrillHost {
 }
 
 export type Effect =
-  | { kind: 'voice'; from: string; text: string }
+  /** keep: small news that does not pull time compression back to real time. */
+  | { kind: 'voice'; from: string; text: string; keep?: boolean }
   | { kind: 'alarm'; station: number; level: 0 | 1 | 2; report: string };
 
 /** Sea surface at the scope head, metres: a long swell and a shorter chop. */

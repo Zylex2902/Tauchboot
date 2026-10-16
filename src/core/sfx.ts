@@ -103,19 +103,27 @@ function grit(x: Float32Array, drive: number): Float32Array {
   return x;
 }
 
-function normalize(a: Float32Array, peak: number): Float32Array {
-  // DC blocker first: asymmetric clipping and pulse trains leave an offset.
-  let x1 = 0;
-  let y1 = 0;
-  for (let i = 0; i < a.length; i++) {
-    const y = a[i] - x1 + 0.995 * y1;
-    x1 = a[i];
-    a[i] = y1 = y;
+function normalize(a: Float32Array, peak: number, ramp = true): Float32Array {
+  // DC blocker first: asymmetric clipping and pulse trains leave an offset. A loop just
+  // loses its mean, so its end still meets its head without a step.
+  if (ramp) {
+    let x1 = 0;
+    let y1 = 0;
+    for (let i = 0; i < a.length; i++) {
+      const y = a[i] - x1 + 0.995 * y1;
+      x1 = a[i];
+      a[i] = y1 = y;
+    }
+  } else {
+    let m = 0;
+    for (const v of a) m += v;
+    m /= a.length || 1;
+    for (let i = 0; i < a.length; i++) a[i] -= m;
   }
   let m = 0;
   for (const v of a) m = Math.max(m, Math.abs(v));
   if (m > 0) for (let i = 0; i < a.length; i++) a[i] *= peak / m;
-  const f = Math.min(96, a.length); // no buffer ends on a step
+  const f = ramp ? Math.min(96, a.length) : 0; // no one-shot ends on a step (loops join their own head)
   for (let i = 0; i < f; i++) a[a.length - 1 - i] *= i / f;
   return a;
 }
@@ -203,7 +211,21 @@ export const SFX = {
   dieselStop: 'dieselStop',
   /** Electric motors on the shafts: commutator ring, brush hiss (loop; rate with speed). */
   motor: 'motor',
+  /** Hydrophone: blade cavitation, a crackling hiss off screws driven hard (loop). */
+  cav: 'cav',
+  /** Hydrophone: own boat's flow and machinery noise in the phones (loop). */
+  selfNoise: 'selfNoise',
+  /** Hydrophone: a convoy's many distant screws together (loop). */
+  churn: 'churn',
 } as const;
+
+/**
+ * Screw signatures in the hydrophone (chunk 2.3): one revolution of each kind of ship's
+ * screw, in two voices each (timbre 0, 1), named `screw-<engine><blades>-<timbre>`.
+ * Rate = rpm / SIG_RPM[sig].
+ */
+export const SIG_RPM: Record<string, number> = { steam4: 80, steam3: 150, diesel3: 110, turbine3: 220 };
+export const sigSound = (sig: string, timbre: number) => `screw-${sig}-${timbre & 1}`;
 
 /** Turns per minute the screw loop is rendered at. */
 export const SCREW_RPM = 90;
@@ -258,7 +280,77 @@ export const SFX_NOTES: Record<string, string> = {
   dieselStart: 'start air, the diesels catching',
   dieselStop: 'the diesels running down',
   motor: 'electric motors on the shafts, loops',
+  cav: 'cavitation hiss off hard-driven blades, loops',
+  selfNoise: 'own flow and machinery noise in the hydrophone, loops',
+  churn: 'a convoy of distant screws together, loops',
+  'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
+  'screw-steam4-1': 'merchant, second voice (a nicked blade, a bigger hull), loops',
+  'screw-steam3-0': 'corvette: lighter three-blade screw, fast steam, loops',
+  'screw-steam3-1': 'corvette, second voice, loops',
+  'screw-diesel3-0': 'coaster: three-blade screw and diesel knock, loops',
+  'screw-diesel3-1': 'coaster, second voice, loops',
+  'screw-turbine3-0': 'destroyer: thin fast blades, geared turbine whine (one shaft), loops',
+  'screw-turbine3-1': 'destroyer, second voice, loops',
 };
+
+/**
+ * One revolution of a ship's screw as it sounds in the water. Every blade passing makes
+ * a chuff of churned water, the first blade heaviest (no screw is perfectly even); the
+ * engine adds its own: a reciprocating steamer's crank knock, a diesel's firing ticks, a
+ * turbine's gear whine. Timbre 1 is the same type with another voice: one blade nicked
+ * and pitched a little lower.
+ */
+function screwSig(sr: number, engine: string, blades: number, timbre: number): Float32Array {
+  const L = 60 / SIG_RPM[`${engine}${blades}`];
+  const X = Math.min(0.06, L * 0.2);
+  const out = len(sr, L + X);
+  const lowK = timbre ? 0.85 : 1;
+  const seed = 700 + (engine.length * 13 + blades) * 10 + timbre * 5;
+  const heavy = engine === 'steam' && blades === 4;
+  const thin = engine === 'turbine';
+  // Blade chuffs: duller and longer for a big slow screw, short and bright for a fast thin one.
+  const ms = heavy ? 40 : thin ? 9 : engine === 'diesel' ? 24 : 16;
+  const lo = (heavy ? 45 : thin ? 140 : engine === 'diesel' ? 70 : 90) * lowK;
+  const hi = (heavy ? 220 : thin ? 900 : engine === 'diesel' ? 380 : 500) * lowK;
+  const tau = heavy ? 0.07 : thin ? 0.018 : 0.04;
+  const nick = timbre ? 2 % blades : -1;
+  for (let k = 0; k * (L / blades) < L + X; k++) {
+    const b = k % blades;
+    const big = b === 0;
+    const chuff = strike(sr, Math.min(0.3, L * 1.2), big ? ms : ms * 0.6, seed + b, thin ? 0.6 : 0.85, cluster(seed + 50 + b, lo, hi, 8, big ? tau : tau * 0.6));
+    add(out, chuff, big ? 1 : b === nick ? 0.75 : 0.4, k * (L / blades), sr);
+  }
+  // Churned water swelling behind each blade.
+  const r = rng(seed + 90);
+  let n1 = 0;
+  let n2 = 0;
+  const churn = heavy ? 2.2 : thin ? 0.9 : 1.5;
+  const k1 = thin ? 0.2 : 0.08;
+  for (let i = 0; i < out.length; i++) {
+    const ph = ((i / sr) / (L / blades)) % 1;
+    n1 += (r() * 2 - 1 - n1) * k1;
+    n2 += (n1 - n2) * k1;
+    out[i] += n2 * churn * (0.35 + 0.65 * Math.exp(-ph * 4));
+  }
+  if (engine === 'steam') {
+    // Crank knock: a dull thud through the shaft once a revolution (twice for the lighter engine).
+    const n = blades === 4 ? 1 : 2;
+    for (let k = 0; k < n; k++) add(out, strike(sr, 0.25, 6, seed + 60 + k, 0.7, cluster(seed + 61 + k, 30 * lowK, 120 * lowK, 6, 0.05)), 0.35, (k * L) / n + L * 0.13, sr);
+  }
+  if (engine === 'diesel') {
+    // Firing: six cylinders, four-stroke, three hard metallic ticks a revolution.
+    for (let k = 0; k * (L / 3) < L + X; k++) add(out, contact(sr, 0.12, seed + 70 + (k % 3), 280 * lowK, 1600 * lowK, 0.015), 0.28, k * (L / 3) + L * 0.07, sr);
+  }
+  if (engine === 'turbine') {
+    // Reduction gear whine: noise ringing narrow gear-mesh modes, a whole number of cycles per revolution so it loops.
+    const exc = new Float32Array(out.length);
+    const rr = rng(seed + 80);
+    for (let i = 0; i < exc.length; i++) exc[i] = (rr() * 2 - 1) * 0.15;
+    const mesh = Math.round(1000 * lowK * L) / L;
+    add(out, resonate(sr, exc, [[mesh, 0.25, 1], [mesh * 1.5, 0.2, 0.5], [mesh * 2.02, 0.12, 0.25]]), 0.22);
+  }
+  return loopable(lowpass(out, thin ? 2600 : 1600, sr), sr, X);
+}
 
 /** A small hard contact (switch blade, pawl, type bar tip). */
 function contact(sr: number, dur: number, seed: number, lo: number, hi: number, tau: number, at = 0): Float32Array {
@@ -337,7 +429,7 @@ function mumble(sr: number, seed: number): Float32Array {
 }
 
 export function defineSounds(): void {
-  const d = (name: string, make: (sr: number) => Float32Array, peak = 0.9) => mixer.define(name, (sr) => normalize(make(sr), peak));
+  const d = (name: string, make: (sr: number) => Float32Array, peak = 0.9, loop = false) => mixer.define(name, (sr) => normalize(make(sr), peak, !loop));
 
   d(SFX.click, (sr) => add(contact(sr, 0.06, 11, 2400, 7500, 0.006), strike(sr, 0.06, 2, 12, 0.3, [[880, 0.012, 1], [1530, 0.009, 0.6]]), 0.4));
 
@@ -510,6 +602,52 @@ export function defineSounds(): void {
     }
     return loopable(lowpass(out, 1600, sr), sr, X);
   }, 0.8);
+
+  for (const sig of Object.keys(SIG_RPM))
+    for (const tb of [0, 1]) {
+      const [, engine, blades] = sig.match(/^([a-z]+)(\d)$/)!;
+      d(sigSound(sig, tb), (sr) => screwSig(sr, engine, Number(blades), tb), 0.8, true);
+    }
+
+  d(SFX.cav, (sr) => {
+    // Bubbles collapsing on hard-driven blades: dense sharp crackle over a hiss.
+    const dur = 2;
+    const out = scrape(sr, dur + 0.1, 900, 501, () => 1);
+    const r = rng(502);
+    for (let i = 0; i < out.length; i++) out[i] = out[i] * 0.8 + (r() * 2 - 1) * 0.15;
+    return loopable(lowpass(highpass(out, 1400, sr), 6000, sr), sr, 0.1);
+  }, 0.5, true);
+
+  d(SFX.selfNoise, (sr) => {
+    // Water streaming past the hydrophone heads, and the boat's own machinery through the hull.
+    const dur = 3;
+    const out = len(sr, dur + 0.1);
+    const r = rng(511);
+    let a = 0;
+    let b = 0;
+    let m = 0;
+    for (let i = 0; i < out.length; i++) {
+      a += (r() * 2 - 1 - a) * 0.05; // flow rumble
+      b += (r() * 2 - 1 - b) * 0.4; // turbulence
+      m += ((r() * 2 - 1) - m) * 0.0004; // slow surging
+      out[i] = a * 3 * (1 + m * 30) + b * 0.25;
+    }
+    add(out, strike(sr, dur + 0.1, 3, 512, 0.5, cluster(513, 200, 700, 6, 1.2, 0.4)), 0.2);
+    return loopable(lowpass(out, 2200, sr), sr, 0.1);
+  }, 0.55, true);
+
+  d(SFX.churn, (sr) => {
+    // A convoy far off: a dozen slow screws at their own turns, smeared together.
+    const dur = 6;
+    const out = len(sr, dur + 0.2);
+    const r = rng(521);
+    for (let s = 0; s < 12; s++) {
+      const L = 60 / (60 + r() * 50);
+      const off = r() * L;
+      for (let t = off; t < dur + 0.2; t += L / 4) add(out, burst(sr, 0.2, 35, 530 + s, 0.9), 0.4 + 0.6 * r(), t, sr);
+    }
+    return loopable(lowpass(resonate(sr, out, cluster(540, 50, 260, 10, 0.06)), 900, sr), sr, 0.2);
+  }, 0.6, true);
 
   d(SFX.sea, (sr) => {
     const dur = 4;

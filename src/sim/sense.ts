@@ -1,4 +1,4 @@
-import { BOAT, freshEnv, obs, type EnvObs, type LookoutReport, type SightingKind, type Signal, type SoundSource } from '../obs';
+import { BLIND, BOAT, freshEnv, obs, type EnvObs, type HydroVoice, type LookoutReport, type SightingKind, type Signal, type SoundSource } from '../obs';
 import type { BoatState } from './boat';
 import { isSurfaced } from './boat';
 import type { DrillState, Effect } from './drill';
@@ -184,7 +184,7 @@ const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 export function blindArc(rel: number): number {
   const aft = Math.abs(wrap(rel - 180));
   const fwd = Math.abs(wrap(rel));
-  return 22 * smooth((35 - aft) / 15) + 8 * smooth((18 - fwd) / 8);
+  return BLIND.aftDb * smooth((BLIND.aft + BLIND.aftFade - aft) / BLIND.aftFade) + BLIND.fwdDb * smooth((BLIND.fwd + BLIND.fwdFade - fwd) / BLIND.fwdFade);
 }
 
 /**
@@ -233,12 +233,23 @@ function hear(se: SenseState, r: Rng, w: WorldState, b: BoatState, em: Emitter[]
       level: Math.min(1, 10 ** ((snr - 24) / 20)),
       rpm: Math.round(e.rpm * tr.rpmK * 10) / 10,
       tone: e.hull.tone,
+      sig: e.hull.sig,
+      timbre: e.drill ? 0 : timbreOf(e.id),
+      // Blades driven hard cavitate: a hiss that comes in with tip speed (a warship's fast small screws).
+      cav: Math.round(smooth((e.rpm - 140) / 160) * 100) / 100,
     });
   }
   // Forget sounds long gone.
   for (const [id, tr] of Object.entries(se.src)) if (t - tr.last > 6 * 3600) delete se.src[id];
   // Deaf: own noise well over the sea's and loud in itself (FULL dived, diesels, slap on the surface).
-  obs.sound = { sources, noise: clamp((floor - 52) / 40, 0, 1), deaf: self > amb + 3 && self > 70 };
+  obs.sound = { sources, noise: clamp((floor - 52) / 40, 0, 1), deaf: self > amb + 3 && self > 70, own: clamp((self - amb + 10) / 25, 0, 1) };
+}
+
+/** Each ship's own voice within her type, fixed for her life. */
+function timbreOf(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return (h >>> 3) & 1;
 }
 
 function newKey(r: Rng, taken: Set<string>): string {
@@ -248,27 +259,48 @@ function newKey(r: Rng, taken: Set<string>): string {
   return k;
 }
 
-/** The group listening apparatus trained on a bearing: what comes through its beam, from the sound field. */
-export function beam(trained: number, flutter: number): { level: number; pan: number; rpm: number } {
+/** Sounds the phones play one by one; the rest of the beam comes through as churn. */
+export const VOICES = 6;
+
+/**
+ * The group listening apparatus trained on a bearing: what comes through its beam, from
+ * the sound field. The beam is broad (-6 dB some 20 degrees off), so two ships a few
+ * degrees apart both come through: they are told apart by how they sound, not where.
+ */
+export function beam(trained: number, flutter: number): HydroBeam {
   let p = 0;
   let best = 0;
   let pan = 0;
   let rpm = 0;
+  const all: HydroVoice[] = [];
   for (const s of obs.sound.sources) {
     const deg = wrap(s.bearing - trained);
     if (deg > 70 || deg < -70) continue; // under 1/1000 of the beam's gain out there
     const err = deg * D2R;
     const c = Math.cos(err / 2);
     const c8 = (c * c) ** 4;
-    const a = s.level * c8 * c8 * c8 * c8 * c8; // cos^40: the beam's narrow lobe
+    const a = s.level * c8 * c8 * c8 * c8 * c8; // cos^40: the beam's lobe
     p += a * a;
+    const pn = clamp(Math.sin(err) * 2.5, -1, 1);
     if (a > best) {
       best = a;
-      pan = clamp(Math.sin(err) * 2.5, -1, 1);
+      pan = pn;
       rpm = s.rpm;
     }
+    all.push({ key: s.key, gain: a * flutter, pan: pn, rpm: s.rpm, sig: s.sig, timbre: s.timbre, cav: s.cav });
   }
-  return { level: Math.min(1, Math.sqrt(p) * flutter), pan, rpm };
+  all.sort((x, y) => y.gain - x.gain);
+  let rest = 0;
+  for (let i = VOICES; i < all.length; i++) rest += all[i].gain * all[i].gain;
+  return { level: Math.min(1, Math.sqrt(p) * flutter), pan, rpm, voices: all.slice(0, VOICES), rest: Math.min(1, Math.sqrt(rest)) };
+}
+
+export interface HydroBeam {
+  level: number;
+  pan: number;
+  rpm: number;
+  voices: HydroVoice[];
+  rest: number;
 }
 
 /** How far off a lookout makes out smoke, masts and a hull right now, metres. */

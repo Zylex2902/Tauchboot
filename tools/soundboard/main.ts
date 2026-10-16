@@ -3,9 +3,12 @@ import { mixer, type LoopHandle } from '../../src/core/audio';
 import { drawText, measure } from '../../src/core/font';
 import { C, type ColorIndex } from '../../src/core/palette';
 import { Pix } from '../../src/core/pixels';
-import { defineSounds, SFX, SFX_NOTES } from '../../src/core/sfx';
+import { defineSounds, SFX, SFX_NOTES, SIG_RPM, sigSound } from '../../src/core/sfx';
 
-const LOOPS = new Set<string>([SFX.hiss, SFX.hull]);
+/** Every sound by name: the table, then the hydrophone's screw signatures (two voices each). */
+const NAMES = [...Object.values(SFX), ...Object.keys(SIG_RPM).flatMap((s) => [sigSound(s, 0), sigSound(s, 1)])];
+/** Loops toggle on and off (their notes say so). */
+const LOOPS = new Set<string>(NAMES.filter((n) => n === SFX.hiss || /loops/.test(SFX_NOTES[n] ?? '')));
 
 function label(text: string, c: ColorIndex, scale: number): HTMLCanvasElement {
   const p = new Pix(Math.max(1, measure(text)), 6);
@@ -42,7 +45,7 @@ head.append(label('TIEFGANG SOUND TEST', C.paper1, 4));
 head.append(label('TAP A PLATE. LOOPS TOGGLE ON AND OFF.', C.iron6, 2));
 const grid = document.getElementById('grid')!;
 const loops = new Map<string, LoopHandle>();
-for (const name of Object.values(SFX)) {
+for (const name of NAMES) {
   grid.append(
     key(name, SFX_NOTES[name] ?? '', (el) => {
       if (!LOOPS.has(name)) {
