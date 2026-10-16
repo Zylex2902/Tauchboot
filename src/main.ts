@@ -126,8 +126,21 @@ async function boot(): Promise<void> {
   world.addChild(hull.root);
   startAutosave(sim, hull);
   if (params.has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer, __sim: sim, __obs: obs, __save: () => savePatrol(sim, hull) });
-  // Truth overlay for development: what the boat senses laid over what is there. Only on ?debug.
-  if (params.has('debug')) void import('./debug/overlay').then((m) => m.mountTruth(sim));
+  // Truth overlay for development: what the boat senses laid over what is there. Loaded on
+  // ?debug, or (where the URL cannot be changed, as in the playtest) by a four-finger tap or
+  // typing TRUTH. Never reached from the game's own UI.
+  let truth: Promise<void> | null = null;
+  const openTruth = (show: boolean) => {
+    truth ??= import('./debug/overlay').then((m) => m.mountTruth(sim));
+    if (show) void truth.then(() => (window as { __truth?: { isOn(): boolean; toggle(): void } }).__truth?.isOn() || (window as { __truth?: { toggle(): void } }).__truth?.toggle());
+  };
+  if (params.has('debug')) openTruth(false);
+  window.addEventListener('touchstart', (e) => e.touches.length >= 4 && openTruth(true), { passive: true });
+  let typed = '';
+  window.addEventListener('keydown', (e) => {
+    typed = (typed + e.key.toUpperCase()).slice(-5);
+    if (typed === 'TRUTH') openTruth(true);
+  });
   const prompt = new RotatePrompt(tweens);
   // Bleed drawn again over everything outside the art frame: clips sliding panels,
   // the travelling hull and pull-down boards for free (no stencil masks). Not interactive,

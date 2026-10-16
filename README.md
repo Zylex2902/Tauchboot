@@ -81,7 +81,7 @@ The game now shows only what the boat can sense. The true world (chunk 2.1) goes
 - Command: convoy reports hours old and kilometres off, sometimes with the wrong course. They come in only with the aerial up (surfaced or at periscope depth).
 - Navigator: dead reckoning from compass and log. The current carries the boat off it.
 - Weather as the officer of the watch judges it, whenever he can see out, and a hull thermometer that lags the water.
-Truth overlay (development only): add `?debug` to the URL and tap the TRUTH tab at the bottom left (or press T). The map shows the true ships with the bearings as heard (amber), the lookouts' calls (green), command's reports (blue) and your dead reckoning against your true position; tap it to change the scale. Beside it, the weather, the water, each heard sound and each report are set against what is really there.
+Truth overlay (development only): add `?debug` to the URL and tap the TRUTH tab at the bottom left (or press T). In the playtest, where the URL is fixed, tap with four fingers or type TRUTH. The map shows the true ships with the bearings as heard (amber), the lookouts' calls (green), command's reports (blue) and your dead reckoning against your true position; tap it to change the scale. Beside it, the weather, the water, each heard sound and each report are set against what is really there.
 The build refuses any UI code that reads the true world (`npm run check:fog`). Node checks outside the repo: `node pw/sense.mjs`.
 
 ## Saving and time (chunk 1.1)
