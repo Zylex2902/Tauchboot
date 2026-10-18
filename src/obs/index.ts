@@ -6,6 +6,7 @@ import { freshBoatObs, type BoatObs, type BoatSet } from './boat';
 import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type NavObs, type Signal, type Signature, type SoundObs } from './sense';
 import type { ShipClassKey } from './ships';
 import { freshBridge, type BridgeObs } from './bridge';
+import type { KeyDay } from './cipher';
 
 /** Time compression steps, real time first. */
 export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
@@ -14,6 +15,7 @@ export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassK
 export { CHARGE_HOURS, DIESEL_RPM, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type EngineSet, type PowerObs } from './power';
 export { BLIND, freshEnv, freshNav, freshSound, sigKey, type DayPhase, type Engine, type FixKind, type FixObs, type Landmark, type TrackPoint, type Signature, type EnvObs, type LookoutReport, type NavObs, type SightingKind, type Signal, type SoundObs, type SoundSource, type Tone } from './sense';
 export { freshBridge, WARSHIP_DIMS, type BridgeObs, type BridgeSight, type BridgeView, type Outline } from './bridge';
+export { ALPHA, dayLabel, decipher, encipher, groups, keyDay, MORSE, pad5, parsePlain, plainOf, shiftOf, type ConvoyReport, type KeyDay } from './cipher';
 export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 
@@ -60,6 +62,32 @@ export interface HydroVoice {
   timbre: number;
   cav: number;
 }
+
+/**
+ * The W/T receiver (chunk 2.6): where it is tuned, whether the aerial is out of the water,
+ * what is coming in at that spot on the dial, and the signal being taken down.
+ */
+export interface RadioObs {
+  /** Tuned frequency, megacycles; the captain has the dial (else the radioman keeps it on the wave). */
+  tuned: number;
+  hand: boolean;
+  /** The flotilla's wave for this patrol (written on the key sheet). */
+  wave: number;
+  aerial: boolean;
+  /** 0..1 at the tuned spot: a carrier's strength (static is the rest). */
+  strength: number;
+  /** What is on the dial here: the flotilla sending, another station's traffic, or nothing. */
+  carrier: 'flotilla' | 'other' | null;
+  /** The flotilla is sending now; the group going out, and how far through it (0..1). */
+  onAir: boolean;
+  sending: { text: string; k: number } | null;
+  /** The signal being taken down: its number, groups so far (or '?????'), and how many in all. */
+  copying: { n: number; indicator: string; groups: string[]; of: number } | null;
+  /** The key sheet: yesterday, today, tomorrow. */
+  keys: KeyDay[];
+}
+
+export const freshRadio = (): RadioObs => ({ tuned: 6, hand: false, wave: 6, aerial: false, strength: 0, carrier: null, onAir: false, sending: null, copying: null, keys: [] });
 
 /** A hydrophone operator's report (also spoken): when, the bearing as heard, the log line. */
 export interface HydroCall {
@@ -224,7 +252,9 @@ export type Command =
   /** The navigator: take a fix (stars or a landmark, whichever he can). */
   | { type: 'fix' }
   /** The sound room: report the bearings of everything you hear. */
-  | { type: 'askBearings' };
+  | { type: 'askBearings' }
+  /** The W/T receiver's dial, turned by the captain (megacycles). */
+  | { type: 'radioTune'; mc: number };
 
 type Listener = (e: ObsEvent) => void;
 
@@ -245,6 +275,8 @@ class Observation {
   readonly nav: NavObs = freshNav();
   /** Weather as last seen from the bridge or scope, and the hull thermometer. */
   env: EnvObs = freshEnv();
+  /** The W/T receiver (every tick). */
+  readonly radio: RadioObs = freshRadio();
   /** What can be seen from the bridge right now (5 times a second). */
   bridge: BridgeObs = freshBridge();
   /** Lookout calls and signals from command, newest last (the last 40 of each). */
@@ -266,7 +298,12 @@ class Observation {
     if (e.type === 'drill') this.drill = e.drill;
     if (e.type === 'timeScale') this.timeScale = e.scale;
     if (e.type === 'lookout') keep(this.lookouts, e.report);
-    if (e.type === 'signal') keep(this.signals, e.signal);
+    if (e.type === 'signal') {
+      // A repeat fills in what was lost: it replaces the copy taken down before.
+      const i = this.signals.findIndex((x) => x.n === e.signal.n);
+      if (i >= 0) this.signals[i] = e.signal;
+      else keep(this.signals, e.signal);
+    }
     if (e.type === 'hydroCall') keep(this.calls, e.call);
     for (const l of this.listeners) l(e);
   }

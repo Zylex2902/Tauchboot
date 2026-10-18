@@ -10,6 +10,7 @@ import { TypedText } from '../core/typed';
 import { ease } from '../core/tween';
 import { hitPolicy, type ControlSpec, type Key, type KitContext, type Lever } from '../controls';
 import { gridName, gridOf, NM, obs, send, TIME_SCALES } from '../obs';
+import { onChartPost } from '../chart/inbox';
 import { dist, norm, segDist, solveTrack, unit, type Bearing, type Pt } from '../chart/plot';
 import { art, group, PAD as BPAD, TOP as BTOP, type LayoutNode } from './boards';
 import { ChartView, RAY, RULER, SCALES, type Instruments, type Stroke } from './chart-view';
@@ -122,6 +123,8 @@ export class ChartTable extends StationScene {
   private lastTurnTick = 0;
   /** A fix just came in: the boat's mark slides from where the reckoning had her to the fix. */
   private fixSeen = -1;
+  /** Somewhere to look when the captain next comes to the chart (a signalled square). */
+  private goto: Pt | null = null;
   private drFrom: { from: Pt; t0: number } | null = null;
 
   constructor(index: number, ctx: KitContext) {
@@ -177,6 +180,13 @@ export class ChartTable extends StationScene {
       if (e.type === 'hydroMark') this.report({ src: 'MARK', at: e.mark.at, rel: e.mark.trained, heading: e.mark.heading, dr: e.mark.dr, what: `MARK ${e.mark.rpm} TURNS` });
     });
     onSettings(() => this.showSlip(true));
+    // A signal's square from the radio room: pencilled in, and the chart goes there next time you look.
+    onChartPost((p) => {
+      this.strokes = this.strokes.filter((x) => !(x.kind === 'square' && x.label === p.label));
+      this.strokes.push({ id: this.nextId++, kind: 'square', pts: [p.at], size: p.size, label: p.label, brg: p.course });
+      this.goto = p.at;
+      this.dirty = true;
+    });
     ctx.ticker.add((t) => this.update(t.deltaMS));
     this.showSlip(false);
   }
@@ -795,6 +805,14 @@ export class ChartTable extends StationScene {
   override enter(): void {
     this.here = true;
     this.dirty = true;
+    if (this.goto) {
+      const g = this.goto;
+      this.goto = null;
+      // Far enough out to see both the boat and the square, then slide there.
+      const d = Math.hypot(g.x - obs.nav.dr.x, g.y - obs.nav.dr.y);
+      if (d / this.view.mpp > this.view.W * 0.4 && this.scaleI < SCALES.length - 1) this.zoom(SCALES.length - 1 - this.scaleI);
+      setTimeout(() => this.centre(g, 600), 280);
+    }
     this.clockMin = -1;
     this.showSlip(false);
   }

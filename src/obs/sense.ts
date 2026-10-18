@@ -93,7 +93,14 @@ export interface Signal {
   from: { bearing: number; miles: number };
   course: number;
   knots: number;
+  /** The plain text in words (for the truth overlay and tests; the boat reads only the cipher). */
   text: string;
+  /** As sent (chunk 2.6): the grid square named, the indicator in clear, the day it was sent, the five-letter groups, and which groups were taken down ('?????' for one lost). */
+  square: string;
+  indicator: string;
+  day: string;
+  cipher: string[];
+  got: boolean[];
 }
 
 /** Fixed and charted: a rock, a headland, a lighthouse. Positions from the area centre, metres. */

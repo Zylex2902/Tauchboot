@@ -117,6 +117,16 @@ Your own picture of the world. The navigator keeps the reckoning in blue ink (a 
 - The helm: she turns about a degree a second at half speed, barely at all when stopped.
 Node checks outside the repo: `node pw/chart25.mjs`; browser: `node pw/chart25b.mjs` (the done-when by touch: three bearings plotted, the track, the ruler laid by hand; then assist off).
 
+## Radio desk (chunk 2.6, compartment 3)
+The radio and sound room has two desks: RADIO DESK on the sound side slides the W/T desk in; SOUND DESK slides back.
+- Receiver: the dial across 3-9 megacycles with the radioman's pencil mark at the flotilla's wave, the frequency drum, a tuning eye, the AERIAL lamp (out of the water: surfaced or at periscope depth) and the TUNE wheel. The radioman keeps it on the wave; turn it yourself and it is yours until you leave the room. In the phones: static, the flotilla's Morse while it sends, other stations' traffic elsewhere on the dial.
+- Flotilla sends at the top of each hour: the indicator in clear, then five-letter groups. Groups are taken down only with the aerial up and the dial on the wave; a signal with groups lost (dived, or off the wave) is repeated each hour and the repeat fills the gaps.
+- Signal pad: the signal as taken down (live while it comes in); arrows step through signals.
+- Cipher: the key sheet (yesterday, today, tomorrow: four indicators each, with the letter to set) and the cipher disc. Find the day and the indicator, turn the inner ring until that letter sits under the outer A, then WORK IT: the plain text comes out in pencil (CONVOY IN LP 75 2, SEEN 2231, CSE 140, SPEED 9 KN). The wrong key gives letters that do not read.
+- PLOT puts the square on the chart (a red square with the course arrow and the time); the chart table goes there the next time you look.
+- Decoding assist (pause card, DECODING: YOU or RADIOMAN, default YOU): the radioman sets the disc and works each signal himself.
+Node checks outside the repo: `node pw/radio26.mjs`; browser: `node pw/radio26b.mjs` (the done-when by touch: disc, WORK IT, PLOT, the square on the chart).
+
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
 

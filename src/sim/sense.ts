@@ -1,4 +1,4 @@
-import { BLIND, BOAT, freshEnv, obs, type BridgeSight, type EnvObs, type FixKind, type FixObs, type HydroVoice, type Landmark, type LookoutReport, type SightingKind, type Signal, type SoundSource, type TrackPoint } from '../obs';
+import { BLIND, BOAT, freshEnv, gridName, gridOf, obs, type BridgeSight, type EnvObs, type FixKind, type FixObs, type HydroVoice, type Landmark, type LookoutReport, type SightingKind, type Signal, type SoundSource, type TrackPoint } from '../obs';
 import type { BoatState } from './boat';
 import { isSurfaced } from './boat';
 import type { DrillState, Effect } from './drill';
@@ -56,7 +56,7 @@ export function airSight(w: WorldState): number {
 /** A drill is staged in sheltered water: its merchant is heard as in a force 3 breeze. */
 const DRILL_SEA = 3;
 /** Antenna above water: surfaced or at periscope depth. */
-const AERIAL_DEPTH = BOAT.periscopeDepth + 1.5;
+export const AERIAL_DEPTH = BOAT.periscopeDepth + 1.5;
 /** Lookouts' eyes above the water, metres. */
 const EYE = 6;
 /** How much of a hull must show above the horizon before a lookout calls a ship, metres. */
@@ -457,7 +457,7 @@ function callText(r: LookoutReport): string {
 }
 
 /** Command's convoy reports: hours old, kilometres off, sometimes plain wrong. */
-function signals(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, t: number): void {
+function signals(se: SenseState, h: SenseHost, w: WorldState, _b: BoatState, t: number): void {
   const r = h.rng;
   if (t >= se.nextSig) {
     se.nextSig = t + (6 + r.next() * 6) * 3600;
@@ -484,20 +484,16 @@ function signals(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, t: n
         from,
         course,
         knots,
-        text: `CONVOY AT ${hhmm}: ${from.miles} MILES ${pad3(from.bearing)} FROM AREA CENTRE. COURSE ${pad3(course)}, ${knots} KNOTS.`,
+        text: `CONVOY AT ${hhmm} IN ${gridName(gridOf(x, y))}: ${from.miles} MILES ${pad3(from.bearing)} FROM AREA CENTRE. COURSE ${pad3(course)}, ${knots} KNOTS.`,
+        square: gridName(gridOf(x, y)),
+        indicator: '',
+        day: '',
+        cipher: [],
+        got: [],
       });
     }
   }
-  // The broadcast is repeated: it comes in once the aerial is out of the water.
-  if (se.held.length && b.depth <= AERIAL_DEPTH) {
-    for (const s of se.held) {
-      s.at = t;
-      obs.publish({ type: 'signal', signal: { ...s, from: { ...s.from } } });
-      h.effect({ kind: 'voice', from: 'RADIO ROOM', text: 'SIGNAL FROM COMMAND, DECODED. IT IS ON YOUR DESK.' });
-      h.effect({ kind: 'alarm', station: 1, level: 1, report: s.text });
-    }
-    se.held = [];
-  }
+  // Command puts it on the flotilla's broadcast: the W/T room takes it from here (sim/radio.ts).
 }
 
 /** The officer of the watch judges the weather whenever he can see it. */

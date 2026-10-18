@@ -14,7 +14,7 @@ import { createControl, hitPolicy, type KitContext } from '../controls';
 import { plate, STRIP_Y } from '../stations/panel-art';
 
 const HAPTIC_LEVELS: HapticLevel[] = ['off', 'reduced', 'full'];
-const CARD = { x: 110, y: 40, w: 260, h: 190 };
+const CARD = { x: 110, y: 14, w: 260, h: 226 };
 const TAB = { x: 458, y: STRIP_Y + 3, w: 20, h: 24 };
 const VEIL_STEPS = [0, 3, 6, 8]; // Bayer levels out of 16: the station stays visible behind
 
@@ -64,6 +64,8 @@ function cardArt(): Pix {
   drawIcon(p, 'ruler', 9, 157, C.iron7, C.iron4);
   drawText(p, 'PLOTTING', 26, 157, C.paper1);
   drawText(p, 'ASSIST', 26, 165, C.paper1);
+  drawIcon(p, 'zoom', 9, 183, C.iron7, C.iron4);
+  drawText(p, 'DECODING', 26, 183, C.paper1);
   drawText(p, 'THE PATROL IS SAVED AS YOU PLAY.', 12, h - 12, C.iron6);
   return p;
 }
@@ -126,7 +128,13 @@ export class Pause {
       ctx,
     );
     plot.onChange((i) => updateSettings({ plotAssist: i === 1 }));
-    this.card.addChild(resume.root, hap.root, vol.root, plot.root);
+    // Realism switch (chunk 2.6): signals worked out on the cipher disc by you, or by the radioman.
+    const dec = createControl(
+      { kind: 'lever', id: 'set-decode', x: 110, y: 186, axis: 'x', length: 60, detents: ['YOU', 'RADIOMAN'], initial: settings().decodeAssist ? 1 : 0, weight: 40 },
+      ctx,
+    );
+    dec.onChange((i) => updateSettings({ decodeAssist: i === 1 }));
+    this.card.addChild(resume.root, hap.root, vol.root, plot.root, dec.root);
 
     this.tab.position.set(TAB.x, TAB.y);
     this.tab.addChild(new Sprite(tabArt().toTexture()));

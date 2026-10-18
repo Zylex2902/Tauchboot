@@ -6,15 +6,16 @@ import { Pix } from '../core/pixels';
 import { SFX, SIG_RPM, sigSound } from '../core/sfx';
 import { TypedText } from '../core/typed';
 import { ease } from '../core/tween';
-import type { ControlSpec, Crank, Key, KitContext } from '../controls';
+import { hitPolicy, type ControlSpec, type Crank, type Key, type KitContext } from '../controls';
 import { meterFace, NeedleMeter } from '../controls/meter';
 import { Odometer } from '../controls/odometer';
 import { BearingTape } from '../controls/tape';
 import { BLIND, obs, send, sigKey, type HydroVoice } from '../obs';
 import { BeatRecorder } from './beat-recorder';
 import { plate } from './panel-art';
-import { art, group, label, type LayoutNode } from './boards';
-import { StationScene } from './station';
+import { art, GAP, group, label, type LayoutNode } from './boards';
+import { RADIO_DESK, RadioDesk } from './radio-desk';
+import { HEADER_H, StationScene } from './station';
 
 /** Bearing degrees per turn of the handwheel: a full sweep is three turns. */
 export const DEG_PER_TURN = 120;
@@ -34,7 +35,7 @@ export const RADIO_ROOM: ControlSpec[] = [
   { kind: 'switch', id: 'phones', x: 0, y: 0, states: ['OFF', 'ON'], initial: true, label: 'PHONES' },
   { kind: 'switch', id: 'meterOn', x: 0, y: 0, states: ['OFF', 'ON'], initial: true, label: 'METER' },
   { kind: 'key', id: 'mark', x: 0, y: 0, w: 52, h: 26, style: 'iron', text: 'MARK' },
-  { kind: 'key', id: 'newDrill', x: 0, y: 0, w: 52, h: 26, style: 'iron', text: ['NEW', 'DRILL'] },
+  { kind: 'key', id: 'toRadio', x: 0, y: 0, w: 52, h: 26, style: 'iron', text: ['RADIO', 'DESK'] },
 ];
 
 /** Bearing, by ear and wheel | what she sounds like | what was reported. */
@@ -103,6 +104,11 @@ export class RadioRoom extends StationScene {
   private blindTex: Texture;
   private blindShown = 0;
   private rows: { root: Container; text: TypedText; len: number }[] = [];
+  /** Two desks in one room (chunk 2.6): the hydrophone, and the W/T receiver with its pad and cipher. */
+  private soundSide = new Container();
+  private desk: RadioDesk;
+  side: 'sound' | 'radio' = 'sound';
+  private here = false;
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'RADIO AND SOUND ROOM', ctx);
@@ -201,7 +207,7 @@ export class RadioRoom extends StationScene {
     this.pinControl('test', 'phones', 0, 0.5, 12, -6);
     this.pinControl('test', 'meterOn', 0, 0.5, 58, -6);
     this.pinControl('test', 'mark', 1, 0, -52, 2);
-    this.pinControl('test', 'newDrill', 1, 1, -52, -26);
+    this.pinControl('test', 'toRadio', 1, 1, -52, -26);
     const c = (id: string) => this.controls.get(id)!;
     const train = c('train');
     // The wheel stands where the sim says (the operator may have turned it): not restored from the UI save.
@@ -212,7 +218,7 @@ export class RadioRoom extends StationScene {
       this.tape.set(b);
       this.brg.set(Math.round(b) % 360);
       // The operator's hands turning it are not the captain's.
-      if (!train.byCode && !this.restoring) send({ type: 'hydroTrain', bearing: b });
+      if (!train.byCode && !this.restoring && this.here) send({ type: 'hydroTrain', bearing: b });
     });
     const count = c('count') as Key;
     count.onChange(() => this.countTap(count.firedAt));
@@ -222,7 +228,19 @@ export class RadioRoom extends StationScene {
     });
     c('meterOn').onChange((on) => this.rollBlind(!(on as boolean)));
     c('mark').onChange(() => send({ type: 'hydroMark' }));
-    c('newDrill').onChange(() => send({ type: 'drillNew' }));
+    c('toRadio').onChange(() => this.setSide('radio', true));
+
+    // The W/T desk: its own boards, slid in beside the sound desk.
+    this.addControls(RADIO_DESK);
+    // The dial stands where the sim says (the radioman may have turned it): not restored from the UI save.
+    this.noSave.add('tune');
+    for (const b of this.boards.values()) this.soundSide.addChild(b.root);
+    this.root.addChildAt(this.soundSide, 1);
+    this.desk = new RadioDesk(ctx, (id) => this.controls.get(id)!);
+    this.root.addChildAt(this.desk.root, 2);
+    this.desk.root.visible = false;
+    c('toSound').onChange(() => this.setSide('sound', true));
+    hitPolicy.watch((m) => this.desk.relayout(m));
     obs.on((e) => {
       if (e.type === 'drill' && e.drill.phase === 'brief' && this.rows.length) this.addLog('-- NEW DRILL --');
     });
@@ -240,8 +258,46 @@ export class RadioRoom extends StationScene {
     ctx.ticker.add((t) => this.update(t.deltaMS));
   }
 
+  override setSize(w: number, h: number): void {
+    super.setSize(w, h);
+    this.desk.place({ x: GAP, y: HEADER_H, w: w - GAP * 2, h: h - HEADER_H - GAP });
+    this.desk.relayout(hitPolicy.minArt);
+    this.soundSide.x = this.side === 'sound' ? 0 : -w;
+    this.desk.root.x = this.side === 'radio' ? 0 : w;
+  }
+
+  /** Over to the other desk: the one slides away, the other in; the captain's chair rolls across. */
+  setSide(side: 'sound' | 'radio', animate: boolean): void {
+    if (side === this.side) return;
+    this.side = side;
+    const w = this.w;
+    const toSound = side === 'sound';
+    this.soundSide.visible = true;
+    this.desk.root.visible = true;
+    const done = () => {
+      this.soundSide.visible = toSound;
+      this.desk.root.visible = !toSound;
+    };
+    this.applyAudio(0);
+    if (!animate) {
+      this.soundSide.x = toSound ? 0 : -w;
+      this.desk.root.x = toSound ? w : 0;
+      done();
+      return;
+    }
+    mixer.play(SFX.slide, 'ui', { gain: 0.45, rate: 0.8 });
+    mixer.play(SFX.roll, 'ui', { gain: 0.3, rate: 0.7 });
+    void this.ctx.tw.to(this.soundSide, { x: toSound ? 0 : -w }, { duration: 340, ease: ease.inOutCubic });
+    void this.ctx.tw.to(this.desk.root, { x: toSound ? w : 0 }, { duration: 340, ease: ease.inOutCubic }).then(() => {
+      done();
+      mixer.play(SFX.plate, 'ui', { gain: 0.3, rate: 0.9 });
+    });
+  }
+
   /** Headset on when you arrive: the boat's bed ducks so you can listen. */
   override enter(): void {
+    this.here = true;
+    this.desk.enter();
     this.headset = true;
     // The captain takes the phones and the wheel; the operator stands by with the spare headset.
     send({ type: 'hydroHand', on: true });
@@ -259,6 +315,8 @@ export class RadioRoom extends StationScene {
   }
 
   override leave(): void {
+    this.here = false;
+    this.desk.leave();
     this.headset = false;
     mixer.duck('headset', null);
     this.loops?.sea.stop(300);
@@ -298,6 +356,7 @@ export class RadioRoom extends StationScene {
     this.kick *= Math.exp(-dt / 90);
     this.meter.target = lvl * (0.94 + 0.06 * this.kick) + 0.015;
     this.applyAudio(dt);
+    this.desk.update(dt, this.here && this.side === 'radio');
   }
 
   private applyAudio(_dt: number): void {
@@ -305,7 +364,7 @@ export class RadioRoom extends StationScene {
     if (!L) return;
     const h = obs.hydro;
     const so = obs.sound;
-    const on = this.phones ? 1 : 0;
+    const on = this.phones && this.side === 'sound' ? 1 : 0;
     // Own noise swamps the phones and buries the screws under it.
     const mask = 1 - 0.8 * so.own;
     L.sea.setGain(on * (0.12 + 0.3 * so.noise), 80);
@@ -394,13 +453,17 @@ export class RadioRoom extends StationScene {
   }
 
   override saveExtra(): unknown {
-    return this.rows.map((r) => r.text.text);
+    return { log: this.rows.map((r) => r.text.text), side: this.side, desk: this.desk.saveExtra() };
   }
 
-  /** Log lines come back already written. */
+  /** Log lines come back already written (older saves kept only the log). */
   override restoreExtra(x: unknown): void {
-    if (!Array.isArray(x)) return;
-    for (const text of x.slice(-LOG_ROWS)) {
+    const v = (Array.isArray(x) ? { log: x } : x) as { log?: unknown; side?: unknown; desk?: unknown } | null;
+    if (!v) return;
+    if (v.side === 'radio') this.setSide('radio', false);
+    if (v.desk) this.desk.restoreExtra(v.desk);
+    if (!Array.isArray(v.log)) return;
+    for (const text of v.log.slice(-LOG_ROWS)) {
       if (typeof text !== 'string') continue;
       const root = new Container();
       const t = new TypedText([{ text, color: C.ink0 }]);
@@ -410,6 +473,11 @@ export class RadioRoom extends StationScene {
       this.log.addChild(root);
       this.rows.push({ root, text: t, len: text.length });
     }
+  }
+
+  /** For tests: the W/T desk. */
+  get radioDesk(): RadioDesk {
+    return this.desk;
   }
 
   /** Type a line into the log pad; older lines roll up off the top when it is full. */

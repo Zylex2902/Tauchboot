@@ -233,6 +233,11 @@ export const SFX = {
   ruler: 'ruler',
   paper: 'paper',
   tick: 'tick',
+  /** W/T receiver (chunk 2.6): atmospherics (loop); a Morse dot and dash through the beat oscillator; the cipher disc's click. */
+  static: 'static',
+  dit: 'dit',
+  dah: 'dah',
+  disc: 'disc',
 } as const;
 
 /**
@@ -309,6 +314,10 @@ export const SFX_NOTES: Record<string, string> = {
   ruler: 'celluloid ruler laid down and slid on the chart',
   paper: 'the chart dragged across the table, loops',
   tick: 'the watch clock escapement',
+  static: 'short-wave atmospherics in the receiver phones, loops',
+  dit: 'a Morse dot through the receiver: keyed carrier, beat note, key clicks',
+  dah: 'a Morse dash through the receiver',
+  disc: 'the cipher disc turned one place',
   'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
   'screw-steam4-1': 'merchant, second voice (a nicked blade, a bigger hull), loops',
   'screw-steam3-0': 'corvette: lighter three-blade screw, fast steam, loops',
@@ -775,6 +784,39 @@ export function defineSounds(): void {
   }, 0.3, true);
 
   d(SFX.tick, (sr) => add(contact(sr, 0.05, 691, 3000, 9000, 0.003), strike(sr, 0.05, 1, 692, 0.2, [[2900, 0.006, 1], [4700, 0.004, 0.5]]), 0.5), 0.35);
+
+  d(SFX.static, (sr) => {
+    // Atmospherics: a rushing hiss that swells and fades, and crashes of distant lightning.
+    const dur = 4;
+    const out = len(sr, dur + 0.1);
+    const r = rng(701);
+    let a = 0;
+    for (let i = 0; i < out.length; i++) {
+      const t = i / sr;
+      const qsb = 0.6 + 0.4 * Math.sin((TAU * t) / dur) * Math.sin((TAU * 3 * t) / dur + 0.7);
+      a += (r() * 2 - 1 - a) * 0.6;
+      out[i] = a * 0.5 * qsb;
+    }
+    add(out, scrape(sr, dur + 0.1, 40, 702, () => 1), 2.2);
+    for (const at of [0.7, 2.3, 3.1]) add(out, burst(sr, 0.4, 60, 703 + Math.round(at * 10), 0.5), 1.5, at, sr);
+    return loopable(lowpass(highpass(out, 250, sr), 3600, sr), sr, 0.1);
+  }, 0.45, true);
+
+  // Morse: the carrier keyed through the beat oscillator: a reedy note rich in harmonics
+  // (a narrow pulse rung through a band), with the key's clicks at each edge.
+  const morse = (dur: number, seed: number) => (sr: number) => {
+    const total = dur + 0.05;
+    const env = (t: number) => (t < 0.006 ? t / 0.006 : t < dur ? 1 : Math.max(0, 1 - (t - dur) / 0.008));
+    const tone = buzz(sr, total, 760, 0.18, env);
+    const out = resonate(sr, tone, [[760, 0.02, 1], [1520, 0.012, 0.35], [2280, 0.008, 0.15]]);
+    add(out, contact(sr, total, seed, 1500, 5000, 0.004), 0.25);
+    add(out, contact(sr, total, seed + 1, 1500, 5000, 0.004), 0.2, dur, sr);
+    return lowpass(highpass(out, 300, sr), 3000, sr);
+  };
+  d(SFX.dit, morse(0.075, 711), 0.5);
+  d(SFX.dah, morse(0.225, 713), 0.5);
+
+  d(SFX.disc, (sr) => add(contact(sr, 0.08, 721, 1800, 6000, 0.008), strike(sr, 0.08, 2, 722, 0.4, cluster(723, 600, 2400, 5, 0.01)), 0.5), 0.5);
 
   d(SFX.sea, (sr) => {
     const dur = 4;

@@ -7,10 +7,12 @@ export interface Settings {
   volume: number; // 0..1 master
   /** Realism switch: the navigator rules reported bearings and works out tracks (chunk 2.5). */
   plotAssist: boolean;
+  /** Realism switch: the radioman works signals out on the cipher disc himself (chunk 2.6). */
+  decodeAssist: boolean;
 }
 
 const KEY = 'tiefgang.settings.v1';
-const defaults: Settings = { haptics: 'full', volume: 0.9, plotAssist: true };
+const defaults: Settings = { haptics: 'full', volume: 0.9, plotAssist: true, decodeAssist: false };
 let current: Settings = { ...defaults };
 
 /** Load persisted settings. Preferences uses native storage on iOS/Android, localStorage on web. */

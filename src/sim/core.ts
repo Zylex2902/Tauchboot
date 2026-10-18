@@ -8,6 +8,7 @@ import { drill, newDrillState, sea, type DrillHost, type DrillState, type Effect
 import { Rng } from './rng';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
 import { beam, newNav, newSense, orderFix, stepSense, type SenseHost, type SenseState } from './sense';
+import { BAND, newRadio, stepRadio, type RadioState } from './radio';
 import { newAirWorld } from './air';
 import { defaultLandmarks, newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
 
@@ -24,9 +25,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 9;
-/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5). */
-const MIGRATES = [4, 5, 6, 7, 8];
+export const SAVE_VERSION = 10;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6). */
+const MIGRATES = [4, 5, 6, 7, 8, 9];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -83,6 +84,8 @@ export interface SimState {
   world: WorldState;
   /** What the boat can sense of it (chunk 2.2): the observation layer's sim side. */
   sense: SenseState;
+  /** The W/T room: receiver, the flotilla's broadcast, signals taken down (chunk 2.6). */
+  radio: RadioState;
 }
 
 export interface Snapshot {
@@ -158,6 +161,7 @@ export class Sim {
       boat: boatAtPeriscopeDepth(boatRng),
       world: newWorld(worldRng, world),
       sense: null as unknown as SenseState,
+      radio: newRadio(seed),
     };
     s.sense = newSense(senseRng, s.world);
     s.rng.sense = senseRng.s;
@@ -192,6 +196,7 @@ export class Sim {
     s.world.own.ordered ??= s.world.own.course;
     s.world.landmarks ??= defaultLandmarks(s.world.t0);
     if (s.sense.logK === undefined) Object.assign(s.sense, newNav(new Rng((s.seed ^ 0x2545f491) >>> 0 || 17), s.world));
+    s.radio ??= newRadio(s.seed);
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -293,6 +298,7 @@ export class Sim {
     stepWorld(this.s.world, this.rngWorld, TICK_S, b.lost ? 0 : b.speed);
     stepAir(this.s.world.air, this.s.world, this.rngAir, TICK_S, { depth: b.depth, speedKn: b.speed / 0.5144 }, (d) => this.bombs(d));
     stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S);
+    stepRadio(this.s.radio, this.s.sense, this.senseHost, this.s.world, b, TICK_S);
     if (this.s.world.n % 10 === 0) {
       const h = this.s.hydro;
       const drillKey = this.s.kind === 'scope' ? (this.s.sense.src.drill?.key ?? null) : null;
@@ -376,6 +382,10 @@ export class Sim {
       case 'fix':
         orderFix(this.s.sense, this.senseHost, this.s.world, this.s.boat, this.s.world.n * TICK_S);
         break;
+      case 'radioTune':
+        this.s.radio.tuned = Math.max(BAND[0], Math.min(BAND[1], c.mc));
+        this.s.radio.hand = true;
+        break;
       case 'askBearings':
         this.s.hydro.op.ask = true;
         break;
@@ -424,7 +434,10 @@ export class Sim {
    */
   private leave(station: number): void {
     const b = this.s.boat;
-    if (station === 2) this.s.hydro.hand = false; // the operator has the wheel again
+    if (station === 2) {
+      this.s.hydro.hand = false; // the operator has the wheel again
+      this.s.radio.hand = false; // and the radioman the dial
+    }
     if (b.lost) return;
     if (station === 3 && b.set.hand) {
       boat.set(b, this.boatHost, { ordered: isSurfaced(b) ? 0 : Math.round(b.depth), hand: false });

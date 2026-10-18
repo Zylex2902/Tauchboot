@@ -21,7 +21,7 @@ export const RULER = { len: 170, w: 12 };
 const D2R = Math.PI / 180;
 const AREA = 25000;
 
-export type StrokeKind = 'pencil' | 'bearing' | 'mark' | 'track';
+export type StrokeKind = 'pencil' | 'bearing' | 'mark' | 'track' | 'square';
 
 /** Something drawn on the chart. Points are chart metres. */
 export interface Stroke {
@@ -33,6 +33,8 @@ export interface Stroke {
   at?: number;
   group?: string;
   label?: string;
+  /** A signalled square (chunk 2.6): its size, metres. */
+  size?: number;
 }
 
 export interface Instruments {
@@ -324,6 +326,38 @@ export class ChartView {
     const c = faint ? C.paper2 : C.iron4;
     if (s.kind === 'bearing' && s.brg !== undefined) {
       this.bearing({ at: s.at ?? 0, from: s.pts[0], brg: s.brg, group: s.group }, faint ? C.paper2 : C.iron3, false, sc.hhmm);
+      return;
+    }
+    if (s.kind === 'square' && s.size) {
+      // A square from a signal: its edges ruled, hatched corner to corner, course arrow, the words.
+      const h = s.size / 2;
+      const c0 = s.pts[0];
+      const col = faint ? C.paper2 : C.red0;
+      const corners = [
+        { x: c0.x - h, y: c0.y + h },
+        { x: c0.x + h, y: c0.y + h },
+        { x: c0.x + h, y: c0.y - h },
+        { x: c0.x - h, y: c0.y - h },
+      ];
+      for (let i = 0; i < 4; i++) this.seg(corners[i], corners[(i + 1) % 4], col, null, 2);
+      const x0 = Math.round(this.sx(c0.x - h));
+      const y0 = Math.round(this.sy(c0.y + h));
+      const wpx = Math.round(s.size / this.mpp);
+      for (let k = 0; k < wpx * 2; k += 4)
+        for (let j = 0; j <= k && j < wpx; j++) {
+          const i = k - j;
+          if (i < wpx) this.p.set(x0 + i, y0 + j, col);
+        }
+      if (s.brg !== undefined) {
+        const u = unit(s.brg);
+        const L = Math.max(s.size, 30 * this.mpp);
+        const e = { x: c0.x + u.x * L, y: c0.y + u.y * L };
+        this.seg(c0, e, col, null, 1);
+        const ex = this.sx(e.x);
+        const ey = this.sy(e.y);
+        for (let k = 0; k < 5; k++) for (let q = -k; q <= k; q++) this.p.set(Math.round(ex - u.x * k + u.y * q * 0.6), Math.round(ey + u.y * k + u.x * q * 0.6), col);
+      }
+      if (s.label) drawText(this.p, s.label, x0, y0 - 9, col, C.paper0);
       return;
     }
     if (s.kind === 'mark') {
