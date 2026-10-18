@@ -1,11 +1,11 @@
-import { BLIND, BOAT, freshEnv, obs, type BridgeSight, type EnvObs, type HydroVoice, type LookoutReport, type SightingKind, type Signal, type SoundSource } from '../obs';
+import { BLIND, BOAT, freshEnv, obs, type BridgeSight, type EnvObs, type FixKind, type FixObs, type HydroVoice, type Landmark, type LookoutReport, type SightingKind, type Signal, type SoundSource, type TrackPoint } from '../obs';
 import type { BoatState } from './boat';
 import { isSurfaced } from './boat';
 import type { DrillState, Effect } from './drill';
 import { HULLS, type Hull } from './fleet';
 import { lightVis } from './air';
 import { layerLoss, waterTemp } from './ocean';
-import type { Rng } from './rng';
+import { Rng } from './rng';
 import { beaufortOf, seaStateOf, waveHeight } from './weather';
 import type { WorldState } from './world';
 
@@ -23,7 +23,9 @@ import type { WorldState } from './world';
  *   seconds later to the nearest 5 degrees, and sometimes a shadow that is not there.
  * - Command: convoy reports, hours old, kilometres off, now and then on the wrong
  *   course; they only come in with the aerial out of the water.
- * - Navigator: dead reckoning from compass and log, blind to the current.
+ * - Navigator: dead reckoning from the gyro and log (each a little off), blind to the
+ *   current; a pencilled track; star fixes at twilight or under a high moon, landmark fixes
+ *   when a charted rock is in sight (chunk 2.5).
  * - Bridge or scope: the weather as an officer judges it, when he can see it.
  * - Hull thermometer: the water at the boat's depth, lagging.
  *
@@ -102,6 +104,16 @@ export interface SenseState {
   nextEnv: number;
   /** What the eye keeps track of from the bridge: world id -> its own opaque key (chunk 2.4). */
   vis: Record<string, string>;
+  /** Navigation (chunk 2.5): the log reads `logK` times the speed; the gyro is `gyro` degrees off. */
+  logK: number;
+  gyro: number;
+  track: TrackPoint[];
+  trackHd: number;
+  fixes: FixObs[];
+  fixN: number;
+  fixing: { kind: FixKind; until: number; lm: string | null } | null;
+  /** When the navigator last suggested a star sight (world seconds). */
+  suggestAt: number;
 }
 
 /** What the senses may know about how the sim runs them (voice lines and lamps). */
@@ -151,6 +163,22 @@ export function newSense(r: Rng, w: WorldState): SenseState {
     env: freshEnv(),
     nextEnv: 0,
     vis: {},
+    // The instruments' errors from a stream of their own: the senses' stream runs as before.
+    ...newNav(new Rng((r.s ^ 0x2545f491) >>> 0 || 17), w),
+  };
+}
+
+/** The navigator's part of SenseState (also used to bring older saves up to date). */
+export function newNav(r: Rng, w: WorldState): Pick<SenseState, 'logK' | 'gyro' | 'track' | 'trackHd' | 'fixes' | 'fixN' | 'fixing' | 'suggestAt'> {
+  return {
+    logK: 1 + (r.next() - 0.5) * 0.05,
+    gyro: (r.next() - 0.5) * 1.2,
+    track: [{ at: w.n * 0.1, x: w.own.x, y: w.own.y, fix: true }],
+    trackHd: w.own.course,
+    fixes: [],
+    fixN: 0,
+    fixing: null,
+    suggestAt: -1e9,
   };
 }
 
@@ -363,7 +391,7 @@ function look(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, em: Emi
     }
     if (obs.lookouts.some((l) => l.what === what && t - l.at < 180 && Math.abs(wrap(l.bearing - bearing)) <= 12)) continue;
     const range = can === 1 ? 'far' : can === 2 ? 'hull down' : Math.round((e.range * Math.exp(gauss(r) * 0.25)) / 500) * 500;
-    se.pending.push({ at: t + 4 + r.next() * 8, report: { n: 0, at: 0, what, several: false, bearing, range, text: '' } });
+    se.pending.push({ at: t + 4 + r.next() * 8, report: { n: 0, at: 0, what, several: false, bearing, range, text: '', ...stamp(se, w) } });
   }
   // Aircraft: everyone looks up at once. Out of cloud or over the horizon, one is called fast.
   const Ra = airSight(w);
@@ -385,12 +413,12 @@ function look(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, em: Emi
     // Coming at us: its heading points back along the line to the boat.
     const at = Math.abs(wrap(a.course - (abs + 180))) < 25;
     const text = `AIRCRAFT! BEARING ${pad3(bearing)}, ${elev < 4 ? 'LOW' : 'HIGH'}, ${at ? 'COMING STRAIGHT FOR US!' : 'CROSSING.'}`;
-    se.pending.push({ at: t + 1 + r.next() * 1.5, report: { n: 0, at: 0, what: 'aircraft', several: false, bearing, range: null, text } });
+    se.pending.push({ at: t + 1 + r.next() * 1.5, report: { n: 0, at: 0, what: 'aircraft', several: false, bearing, range: null, text, ...stamp(se, w) } });
   }
   // A tired eye in poor light sees a shadow now and then.
   const poor = w.weather.vis < 4 || w.sky.phase === 'night';
   if (t >= se.nextShadow) {
-    if (surfaced && poor) se.pending.push({ at: t + 2, report: { n: 0, at: 0, what: 'shadow', several: false, bearing: Math.round(r.next() * 71) * 5, range: null, text: '' } });
+    if (surfaced && poor) se.pending.push({ at: t + 2, report: { n: 0, at: 0, what: 'shadow', several: false, bearing: Math.round(r.next() * 71) * 5, range: null, text: '', ...stamp(se, w) } });
     se.nextShadow = t + (1 + r.next() * 4) * 3600;
   }
   // Calls go out when the lookout is sure (or thinks he is).
@@ -407,6 +435,11 @@ function look(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, em: Emi
     h.effect({ kind: 'voice', from: 'BRIDGE', text: rep.text });
     if (rep.what === 'aircraft') h.effect({ kind: 'alarm', station: BRIDGE_STATION, level: 2, report: rep.text });
   }
+}
+
+/** What the navigator had when a bearing was taken: the gyro and the reckoning. */
+function stamp(se: SenseState, w: WorldState): { heading: number; dr: { x: number; y: number } } {
+  return { heading: norm(w.own.course + se.gyro), dr: { x: Math.round(se.dr.x), y: Math.round(se.dr.y) } };
 }
 
 function callText(r: LookoutReport): string {
@@ -501,18 +534,27 @@ function judgeWeather(se: SenseState, r: Rng, w: WorldState, b: BoatState, t: nu
 export function stepSense(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, drill: DrillState | null, dt: number): void {
   const t = w.n * dt;
   const n = obs.nav;
-  // Dead reckoning: compass and log, no current.
-  se.dr.x += Math.sin(w.own.course * D2R) * b.speed * dt;
-  se.dr.y += Math.cos(w.own.course * D2R) * b.speed * dt;
+  // Dead reckoning: gyro and log, both a little off, and no current.
+  const hd = norm(w.own.course + se.gyro);
+  const log = b.speed * se.logK;
+  se.dr.x += Math.sin(hd * D2R) * log * dt;
+  se.dr.y += Math.cos(hd * D2R) * log * dt;
   se.fixAge += dt;
-  n.heading = w.own.course;
-  n.log = b.speed / KN;
+  n.heading = hd;
+  n.ordered = norm(w.own.ordered + se.gyro);
+  n.t = t;
+  n.log = log / KN;
   n.dr.x = se.dr.x;
   n.dr.y = se.dr.y;
   n.fixAge = se.fixAge;
   n.clock = w.t0 + t * 1000;
+  n.track = se.track;
+  n.fixes = se.fixes;
+  n.fixing = se.fixing ? { kind: se.fixing.kind, until: se.fixing.until } : null;
+  n.landmarks = w.landmarks;
   if (w.n % 2 === 0) bridge(se, w, b, t);
   if (w.n % Math.round(1 / dt) !== 0) return;
+  navigator(se, h, w, b, t);
   // Hull thermometer: lags the water by a minute or so.
   const water = waterTemp(w.ocean, t, b.depth);
   se.thermo = se.thermo === 0 ? water : se.thermo + (water - se.thermo) / 45;
@@ -588,6 +630,7 @@ function bridge(se: SenseState, w: WorldState, b: BoatState, t: number): void {
       smoke: r < smokeR && hull.smoke > 0 ? clamp(1.2 - r / Math.max(1, smokeR), 0.15, 1) : 0,
     });
   }
+  landSights(w, out, key, haze);
   const Ra = airSight(w);
   for (const a of w.air.list) {
     const dx = a.x - w.own.x;
@@ -615,4 +658,139 @@ function bridge(se: SenseState, w: WorldState, b: BoatState, t: number): void {
 export function keyOwner(se: SenseState, key: string): string | null {
   for (const [id, tr] of Object.entries(se.src)) if (tr.key === key) return id;
   return null;
+}
+
+// ---------------------------------------------------------------- the navigator (chunk 2.5)
+
+const NAV = 'CHART TABLE';
+const NAV_STATION = 4;
+/** A track point every ten minutes, and on a turn of more than two degrees. */
+const TRACK_EVERY = 600;
+const TRACK_KEEP = 600;
+/** Seconds to take and work out a sight. */
+const FIX_TIME: Record<FixKind, number> = { star: 600, landmark: 180 };
+const NM = 1852;
+
+/** Metres of an object of height h the horizon hides at range r, from an eye at e metres. */
+const hidden = (r: number, e: number) => Math.max(0, r / 3860 - Math.sqrt(e)) ** 2;
+
+/** Where the navigator's eye is: the bridge, the periscope, or nowhere. */
+function eyeOf(b: BoatState): number {
+  if (isSurfaced(b)) return EYE;
+  if (b.depth <= BOAT.periscopeDepth + 1) return 1.5;
+  return 0;
+}
+
+/** A charted landmark he can take a bearing on: at least a third of it above the horizon, inside the visibility. */
+function landmarkInSight(w: WorldState, eye: number): { lm: Landmark; r: number } | null {
+  if (!eye) return null;
+  const vis = lightVis(w) * 1.2;
+  let best: { lm: Landmark; r: number } | null = null;
+  for (const lm of w.landmarks) {
+    const r = Math.hypot(lm.x - w.own.x, lm.y - w.own.y);
+    if (r > vis || hidden(r, eye) > lm.height * 0.66) continue;
+    if (!best || r < best.r) best = { lm, r };
+  }
+  return best;
+}
+
+/** Stars need a horizon and a sky: twilight, or a high bright moon, clear enough, from the bridge. */
+function starsWhy(w: WorldState, b: BoatState): string | null {
+  const sk = w.sky;
+  const wx = w.weather;
+  if (!isSurfaced(b)) return b.depth <= BOAT.periscopeDepth + 1 ? 'NO STARS THROUGH THE SCOPE, CAPTAIN. I NEED THE BRIDGE.' : 'WE ARE DEEP, CAPTAIN. I NEED THE HORIZON: SURFACE, OR A LANDMARK AT PERISCOPE DEPTH.';
+  if (wx.fog > 0.5) return 'FOG, CAPTAIN. NO HORIZON, NO STARS.';
+  if (wx.cloud > 0.6 || wx.precip === 'rain' || wx.precip === 'squalls') return 'OVERCAST. NO STARS UNTIL IT CLEARS.';
+  if (sk.sunElev > -3) return 'NO STARS BY DAY, AND NO LAND IN SIGHT. AT DUSK I CAN SHOOT STARS.';
+  if (sk.sunElev < -12 && !(sk.moonElev > 8 && sk.moonLit > 0.45)) return 'TOO DARK FOR A HORIZON. AT DAWN, OR WHEN THE MOON IS HIGH.';
+  return null;
+}
+
+/** The captain asks for a fix. */
+export function orderFix(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, t: number): void {
+  const say = (text: string) => h.effect({ kind: 'voice', from: NAV, text });
+  if (se.fixing) return say(se.fixing.kind === 'star' ? 'STILL AT THE STARS, CAPTAIN.' : 'STILL TAKING BEARINGS, CAPTAIN.');
+  h.effect({ kind: 'alarm', station: NAV_STATION, level: 0, report: 'ALL QUIET.' });
+  const land = landmarkInSight(w, eyeOf(b));
+  if (land) {
+    se.fixing = { kind: 'landmark', until: t + FIX_TIME.landmark, lm: land.lm.id };
+    return say(`${land.lm.name} IN SIGHT. TAKING BEARINGS ON IT NOW.`);
+  }
+  const why = starsWhy(w, b);
+  if (why) return say(why);
+  se.fixing = { kind: 'star', until: t + FIX_TIME.star, lm: null };
+  say('AYE, CAPTAIN. UP TO THE BRIDGE WITH THE SEXTANT. TEN MINUTES.');
+}
+
+/** Once a second: a sight under way, and a word at twilight when the fix is getting old. */
+function navigator(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, t: number): void {
+  // The pencilled track: a point every ten minutes and at every turn.
+  const last = se.track[se.track.length - 1];
+  const hd = norm(w.own.course + se.gyro);
+  if (!last || t - last.at >= TRACK_EVERY || (Math.abs(wrap(hd - se.trackHd)) > 2 && t - last.at >= 30)) {
+    se.track.push({ at: t, x: se.dr.x, y: se.dr.y });
+    se.trackHd = hd;
+    if (se.track.length > TRACK_KEEP) se.track.shift();
+  }
+  const f = se.fixing;
+  const say = (text: string, keep = false) => h.effect({ kind: 'voice', from: NAV, text, keep });
+  if (f) {
+    // The sight is lost if she dives, the sky closes or the rock goes out of sight.
+    const lost = f.kind === 'star' ? starsWhy(w, b) : landmarkInSight(w, eyeOf(b))?.lm.id === f.lm ? null : 'LOST';
+    if (lost) {
+      se.fixing = null;
+      return say(f.kind === 'star' ? (isSurfaced(b) ? 'LOST THE STARS, CAPTAIN. NO FIX.' : 'THE SIGHT IS LOST, WE ARE DIVING. NO FIX.') : 'LOST THE LANDMARK. NO FIX.');
+    }
+    if (t < f.until) return;
+    se.fixing = null;
+    const r = h.rng;
+    const lm = w.landmarks.find((l) => l.id === f.lm);
+    const range = lm ? Math.hypot(lm.x - w.own.x, lm.y - w.own.y) : 0;
+    const sd = f.kind === 'star' ? 700 : 60 + range * 0.008;
+    const x = w.own.x + gauss(r) * sd;
+    const y = w.own.y + gauss(r) * sd;
+    const from = { x: se.dr.x, y: se.dr.y };
+    const off = Math.hypot(x - from.x, y - from.y);
+    const brg = Math.atan2(x - from.x, y - from.y) * R2D;
+    const fix: FixObs = { n: ++se.fixN, at: t, kind: f.kind, x: Math.round(x), y: Math.round(y), from: { x: Math.round(from.x), y: Math.round(from.y) } };
+    se.fixes.push(fix);
+    if (se.fixes.length > 40) se.fixes.shift();
+    se.dr = { x, y };
+    se.fixAge = 0;
+    se.track.push({ at: t, x, y, fix: true });
+    const what = f.kind === 'star' ? 'STAR FIX' : `FIX ON ${lm?.name ?? 'THE LANDMARK'}`;
+    const miles = off / NM;
+    say(miles < 0.3 ? `${what}. RIGHT ON OUR RECKONING, CAPTAIN.` : `${what}. WE ARE ${miles.toFixed(1)} MILES ${pad3(brg)} OF OUR RECKONING. CHART CORRECTED.`);
+    return;
+  }
+  // Twilight, a clear sky and an old fix: he asks for the bridge (once a twilight).
+  if (se.fixAge > 4 * 3600 && t - se.suggestAt > 6 * 3600 && !starsWhy(w, b) && w.sky.sunElev > -12) {
+    se.suggestAt = t;
+    const hrs = Math.floor(se.fixAge / 3600);
+    h.effect({ kind: 'alarm', station: NAV_STATION, level: 1, report: `TWILIGHT AND A CLEAR SKY. OUR FIX IS ${hrs} HOURS OLD: ASK ME FOR STARS.` });
+  }
+}
+
+/** Charted land in sight from the bridge: its bearing, size and how much the horizon hides. */
+function landSights(w: WorldState, out: BridgeSight[], key: (id: string) => string, haze: (r: number) => number): void {
+  const vis = lightVis(w) * 1.2;
+  for (const lm of w.landmarks) {
+    const dx = lm.x - w.own.x;
+    const dy = lm.y - w.own.y;
+    const r = Math.hypot(dx, dy);
+    const hid = hidden(r, EYE);
+    if (r > vis || hid >= lm.height) continue;
+    out.push({
+      key: key(`l${lm.id}`),
+      kind: 'land',
+      bearing: norm(Math.atan2(dx, dy) * R2D - w.own.course),
+      degPerM: R2D / Math.max(50, r),
+      low: hid,
+      aob: 0,
+      outline: null,
+      haze: haze(r) * 0.85,
+      smoke: 0,
+      size: [lm.length, lm.height],
+    });
+  }
 }

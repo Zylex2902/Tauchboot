@@ -3,6 +3,7 @@ import { mixer } from '../core/audio';
 import { drawText, measure } from '../core/font';
 import { haptic } from '../core/haptics';
 import { HAPTIC_ICON, icon } from '../core/icons';
+import { drawIcon } from '../core/tool-icons';
 import { C } from '../core/palette';
 import { BAYER4, Pix } from '../core/pixels';
 import { settings, updateSettings, type HapticLevel } from '../core/settings';
@@ -13,7 +14,7 @@ import { createControl, hitPolicy, type KitContext } from '../controls';
 import { plate, STRIP_Y } from '../stations/panel-art';
 
 const HAPTIC_LEVELS: HapticLevel[] = ['off', 'reduced', 'full'];
-const CARD = { x: 110, y: 52, w: 260, h: 160 };
+const CARD = { x: 110, y: 40, w: 260, h: 190 };
 const TAB = { x: 458, y: STRIP_Y + 3, w: 20, h: 24 };
 const VEIL_STEPS = [0, 3, 6, 8]; // Bayer levels out of 16: the station stays visible behind
 
@@ -60,6 +61,9 @@ function cardArt(): Pix {
   drawText(p, 'HAPTICS', 26, 79, C.paper1);
   p.blit(SPEAKER_ICON, 12, 120);
   drawText(p, 'VOLUME', 26, 121, C.paper1);
+  drawIcon(p, 'ruler', 9, 157, C.iron7, C.iron4);
+  drawText(p, 'PLOTTING', 26, 157, C.paper1);
+  drawText(p, 'ASSIST', 26, 165, C.paper1);
   drawText(p, 'THE PATROL IS SAVED AS YOU PLAY.', 12, h - 12, C.iron6);
   return p;
 }
@@ -116,7 +120,13 @@ export class Pause {
       updateSettings({ volume: v });
       mixer.setMasterVolume(v);
     });
-    this.card.addChild(resume.root, hap.root, vol.root);
+    // Realism switch (chunk 2.5): the navigator rules bearing lines and works out tracks, or you do.
+    const plot = createControl(
+      { kind: 'lever', id: 'set-plot', x: 110, y: 160, axis: 'x', length: 60, detents: ['OFF', 'ON'], initial: settings().plotAssist ? 1 : 0, weight: 40 },
+      ctx,
+    );
+    plot.onChange((i) => updateSettings({ plotAssist: i === 1 }));
+    this.card.addChild(resume.root, hap.root, vol.root, plot.root);
 
     this.tab.position.set(TAB.x, TAB.y);
     this.tab.addChild(new Sprite(tabArt().toTexture()));

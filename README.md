@@ -105,6 +105,18 @@ The bridge is open only while she is surfaced; dived, its hatch is shut over the
 - Air drill (third drill on the drill card): on the surface under low cloud; a plane comes out of the cloud base about 4 km off with some 40 seconds to spare. React within about 10 seconds of the call and she is deep; much later and she is caught.
 Node checks outside the repo: `node pw/air24.mjs`; browser: `node pw/airdrill.mjs` (the done-when, once reacting and once not).
 
+## Chart table (chunk 2.5, compartment 5)
+Your own picture of the world. The navigator keeps the reckoning in blue ink (a mark every hour, a dashed line ahead on the ordered course); everything else is your pencil.
+- Tool rail: PENCIL (draw; tap for a cross and the time), ERASER (rubs out pencil, never the navigator's ink), RULER (lay it on the chart; slide it by its brass knob, turn it by its ends; the pencil along its edge rules a straight line), DIVIDERS (drag the points or the hinge; the distance shows in miles), the GLASS (closer, closer, then the whole sheet), and HOME (the chart back on the boat). Drag the paper with no tool in hand to slide the chart.
+- The ruler's readout: the bearing it lies on, and where it crosses bearing lines the gaps between them (miles) over the minutes between those bearings. The old three-bearing method: when the two rows are in step, the edge lies along her track, and its bearing is her course.
+- BEARINGS board: every bearing that comes in (sound room calls, lookout calls, your own MARK in the sound room) lands on a slip with the true bearing worked out from the gyro and where we were. Step through them with the arrows; PLOT puts it on the chart. ASK SOUND ROOM gets bearings now: the middle of a convoy's noise and the loudest single screws. A slip warns when a bearing was heard near a blind arc.
+- Plotting assist (pause card, PLOTTING ASSIST, on by default): PLOT rules the line for you and, once three or more bearings are on one contact, the navigator pencils her track and course ("CSE 055?", scaled to a guessed 8 knots). Off: PLOT lays the ruler along the bearing and puts the pencil in your hand; the line you draw along it becomes that bearing.
+- NAVIGATOR board: the watch clock, the reckoning's square, heading, ordered course, the age of the fix; the time compression lever; FIX (stars at twilight or under a high moon, ten minutes on the bridge; or a charted rock in sight, three minutes); STEER RULER (the helmsman gets the ruler's course; with no ruler out it is laid along her course first).
+- The reckoning drifts: the current, and a log and gyro each a little off. A fix puts it right (the mark slides across). At twilight with a clear sky and an old fix the navigator's lamp asks for stars.
+- Grid squares: two letters, square 11-99 (row from the north, column from the west), and a ninth 1-9 like a dial; five miles a square. The middle of the patrol area is KR 55 5. A charted rock lies 20-30 km out; from the bridge it shows on the horizon.
+- The helm: she turns about a degree a second at half speed, barely at all when stopped.
+Node checks outside the repo: `node pw/chart25.mjs`; browser: `node pw/chart25b.mjs` (the done-when by touch: three bearings plotted, the track, the ruler laid by hand; then assist off).
+
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
 

@@ -3,7 +3,7 @@
 Landscape-only pixel-art WW2-style submarine station sim. iOS + Android (Capacitor), PWA for testing. Fictional 1940s regime; never real Nazi symbols. 9 hand-operated stations, 44-man crew runs the rest. Single-player, offline, free + one unlock.
 
 GDD + build plan: https://claude.ai/code/artifact/1bff9637-acf4-4053-9c8a-9a09e4b62e39
-Status: chunks 0.1-0.5, 1.1-1.5, 2.1-2.4 done (phase 1 complete; 2.1 world sim, 2.2 observation layer + truth overlay, 2.3 hydrophone station, 2.4 bridge + aircraft + air drill); Gate 1 (five cold testers) still open; next 2.5. Work one chunk at a time, then stop and report.
+Status: chunks 0.1-0.5, 1.1-1.5, 2.1-2.5 done (phase 1 complete; 2.1 world sim, 2.2 observation layer + truth overlay, 2.3 hydrophone station, 2.4 bridge + aircraft + air drill, 2.5 chart table + navigator + helm); Gate 1 (five cold testers) still open; next 2.6. Work one chunk at a time, then stop and report.
 
 ## Standing rules
 - Everything that changes on screen animates (tween); nothing snaps.

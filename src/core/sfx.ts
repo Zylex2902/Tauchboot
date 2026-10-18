@@ -227,6 +227,12 @@ export const SFX = {
   alarmBell: 'alarmBell',
   /** Bombs exploding in the water near the hull. */
   bomb: 'bomb',
+  /** Chart table (chunk 2.5): pencil lead on chart paper (loop), the rubber (loop), the ruler laid down, the chart slid (loop), the watch clock. */
+  pencil: 'pencil',
+  erase: 'erase',
+  ruler: 'ruler',
+  paper: 'paper',
+  tick: 'tick',
 } as const;
 
 /**
@@ -298,6 +304,11 @@ export const SFX_NOTES: Record<string, string> = {
   aircraft: 'twin radial aircraft engines, loops',
   alarmBell: 'dive alarm bells',
   bomb: 'bombs exploding close to the hull',
+  pencil: 'pencil lead scratching across chart paper, loops',
+  erase: 'india rubber worked back and forth on paper, loops',
+  ruler: 'celluloid ruler laid down and slid on the chart',
+  paper: 'the chart dragged across the table, loops',
+  tick: 'the watch clock escapement',
   'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
   'screw-steam4-1': 'merchant, second voice (a nicked blade, a bigger hull), loops',
   'screw-steam3-0': 'corvette: lighter three-blade screw, fast steam, loops',
@@ -724,6 +735,46 @@ export function defineSounds(): void {
     add(out, scrape(sr, dur, 120, 645, (p) => Math.exp(-p * 6)), 0.25);
     return grit(lowpass(out, 1800, sr), 3);
   }, 1);
+
+  d(SFX.pencil, (sr) => {
+    // Graphite: a dense crackle of tiny catches in the paper tooth, a faint hollow of the table under it.
+    const dur = 1.2;
+    const out = scrape(sr, dur + 0.1, 9000, 651, () => 1);
+    const r = rng(652);
+    for (let i = 0; i < out.length; i++) out[i] *= 0.6 + 0.4 * Math.sin((TAU * i) / (sr * 0.37) + r() * 0.2);
+    add(out, resonate(sr, scrape(sr, dur + 0.1, 600, 653, () => 0.4), cluster(654, 180, 700, 6, 0.03)), 0.15);
+    return loopable(lowpass(highpass(out, 1200, sr), 6000, sr), sr, 0.1);
+  }, 0.55, true);
+
+  d(SFX.erase, (sr) => {
+    // Rubber dragged back and forth: a low rub swelling with each stroke, crumbs of grit in it.
+    const dur = 1;
+    const out = scrape(sr, dur + 0.1, 3000, 661, (p) => 0.25 + 0.75 * Math.abs(Math.sin(Math.PI * 4 * p)));
+    const body = resonate(sr, out.slice(), cluster(662, 260, 1400, 8, 0.02));
+    add(out, body, 0.5);
+    return loopable(lowpass(highpass(out, 300, sr), 3200, sr), sr, 0.1);
+  }, 0.4, true);
+
+  d(SFX.ruler, (sr) => {
+    const out = scrape(sr, 0.3, 1800, 671, (p) => Math.sin(Math.PI * Math.min(1, p * 1.2)) * 0.6);
+    add(out, contact(sr, 0.3, 672, 1200, 5200, 0.01), 0.5);
+    add(out, strike(sr, 0.3, 4, 673, 0.6, cluster(674, 380, 1600, 6, 0.02)), 0.4);
+    return lowpass(highpass(out, 500, sr), 6000, sr);
+  }, 0.75);
+
+  d(SFX.paper, (sr) => {
+    const dur = 1;
+    const out = scrape(sr, dur + 0.1, 2400, 681, () => 1);
+    const r = rng(682);
+    let a = 0;
+    for (let i = 0; i < out.length; i++) {
+      a += (r() * 2 - 1 - a) * 0.05;
+      out[i] = out[i] * 0.4 + a * 1.4;
+    }
+    return loopable(lowpass(highpass(out, 250, sr), 4200, sr), sr, 0.1);
+  }, 0.3, true);
+
+  d(SFX.tick, (sr) => add(contact(sr, 0.05, 691, 3000, 9000, 0.003), strike(sr, 0.05, 1, 692, 0.2, [[2900, 0.006, 1], [4700, 0.004, 0.5]]), 0.5), 0.35);
 
   d(SFX.sea, (sr) => {
     const dur = 4;

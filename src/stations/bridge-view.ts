@@ -223,6 +223,7 @@ export class BridgeView {
     const sights = [...b.sights].sort((p, q) => p.degPerM - q.degPerM);
     for (const s of sights) {
       if (s.kind === 'ship') this.ship(s, L);
+      else if (s.kind === 'land') this.land(s, L);
       else this.plane(s);
     }
     // Rain: short streaks driven by the wind.
@@ -311,6 +312,36 @@ export class BridgeView {
         // Seas running past her waterline.
         if (fromKeel - hidPx < occ && noise(x * 0.4, this.t * 2 + j) > 0.6) continue;
         this.put(x, y, c, hazeLvl);
+      }
+    }
+  }
+
+  /** A charted rock: a dark ragged hump on the horizon, its foot hidden at long range, surf at its waterline. */
+  private land(s: BridgeSight, L: number): void {
+    const [length, height] = s.size ?? [300, 25];
+    const sc = s.degPerM * this.ppd;
+    const cx = Math.round(this.xOf(s.bearing));
+    const half = Math.max(1, Math.round((length * sc) / 2));
+    if (cx + half < 0 || cx - half > this.W) return;
+    const hazeLvl = s.haze * 15;
+    const hidPx = s.low * sc;
+    const seed = [...s.key].reduce((a, ch) => a + ch.charCodeAt(0), 0) * 0.37;
+    const dark = L < 0.35;
+    for (let q = -half; q <= half; q++) {
+      const x = cx + q;
+      if (x < 0 || x >= this.W) continue;
+      const u = (q + half) / (2 * half);
+      // A steep-sided hump with a broken crown.
+      const prof = Math.sin(Math.PI * u) ** 0.55 * (0.72 + 0.28 * noise(u * 6 + seed, seed));
+      const top = prof * height * sc - hidPx;
+      if (top <= 0) continue;
+      const hy = this.hy[x];
+      for (let j = 0; j < Math.ceil(top); j++) {
+        const y = Math.round(hy) - 1 - j;
+        if (y < 0) break;
+        const crown = j >= top - 1.5 && !dark;
+        const surf = j < Math.max(1, sc * 2) && hidPx < 1 && noise(x * 0.5, this.t * 3 + j) > 0.55;
+        this.put(x, y, surf ? C.iron6 : crown ? C.iron3 : dark ? C.black : (x + j) % 5 === 0 ? C.iron2 : C.iron1, hazeLvl);
       }
     }
   }

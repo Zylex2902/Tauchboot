@@ -77,6 +77,9 @@ export interface LookoutReport {
   /** Range as called: 'far' (smoke only), 'hull down' (masts), or an estimate in metres. */
   range: 'far' | 'hull down' | number | null;
   text: string;
+  /** Gyro heading and dead-reckoned position when it was seen (to plot it: true bearing = bearing + heading). */
+  heading: number;
+  dr: { x: number; y: number };
 }
 
 /** A signal from command, decoded. Positions are given from the patrol area's centre. */
@@ -93,10 +96,46 @@ export interface Signal {
   text: string;
 }
 
+/** Fixed and charted: a rock, a headland, a lighthouse. Positions from the area centre, metres. */
+export interface Landmark {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  /** Height above the sea and length along the horizon, metres. */
+  height: number;
+  length: number;
+}
+
+export type FixKind = 'star' | 'landmark';
+
+/** A navigator's fix: where she was found to be, and where the reckoning had her. */
+export interface FixObs {
+  n: number;
+  /** World seconds. */
+  at: number;
+  kind: FixKind;
+  x: number;
+  y: number;
+  from: { x: number; y: number };
+}
+
+/** A point of the navigator's pencilled track (dead reckoning). `fix`: the track jumps here to a fix. */
+export interface TrackPoint {
+  at: number;
+  x: number;
+  y: number;
+  fix?: boolean;
+}
+
 /** Navigation: what the navigator has, which is dead reckoning until the next fix. */
 export interface NavObs {
   /** Gyro compass heading, degrees. */
   heading: number;
+  /** Course the helmsman has been given, degrees. */
+  ordered: number;
+  /** World seconds now (report times are in world seconds). */
+  t: number;
   /** Speed through the water by the log, knots. */
   log: number;
   /** Dead-reckoned position from the area centre, metres (x east, y north). */
@@ -105,6 +144,13 @@ export interface NavObs {
   fixAge: number;
   /** The watch clock: UTC milliseconds. */
   clock: number;
+  /** The navigator's track, every ten minutes, at turns and at fixes (the last 600 points). */
+  track: TrackPoint[];
+  fixes: FixObs[];
+  /** A sight being taken, and when it will be worked out (world seconds). */
+  fixing: { kind: FixKind; until: number } | null;
+  /** Printed on the chart. */
+  landmarks: Landmark[];
 }
 
 /** Weather as last judged from the bridge or through the periscope, and the hull thermometer. */
@@ -130,5 +176,5 @@ export interface EnvObs {
 }
 
 export const freshSound = (): SoundObs => ({ sources: [], noise: 0, deaf: false, own: 0 });
-export const freshNav = (): NavObs => ({ heading: 0, log: 0, dr: { x: 0, y: 0 }, fixAge: 0, clock: 0 });
+export const freshNav = (): NavObs => ({ heading: 0, ordered: 0, t: 0, log: 0, dr: { x: 0, y: 0 }, fixAge: 0, clock: 0, track: [], fixes: [], fixing: null, landmarks: [] });
 export const freshEnv = (): EnvObs => ({ at: null, force: 0, windFrom: 0, seaState: 0, visMiles: 0, cloud: 0, rain: 'none', fog: false, phase: 'day', moonLit: 0, moonUp: false, seaTemp: 0 });

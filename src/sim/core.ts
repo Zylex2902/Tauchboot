@@ -7,9 +7,9 @@ import { dive, newDiveState, type DiveState } from './dive';
 import { drill, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
 import { Rng } from './rng';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
-import { beam, newSense, stepSense, type SenseHost, type SenseState } from './sense';
+import { beam, newNav, newSense, orderFix, stepSense, type SenseHost, type SenseState } from './sense';
 import { newAirWorld } from './air';
-import { newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
+import { defaultLandmarks, newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
 
 /**
  * The sim core (chunk 1.1): a fixed 10 Hz tick, seeded RNG, time compression with an
@@ -24,9 +24,13 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 8;
-/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4). */
-const MIGRATES = [4, 5, 6, 7];
+export const SAVE_VERSION = 9;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5). */
+const MIGRATES = [4, 5, 6, 7, 8];
+const KN = 0.5144;
+const norm = (d: number) => ((d % 360) + 360) % 360;
+const wrap = (d: number) => norm(d + 180) - 180;
+const pad3 = (n: number) => String(Math.round(norm(n)) % 360).padStart(3, '0');
 
 const QUIET = 'ALL QUIET.';
 
@@ -185,6 +189,9 @@ export class Sim {
       s.rng.sense = r.s;
     }
     s.sense.vis ??= {};
+    s.world.own.ordered ??= s.world.own.course;
+    s.world.landmarks ??= defaultLandmarks(s.world.t0);
+    if (s.sense.logK === undefined) Object.assign(s.sense, newNav(new Rng((s.seed ^ 0x2545f491) >>> 0 || 17), s.world));
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -282,6 +289,7 @@ export class Sim {
       if (this.drillObs.phase === 'over' && !b.lost)
         for (let i = 0; i < 9; i++) if (this.s.alarms[i].level) this.effect({ kind: 'alarm', station: i, level: 0, report: QUIET });
     }
+    this.helm(b.lost ? 0 : b.speed);
     stepWorld(this.s.world, this.rngWorld, TICK_S, b.lost ? 0 : b.speed);
     stepAir(this.s.world.air, this.s.world, this.rngAir, TICK_S, { depth: b.depth, speedKn: b.speed / 0.5144 }, (d) => this.bombs(d));
     stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S);
@@ -347,12 +355,30 @@ export class Sim {
         this.s.hydro.hand = c.on;
         break;
       case 'hydroMark': {
-        if (this.s.kind !== 'scope') break;
+        // The captain's own bearing off the wheel: logged (and plottable) any time; the scope drill scores it.
         const h = this.s.hydro;
-        obs.publish({ type: 'hydroMark', mark: { n: ++h.marks, trained: Math.round(h.trained) % 360, rpm: Math.round(obs.hydro.rpm) } });
-        drill.reportBearing(d, this.host, h.trained);
+        const n = obs.nav;
+        obs.publish({ type: 'hydroMark', mark: { n: ++h.marks, trained: Math.round(h.trained) % 360, rpm: Math.round(obs.hydro.rpm), at: n.t, heading: n.heading, dr: { x: Math.round(n.dr.x), y: Math.round(n.dr.y) } } });
+        if (this.s.kind === 'scope') drill.reportBearing(d, this.host, h.trained);
         break;
       }
+      case 'course': {
+        // Ordered by the gyro: the helmsman steers the gyro, so the true course is off by its error.
+        const own = this.s.world.own;
+        const deg = Math.round(norm(c.deg));
+        own.ordered = norm(deg - this.s.sense.gyro);
+        this.steady = false;
+        const turn = wrap(own.ordered - own.course);
+        if (Math.abs(turn) < 0.5) this.host.later(0.8, [{ kind: 'voice', from: 'CONTROL ROOM', text: `COURSE ${pad3(deg)}, AYE. WE ARE ON IT.` }]);
+        else this.host.later(0.8, [{ kind: 'voice', from: 'CONTROL ROOM', text: `COURSE ${pad3(deg)}, AYE. ${turn > 0 ? 'STARBOARD' : 'PORT'} ${Math.abs(turn) > 60 ? 'TWENTY' : 'TEN'}.` }]);
+        break;
+      }
+      case 'fix':
+        orderFix(this.s.sense, this.senseHost, this.s.world, this.s.boat, this.s.world.n * TICK_S);
+        break;
+      case 'askBearings':
+        this.s.hydro.op.ask = true;
+        break;
       case 'drillNew': {
         // A drill sets the boat up for itself: trimmed at periscope depth, or on the surface.
         const kind = c.kind ?? this.s.kind;
@@ -408,6 +434,29 @@ export class Sim {
       power.setHand(b.power, this.boatHost, { hand: false }, keep);
       b.set.telegraph = keep;
       this.effect({ kind: 'voice', from: 'ENGINE ROOM', text: `ENGINE CREW HAS THE ENGINES. KEEPING ${TELEGRAPH[keep]}.` });
+    }
+  }
+
+  /** Has the helmsman reported steady on the ordered course (not saved: a turn in progress re-reports). */
+  private steady = true;
+
+  /**
+   * The helm (chunk 2.5): she comes round toward the ordered course at a rate the rudder
+   * gets from the water flowing past it: barely at all stopped, a degree and more a second
+   * at full speed.
+   */
+  private helm(speed: number): void {
+    const own = this.s.world.own;
+    const d = wrap(own.ordered - own.course);
+    if (Math.abs(d) < 1e-6) return;
+    const kn = speed / KN;
+    const rate = Math.min(1.6, 0.05 + 0.12 * kn);
+    const step = Math.sign(d) * Math.min(Math.abs(d), rate * TICK_S);
+    own.course = norm(own.course + step);
+    if (Math.abs(d) <= rate * TICK_S && !this.steady) {
+      own.course = own.ordered;
+      this.steady = true;
+      this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: `STEADY ON ${pad3(own.ordered + this.s.sense.gyro)}.`, keep: true });
     }
   }
 

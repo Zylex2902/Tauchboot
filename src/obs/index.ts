@@ -12,8 +12,9 @@ export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
 
 export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassKey } from './ships';
 export { CHARGE_HOURS, DIESEL_RPM, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type EngineSet, type PowerObs } from './power';
-export { BLIND, freshEnv, freshNav, freshSound, sigKey, type DayPhase, type Engine, type Signature, type EnvObs, type LookoutReport, type NavObs, type SightingKind, type Signal, type SoundObs, type SoundSource, type Tone } from './sense';
+export { BLIND, freshEnv, freshNav, freshSound, sigKey, type DayPhase, type Engine, type FixKind, type FixObs, type Landmark, type TrackPoint, type Signature, type EnvObs, type LookoutReport, type NavObs, type SightingKind, type Signal, type SoundObs, type SoundSource, type Tone } from './sense';
 export { freshBridge, WARSHIP_DIMS, type BridgeObs, type BridgeSight, type BridgeView, type Outline } from './bridge';
+export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
@@ -64,11 +65,16 @@ export interface HydroVoice {
 export interface HydroCall {
   n: number;
   at: number;
-  kind: 'new' | 'second' | 'many' | 'class' | 'drift' | 'closing' | 'turns' | 'lost' | 'deaf' | 'clear';
+  kind: 'new' | 'second' | 'many' | 'class' | 'drift' | 'closing' | 'turns' | 'lost' | 'deaf' | 'clear' | 'bearing';
   bearing: number | null;
   /** Short form for the sound room's log pad. */
   log: string;
   text: string;
+  /** Gyro heading and dead-reckoned position when the bearing was taken (to plot it). */
+  heading: number;
+  dr: { x: number; y: number };
+  /** Which contact: a sound's key, or 'convoy' for the crowd's middle (bearing lines of one group make a track). */
+  group?: string;
 }
 
 /** The sound room's log line when MARK is pressed: where the wheel was, and the beat as heard. */
@@ -76,6 +82,9 @@ export interface HydroMark {
   n: number;
   trained: number;
   rpm: number;
+  at: number;
+  heading: number;
+  dr: { x: number; y: number };
 }
 
 /** One thing the periscope glass can see: where it is and how big it looks. */
@@ -209,7 +218,13 @@ export type Command =
   | { type: 'scopeSet'; height: number; trained: number; high: boolean }
   | { type: 'scopeMark'; range: number; mast: number }
   /** The dive alarm: clear the bridge, flood, planes hard down, full ahead on the motors. */
-  | { type: 'crashDive' };
+  | { type: 'crashDive' }
+  /** The helmsman: steer this course (degrees true). */
+  | { type: 'course'; deg: number }
+  /** The navigator: take a fix (stars or a landmark, whichever he can). */
+  | { type: 'fix' }
+  /** The sound room: report the bearings of everything you hear. */
+  | { type: 'askBearings' };
 
 type Listener = (e: ObsEvent) => void;
 

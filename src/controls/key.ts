@@ -1,5 +1,6 @@
-import { Container, Rectangle, Sprite } from 'pixi.js';
+import { Rectangle, Sprite, type Texture } from 'pixi.js';
 import { drawText, measure } from '../core/font';
+import { drawIcon, ICON, type IconName } from '../core/tool-icons';
 import { C, type ColorIndex } from '../core/palette';
 import { Pix } from '../core/pixels';
 import { SFX } from '../core/sfx';
@@ -17,6 +18,8 @@ export interface KeySpec extends BaseSpec {
   text: string | [string, string];
   /** 'down' fires on touch (rhythm taps, counting); default 'up' fires on release inside. */
   fireOn?: 'down' | 'up';
+  /** A pixel icon on the face instead of (or above) the text. */
+  icon?: IconName;
 }
 
 const STYLE: Record<KeyStyle, { face: ColorIndex; hi: ColorIndex; lo: ColorIndex; ink: ColorIndex }> = {
@@ -27,7 +30,9 @@ const STYLE: Record<KeyStyle, { face: ColorIndex; hi: ColorIndex; lo: ColorIndex
 
 /** Rectangular push key (order chits, RESUME): sinks 2 px and springs back. Value counts presses. */
 export class Key extends Control<number> {
-  private face: Container;
+  private face: Sprite;
+  private faces: [up: Texture, latched: Texture];
+  private latched = false;
   /** Timestamp of the touch that fired last (the event's own time, not frame time). */
   firedAt = 0;
 
@@ -42,17 +47,24 @@ export class Key extends Control<number> {
     const ws = new Sprite(well.toTexture());
     ws.position.set(-2, -2);
     this.root.addChild(ws);
-    const f = new Pix(w, h + 2);
-    f.rect(0, 2, w, h, C.black); // side of the key, shows when raised
-    f.rect(0, 0, w, h, st.face);
-    f.rect(0, 0, w, 1, st.hi);
-    f.rect(0, 0, 1, h, st.hi);
-    f.rect(0, h - 1, w, 1, st.lo);
-    f.rect(w - 1, 0, 1, h, st.lo);
-    const lines = typeof s.text === 'string' ? [s.text] : s.text;
-    const top = Math.floor((h - (lines.length * 8 - 2)) / 2);
-    lines.forEach((t, i) => drawText(f, t, Math.floor((w - measure(t)) / 2), top + i * 8, st.ink));
-    this.face = new Sprite(f.toTexture());
+    // Two faces: up, and held down in its well (a latched tool key, darker in the shadow).
+    const faceArt = (down: boolean) => {
+      const f = new Pix(w, h + 2);
+      f.rect(0, 2, w, h, C.black); // side of the key, shows when raised
+      f.rect(0, 0, w, h, down ? st.lo : st.face);
+      f.rect(0, 0, w, 1, down ? st.face : st.hi);
+      f.rect(0, 0, 1, h, down ? st.face : st.hi);
+      f.rect(0, h - 1, w, 1, st.lo);
+      f.rect(w - 1, 0, 1, h, st.lo);
+      const lines = (typeof s.text === 'string' ? [s.text] : s.text).filter((t) => t);
+      const iconH = s.icon ? ICON + (lines.length ? 2 : 0) : 0;
+      const top = Math.floor((h - iconH - (lines.length ? lines.length * 8 - 2 : 0)) / 2);
+      if (s.icon) drawIcon(f, s.icon, Math.floor((w - ICON) / 2), top, st.ink, down ? st.face : st.hi);
+      lines.forEach((t, i) => drawText(f, t, Math.floor((w - measure(t)) / 2), top + iconH + i * 8, st.ink));
+      return f.toTexture();
+    };
+    this.faces = [faceArt(false), faceArt(true)];
+    this.face = new Sprite(this.faces[0]);
     this.face.y = -2;
     this.root.addChild(this.face);
 
@@ -69,7 +81,7 @@ export class Key extends Control<number> {
       up: (e, cancelled) => {
         const l = e.getLocalPosition(this.target);
         const inside = (this.target.hitArea as Rectangle).contains(l.x, l.y);
-        void ctx.tw.to(this.face, { y: -2 }, { duration: 160, ease: ease.outBack });
+        void ctx.tw.to(this.face, { y: this.latched ? 0 : -2 }, { duration: 160, ease: ease.outBack });
         this.sfx('release', SFX.click);
         this.buzz('release', 'release');
         if (!cancelled && inside && s.fireOn !== 'down') {
@@ -79,6 +91,18 @@ export class Key extends Control<number> {
       },
     });
     this.finish();
+  }
+
+  /** Hold the key down in its well (a tool in hand), or let it spring up. */
+  latch(on: boolean): void {
+    if (on === this.latched) return;
+    this.latched = on;
+    this.face.texture = this.faces[on ? 1 : 0];
+    void this.ctx.tw.to(this.face, { y: on ? 0 : -2 }, { duration: on ? 60 : 180, ease: on ? ease.outCubic : ease.outBack });
+  }
+
+  get isLatched(): boolean {
+    return this.latched;
   }
 
   protected coreRect(): Rectangle {

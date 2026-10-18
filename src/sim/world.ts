@@ -1,7 +1,8 @@
+import type { Landmark } from '../obs';
 import { newAirWorld, type AirWorld } from './air';
 import { HULLS, logTrack, makeGroup, progress, stepGroup, stepShip, TRACK_EVERY, type ConvoyPlan, type GroupState, type ShipState } from './fleet';
 import { newOcean, stepOcean, type OceanState } from './ocean';
-import type { Rng } from './rng';
+import { Rng } from './rng';
 import { sky, type SkyNow } from './sky';
 import { newWeather, SST, stepWeather, waveHeight, type SystemKind, type WeatherState } from './weather';
 
@@ -46,6 +47,8 @@ export interface WorldOpts {
   ownCourse?: number;
   /** Patrol aircraft per daylight hour (chunk 2.4). */
   air?: number;
+  /** Charted rocks and headlands in or near the area (chunk 2.5); default: one rock. */
+  landmarks?: Landmark[];
 }
 
 export interface WorldState {
@@ -55,7 +58,8 @@ export interface WorldState {
   lat0: number;
   lon0: number;
   month: number;
-  own: { x: number; y: number; course: number };
+  /** Own boat: true position and course; `ordered` is the course the helmsman steers for. */
+  own: { x: number; y: number; course: number; ordered: number };
   /** Surface current: the direction it sets toward (deg) and its drift (kn). It carries own boat off her dead reckoning. */
   current: { set: number; kn: number };
   weather: WeatherState;
@@ -66,6 +70,30 @@ export interface WorldState {
   nextShip: number;
   /** Patrol aircraft (chunk 2.4): stepped by the sim core, which knows the boat's depth. */
   air: AirWorld;
+  /** Charted landmarks (chunk 2.5): fixed, and printed on the chart. */
+  landmarks: Landmark[];
+}
+
+const ROCKS = ['KALDSKAR', 'GRAUKLIPP', 'HUNDSTEIN', 'MOVENSKAR', 'SVARTBAAK', 'ODDSKER'];
+
+/**
+ * The area's default landmark: one lonely rock 20-32 km from the centre, from its own little
+ * RNG (seeded by the start time) so it does not disturb the world's stream.
+ */
+export function defaultLandmarks(startMs: number): Landmark[] {
+  const r = new Rng((Math.floor(startMs / 1000) ^ 0x5bd1e995) >>> 0 || 13);
+  const brg = r.next() * 360;
+  const d = 20000 + r.next() * 12000;
+  return [
+    {
+      id: 'rock',
+      name: `${ROCKS[Math.floor(r.next() * ROCKS.length)]} ROCK`,
+      x: Math.round(Math.sin(brg * D2R) * d),
+      y: Math.round(Math.cos(brg * D2R) * d),
+      height: Math.round(18 + r.next() * 22),
+      length: Math.round(180 + r.next() * 380),
+    },
+  ];
 }
 
 const YEAR_ESCORTS: Record<number, [number, number]> = { 1939: [1, 2], 1940: [1, 3], 1941: [3, 4], 1942: [4, 6], 1943: [6, 8], 1944: [7, 8], 1945: [7, 8] };
@@ -94,7 +122,7 @@ export function newWorld(r: Rng, opts: WorldOpts = {}): WorldState {
     lat0: opts.lat ?? 52.5,
     lon0: opts.lon ?? -22,
     month,
-    own: { x: 0, y: 0, course: opts.ownCourse ?? 0 },
+    own: { x: 0, y: 0, course: opts.ownCourse ?? 0, ordered: opts.ownCourse ?? 0 },
     current: { set: 0, kn: 0 },
     weather,
     ocean: newOcean(r, month, SST[month], opts.layer),
@@ -103,6 +131,7 @@ export function newWorld(r: Rng, opts: WorldOpts = {}): WorldState {
     ships: [],
     nextShip: 1,
     air: newAirWorld(opts.air),
+    landmarks: opts.landmarks ?? defaultLandmarks(start),
   };
   w.sky = sky(start, ...latLon(w), weather.cloud);
   const y = Math.min(1945, Math.max(1939, year));

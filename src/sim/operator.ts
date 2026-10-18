@@ -70,6 +70,8 @@ interface Queued {
   call: Omit<HydroCall, 'n' | 'at'>;
 }
 
+type Say = (pri: number, call: Omit<HydroCall, 'n' | 'at' | 'heading' | 'dr'>) => void;
+
 export interface OperatorState {
   known: Record<string, Known>;
   /** Sounds in the phones he has not picked out yet: when he will. */
@@ -85,6 +87,8 @@ export interface OperatorState {
   dir: 1 | -1;
   dwell: string | null;
   dwellUntil: number;
+  /** The captain has asked for bearings (chunk 2.5). */
+  ask?: boolean;
 }
 
 export function newOperator(): OperatorState {
@@ -169,7 +173,9 @@ export function stepOperator(op: OperatorState, h: OperatorHost, sources: SoundS
   const deafNow = obs.sound.deaf;
   const clock = new Date(obs.nav.clock);
   const hhmm = `${String(clock.getUTCHours()).padStart(2, '0')}${String(clock.getUTCMinutes()).padStart(2, '0')}`;
-  const say = (pri: number, call: Queued['call']) => op.queue.push({ pri, at: t, call: { ...call, log: `${hhmm} ${call.log}` } });
+  // Each bearing goes out with the gyro and the reckoning of when he took it, for the chart.
+  const dr = { x: Math.round(obs.nav.dr.x), y: Math.round(obs.nav.dr.y) };
+  const say: Say = (pri, call) => op.queue.push({ pri, at: t, call: { ...call, log: `${hhmm} ${call.log}`, heading, dr } });
 
   // Deaf or not: he says so once the set has been that way for a few seconds.
   if (op.deaf === null) op.deaf = deafNow;
@@ -234,7 +240,7 @@ export function stepOperator(op: OperatorState, h: OperatorHost, sources: SoundS
       if (!k.classed && k.lvl >= SURE * 1.5) {
         k.classed = true;
         const c = classify(k);
-        say(1, { kind: 'class', bearing: k.b, log: `${pad3(k.b)} = ${c.log}`, text: `${pad3(k.b)} IS CLEARER NOW. ${c.say}.` });
+        say(1, { kind: 'class', group: key, bearing: k.b, log: `${pad3(k.b)} = ${c.log}`, text: `${pad3(k.b)} IS CLEARER NOW. ${c.say}.` });
       }
       // Turns going up or down: an escort working up to attack, a lone merchant slowing.
       // (Merchants in convoy forever nudge their revs to keep station: not news.)
@@ -251,6 +257,7 @@ export function stepOperator(op: OperatorState, h: OperatorHost, sources: SoundS
         const rpm = Math.round(k.rpm / 5) * 5;
         say(up && war ? 3 : 1, {
           kind: 'turns',
+          group: key,
           bearing: k.b,
           log: `${pad3(k.b)} TURNS ${up ? 'UP' : 'DOWN'} ${rpm}`,
           text: up ? `TURNS ON ${pad3(k.b)} GOING UP, NOW ${rpm}. ${war ? 'HE IS WORKING UP SPEED, CAPTAIN.' : 'SHE IS SPEEDING UP.'}` : `TURNS ON ${pad3(k.b)} COMING DOWN, NOW ${rpm}. SLOWING.`,
@@ -263,7 +270,7 @@ export function stepOperator(op: OperatorState, h: OperatorHost, sources: SoundS
         const steady = Math.abs(wrap(meanBearing(last.map((x) => x[1])) - k.base[0])) < 5;
         if (steady && mean(last.map((x) => x[2]))! > 1.5 * k.base[1]) {
           k.closeAt = k.driftAt = t;
-          say(3, { kind: 'closing', bearing: k.b, log: `${pad3(k.b)} STEADY, LOUDER`, text: `BEARING ${pad3(k.b)} STEADY AND GETTING LOUDER. SHE IS CLOSING US, CAPTAIN.` });
+          say(3, { kind: 'closing', group: key, bearing: k.b, log: `${pad3(k.b)} STEADY, LOUDER`, text: `BEARING ${pad3(k.b)} STEADY AND GETTING LOUDER. SHE IS CLOSING US, CAPTAIN.` });
         }
       }
       // How the bearing moves (on true bearings: the gyro takes out our own turns).
@@ -273,7 +280,7 @@ export function stepOperator(op: OperatorState, h: OperatorHost, sources: SoundS
           k.driftAt = t;
           const left = d.slope < 0;
           const fast = Math.abs(d.slope) > 3 ? 'FAST' : 'SLOWLY';
-          say(1, { kind: 'drift', bearing: k.b, log: `${pad3(k.b)} DRAWS ${left ? 'LEFT' : 'RIGHT'}`, text: `${pad3(k.b)} DRAWING ${left ? 'LEFT' : 'RIGHT'}, ${fast}.` });
+          say(1, { kind: 'drift', group: key, bearing: k.b, log: `${pad3(k.b)} DRAWS ${left ? 'LEFT' : 'RIGHT'}`, text: `${pad3(k.b)} DRAWING ${left ? 'LEFT' : 'RIGHT'}, ${fast}.` });
         }
       }
       continue;
@@ -285,11 +292,17 @@ export function stepOperator(op: OperatorState, h: OperatorHost, sources: SoundS
       if (k.inMany && !isWarship(k.sig, k.rpm)) continue;
       const aft = Math.abs(wrap(k.b - 180)) < 40;
       const ahead = Math.abs(wrap(k.b)) < 20;
-      if (aft) say(1, { kind: 'lost', bearing: k.b, log: `${pad3(k.b)} LOST ASTERN`, text: `LOST ${pad3(k.b)} IN THE STERN ARC. THE SCREWS MASK HER.` });
-      else if (ahead) say(1, { kind: 'lost', bearing: k.b, log: `${pad3(k.b)} LOST AHEAD`, text: `LOST ${pad3(k.b)} RIGHT AHEAD. TURN A LITTLE AND I MAY HAVE HER.` });
-      else if (!k.inMany && !op.deaf) say(1, { kind: 'lost', bearing: k.b, log: `${pad3(k.b)} FADED`, text: `${pad3(k.b)} HAS FADED OUT.` });
+      if (aft) say(1, { kind: 'lost', group: key, bearing: k.b, log: `${pad3(k.b)} LOST ASTERN`, text: `LOST ${pad3(k.b)} IN THE STERN ARC. THE SCREWS MASK HER.` });
+      else if (ahead) say(1, { kind: 'lost', group: key, bearing: k.b, log: `${pad3(k.b)} LOST AHEAD`, text: `LOST ${pad3(k.b)} RIGHT AHEAD. TURN A LITTLE AND I MAY HAVE HER.` });
+      else if (!k.inMany && !op.deaf) say(1, { kind: 'lost', group: key, bearing: k.b, log: `${pad3(k.b)} FADED`, text: `${pad3(k.b)} HAS FADED OUT.` });
     }
     if (t - k.last > FORGET) delete op.known[key];
+  }
+
+  // Asked for bearings: the middle of a convoy's crowd, and the loudest single sounds.
+  if (op.ask) {
+    op.ask = false;
+    asked(op, here, heading, say);
   }
 
   // Speak: the most urgent first, one at a time, nothing stale.
@@ -316,7 +329,7 @@ export function stepOperator(op: OperatorState, h: OperatorHost, sources: SoundS
 }
 
 /** He has picked out a new sound: say what kind of news it is. */
-function noticed(op: OperatorState, key: string, k: Known, here: Map<string, SoundSource>, say: (pri: number, c: Queued['call']) => void, r: Rng): void {
+function noticed(op: OperatorState, key: string, k: Known, here: Map<string, SoundSource>, say: Say, r: Rng): void {
   const heard = Object.entries(op.known).filter(([kk, o]) => kk !== key && o.called && here.has(kk));
   // A convoy: many screws in one arc. Called once (again after 20 minutes); warships among them still get their own call.
   const arc = heard.filter(([, o]) => Math.abs(wrap(o.b - k.b)) <= CONVOY_ARC / 2);
@@ -332,7 +345,7 @@ function noticed(op: OperatorState, key: string, k: Known, here: Map<string, Sou
       const lo = Math.floor(norm(mid + Math.min(...offs)) / 5) * 5;
       const hi = Math.ceil(norm(mid + Math.max(...offs)) / 5) * 5;
       k.called = k.classed = true;
-      say(2, { kind: 'many', bearing: k.b, log: `${pad3(lo)}-${pad3(hi)} MANY`, text: `MANY SCREWS, BEARING ${pad3(lo)} TO ${pad3(hi)}. A CONVOY, CAPTAIN.` });
+      say(2, { kind: 'many', group: 'convoy', bearing: k.b, log: `${pad3(lo)}-${pad3(hi)} MANY`, text: `MANY SCREWS, BEARING ${pad3(lo)} TO ${pad3(hi)}. A CONVOY, CAPTAIN.` });
       return;
     }
     if (!isWarship(k.sig, k.rpm) || k.lvl < SURE) {
@@ -348,10 +361,42 @@ function noticed(op: OperatorState, key: string, k: Known, here: Map<string, Sou
   const what = k.classed ? `${c.say}${unsure}.` : `FAINT. CAN NOT MAKE HER OUT YET.`;
   const near = heard.find(([, o]) => Math.abs(wrap(o.b - k.b)) <= CLOSE);
   if (k.inMany) {
-    say(2, { kind: 'new', bearing: k.b, log: `${pad3(k.b)} ${c.log}, CONVOY`, text: `AMONG THEM, ${pad3(k.b)}: ${what}` });
+    say(2, { kind: 'new', group: key, bearing: k.b, log: `${pad3(k.b)} ${c.log}, CONVOY`, text: `AMONG THEM, ${pad3(k.b)}: ${what}` });
   } else if (near) {
-    say(2, { kind: 'second', bearing: k.b, log: `${pad3(k.b)} 2ND ${k.classed ? c.log : 'FAINT'}`, text: `SECOND SCREWS, BEARING ${pad3(k.b)}, CLOSE TO ${pad3(near[1].b)}. ${what}` });
+    say(2, { kind: 'second', group: key, bearing: k.b, log: `${pad3(k.b)} 2ND ${k.classed ? c.log : 'FAINT'}`, text: `SECOND SCREWS, BEARING ${pad3(k.b)}, CLOSE TO ${pad3(near[1].b)}. ${what}` });
   } else {
-    say(2, { kind: 'new', bearing: k.b, log: `${pad3(k.b)} ${k.classed ? c.log : 'FAINT'}`, text: `SCREWS, BEARING ${pad3(k.b)}. ${what}` });
+    say(2, { kind: 'new', group: key, bearing: k.b, log: `${pad3(k.b)} ${k.classed ? c.log : 'FAINT'}`, text: `SCREWS, BEARING ${pad3(k.b)}. ${what}` });
+  }
+}
+
+/**
+ * The captain wants bearings: the middle of the convoy's crowd (if there is one) and up to two
+ * single sounds, loudest first. Each is its own report, so each can go on the chart.
+ */
+function asked(op: OperatorState, here: Map<string, SoundSource>, heading: number, say: Say): void {
+  if (op.deaf) {
+    say(3, { kind: 'bearing', bearing: null, log: 'NO BEARINGS, DEAF', text: 'NOTHING I CAN GIVE YOU, CAPTAIN. OUR OWN NOISE DROWNS IT.' });
+    return;
+  }
+  const heard = Object.entries(op.known).filter(([key, k]) => k.called && here.has(key));
+  if (!heard.length) {
+    say(3, { kind: 'bearing', bearing: null, log: 'NOTHING HEARD', text: 'NOTHING ON THE SET, CAPTAIN.' });
+    return;
+  }
+  const crowd = heard.filter(([, k]) => k.inMany);
+  if (crowd.length >= CONVOY_MIN) {
+    // The merchants' middle (escorts roam), each held for a moment on the wheel: his last minute's sample and now.
+    const merchants = crowd.filter(([, k]) => !isWarship(k.sig, k.rpm));
+    const held = (merchants.length >= 3 ? merchants : crowd).map(([, k]) => {
+      const last = k.hist[k.hist.length - 1];
+      return last && last[0] > k.last - 90 ? meanBearing([k.tb, last[1]]) : k.tb;
+    });
+    const b = norm(meanBearing(held) - heading);
+    say(3, { kind: 'bearing', group: 'convoy', bearing: b, log: `${pad3(b)} CONVOY MID`, text: `CONVOY, MIDDLE OF THE NOISE, BEARING ${pad3(b)}.` });
+  }
+  const single = heard.filter(([, k]) => !k.inMany || crowd.length < CONVOY_MIN).sort((a, b) => b[1].lvl - a[1].lvl);
+  for (const [key, k] of single.slice(0, 2)) {
+    const what = k.classed ? classify(k).log : 'FAINT';
+    say(3, { kind: 'bearing', group: key, bearing: k.b, log: `${pad3(k.b)} ${what}`, text: `${what === 'FAINT' ? 'FAINT SCREWS' : what}, BEARING ${pad3(k.b)}.` });
   }
 }
