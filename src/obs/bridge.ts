@@ -5,15 +5,10 @@
  * and finding it before the lookouts do is the captain's own sweep.
  */
 
-/** Hull outlines the eye can tell apart (merchant types from the manual, and warships). */
-export type Outline = 'coaster' | 'freighter' | 'tanker' | 'corvette' | 'sloop' | 'destroyer';
+import type { NeutralKey, ShipClassKey } from './ships';
 
-/** Warship outlines (not in the merchant recognition manual): length and masthead, metres. */
-export const WARSHIP_DIMS: Record<'corvette' | 'sloop' | 'destroyer', { length: number; mast: number }> = {
-  corvette: { length: 62, mast: 22 },
-  sloop: { length: 90, mast: 24 },
-  destroyer: { length: 100, mast: 26 },
-};
+/** Hull outlines the eye can tell apart: the recognition manual's twelve types. */
+export type Outline = ShipClassKey;
 
 export interface BridgeSight {
   /** Stays with what you are looking at while it stays in sight. */
@@ -32,6 +27,8 @@ export interface BridgeSight {
   haze: number;
   /** Smoke over her, 0..1. */
   smoke: number;
+  /** Ship: a neutral's painted flag, when she is close enough in the light (or lit) to show it. */
+  marks?: NeutralKey | null;
   /** Land: length along the horizon and height, metres (its shape comes from the key). */
   size?: [number, number];
 }

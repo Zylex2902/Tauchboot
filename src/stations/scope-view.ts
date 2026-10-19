@@ -211,7 +211,7 @@ export class ScopeView {
     if (Math.abs(dx) > R + 200) return;
     const sc = Math.exp(Math.round(Math.log(sight.degPerM * ppd) * 120) / 120);
     const k = Math.round(Math.abs(Math.sin((sight.aob * Math.PI) / 180)) * 40) / 40;
-    const sil = silhouette(sight.cls, sc, k, sight.aob >= 0 ? 1 : -1);
+    const sil = silhouette(sight.cls, sc, k, sight.aob >= 0 ? 1 : -1, C.iron0, C.iron1, ghost ? null : (sight.marks ?? null));
     const x0 = Math.round(R + dx) - sil.cx;
     const y0 = hy - sil.h + 1 - ghost;
     const hazeLvl = sight.haze * 12;

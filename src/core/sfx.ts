@@ -238,6 +238,9 @@ export const SFX = {
   dit: 'dit',
   dah: 'dah',
   disc: 'disc',
+  /** Recognition manual (chunk 3.1): a page turned over; the book laid open on wood or shut. */
+  page: 'page',
+  book: 'book',
 } as const;
 
 /**
@@ -245,7 +248,7 @@ export const SFX = {
  * screw, in two voices each (timbre 0, 1), named `screw-<engine><blades>-<timbre>`.
  * Rate = rpm / SIG_RPM[sig].
  */
-export const SIG_RPM: Record<string, number> = { steam4: 80, steam3: 150, diesel3: 110, turbine3: 220 };
+export const SIG_RPM: Record<string, number> = { steam4: 80, steam3: 150, diesel3: 110, diesel4: 100, turbine3: 220 };
 export const sigSound = (sig: string, timbre: number) => `screw-${sig}-${timbre & 1}`;
 
 /** Turns per minute the screw loop is rendered at. */
@@ -318,6 +321,8 @@ export const SFX_NOTES: Record<string, string> = {
   dit: 'a Morse dot through the receiver: keyed carrier, beat note, key clicks',
   dah: 'a Morse dash through the receiver',
   disc: 'the cipher disc turned one place',
+  page: 'a stiff manual page turned over and laid flat',
+  book: 'a cloth-bound book laid on the desk, its boards meeting',
   'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
   'screw-steam4-1': 'merchant, second voice (a nicked blade, a bigger hull), loops',
   'screw-steam3-0': 'corvette: lighter three-blade screw, fast steam, loops',
@@ -782,6 +787,29 @@ export function defineSounds(): void {
     }
     return loopable(lowpass(highpass(out, 250, sr), 4200, sr), sr, 0.1);
   }, 0.3, true);
+
+  d(SFX.page, (sr) => {
+    // The sheet lifts (a dry rustle that swells as it swings over) and lands flat with a light flop.
+    const dur = 0.42;
+    const out = scrape(sr, dur, 2600, 731, (p) => Math.sin(Math.PI * Math.min(1, p * 1.15)) ** 1.5 * (p < 0.8 ? 1 : 0.4));
+    const r = rng(732);
+    let a = 0;
+    for (let i = 0; i < out.length; i++) {
+      a += (r() * 2 - 1 - a) * 0.03;
+      const p = i / out.length;
+      out[i] = out[i] * 0.5 + a * 1.1 * Math.sin(Math.PI * Math.min(1, p * 1.2));
+    }
+    add(out, strike(sr, 0.12, 5, 733, 0.75, cluster(734, 160, 700, 5, 0.012)), 0.35, dur - 0.1, sr);
+    return lowpass(highpass(out, 300, sr), 5200, sr);
+  }, 0.5);
+
+  d(SFX.book, (sr) => {
+    // Boards and block together on the desk: a soft heavy thud of wood, a puff of paper.
+    const out = strike(sr, 0.35, 14, 741, 0.85, cluster(742, 90, 420, 7, 0.035));
+    add(out, strike(sr, 0.35, 6, 743, 0.6, cluster(744, 600, 1800, 6, 0.012)), 0.25, 0.004, sr);
+    add(out, scrape(sr, 0.2, 1800, 745, (p) => Math.exp(-p * 6)), 0.5, 0.01, sr);
+    return lowpass(out, 4000, sr);
+  }, 0.8);
 
   d(SFX.tick, (sr) => add(contact(sr, 0.05, 691, 3000, 9000, 0.003), strike(sr, 0.05, 1, 692, 0.2, [[2900, 0.006, 1], [4700, 0.004, 0.5]]), 0.5), 0.35);
 

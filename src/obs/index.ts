@@ -4,17 +4,17 @@
 
 import { freshBoatObs, type BoatObs, type BoatSet } from './boat';
 import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type NavObs, type Signal, type Signature, type SoundObs } from './sense';
-import type { ShipClassKey } from './ships';
+import type { NeutralKey, ShipClassKey } from './ships';
 import { freshBridge, type BridgeObs } from './bridge';
 import type { KeyDay } from './cipher';
 
 /** Time compression steps, real time first. */
 export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
 
-export { SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type ShipClass, type ShipClassKey } from './ships';
+export { MANUAL_ORDER, MARKS_RANGE, MERCHANT_KEYS, NEUTRAL_KEYS, NEUTRALS, SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type Neutral, type NeutralKey, type ShipClass, type ShipClassKey } from './ships';
 export { CHARGE_HOURS, DIESEL_RPM, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type EngineSet, type PowerObs } from './power';
 export { BLIND, freshEnv, freshNav, freshSound, sigKey, type DayPhase, type Engine, type FixKind, type FixObs, type Landmark, type TrackPoint, type Signature, type EnvObs, type LookoutReport, type NavObs, type SightingKind, type Signal, type SoundObs, type SoundSource, type Tone } from './sense';
-export { freshBridge, WARSHIP_DIMS, type BridgeObs, type BridgeSight, type BridgeView, type Outline } from './bridge';
+export { freshBridge, type BridgeObs, type BridgeSight, type BridgeView, type Outline } from './bridge';
 export { ALPHA, dayLabel, decipher, encipher, groups, keyDay, MORSE, pad5, parsePlain, plainOf, shiftOf, type ConvoyReport, type KeyDay } from './cipher';
 export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
@@ -127,6 +127,8 @@ export interface Sight {
   cls: ShipClassKey;
   /** 0 crisp .. 1 lost in haze. */
   haze: number;
+  /** A neutral's painted flag, when it shows at this range. */
+  marks?: NeutralKey | null;
 }
 
 /** What the attack periscope delivers: tube position, water on the glass, and sights. */
@@ -155,7 +157,7 @@ export interface ScopeResult {
   heard: { reported: number; truth: number } | null; // debrief
   /** Drill seconds when she was first on the glass (in the field of view, lens clear). */
   foundAt: number | null;
-  ranged: { estimate: number; truth: number; mast: number } | null; // debrief: filled when the drill is over
+  ranged: { estimate: number; truth: number; mast: number; set?: ShipClassKey } | null; // debrief: filled when the drill is over
   /** Seconds the lens was above water. */
   scopeUp: number;
   seconds: number;
@@ -244,7 +246,7 @@ export type Command =
   /** The captain has left a station: its crew carry on from where things stand. */
   | { type: 'leave'; station: number }
   | { type: 'scopeSet'; height: number; trained: number; high: boolean }
-  | { type: 'scopeMark'; range: number; mast: number }
+  | { type: 'scopeMark'; range: number; mast: number; cls?: ShipClassKey }
   /** The dive alarm: clear the bridge, flood, planes hard down, full ahead on the motors. */
   | { type: 'crashDive' }
   /** The helmsman: steer this course (degrees true). */

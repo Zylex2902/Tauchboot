@@ -1,18 +1,22 @@
-import { SHIP_CLASSES, WARSHIP_DIMS, type Outline } from '../obs';
+import { SHIP_CLASSES, type NeutralKey, type Outline } from '../obs';
 import { C, type ColorIndex } from '../core/palette';
 
 /**
  * Side profiles of the recognition-manual ships, in metres from the bow (x) and above
- * the waterline (z). Rasterised at any scale and foreshortening for the periscope and
- * the recognition card. Generic, invented ships: no real vessel is copied.
+ * the waterline (z). Rasterised at any scale and foreshortening for the periscope, the
+ * bridge and the manual. Generic, invented ships: no real vessel is copied.
  */
 interface Profile {
   /** Top of the hull: [x, z] from bow to stern (linear between points). */
   hull: [number, number][];
   /** Superstructure and deckhouses: [x0, x1, z top]. */
   blocks: [number, number, number][];
-  funnels: [number, number, number][];
+  /** Funnels: [x0, x1, z top, rake aft at the top in metres]. */
+  funnels: [number, number, number, number?][];
   masts: [number, number][];
+  /** How far the stem and the stern overhang the waterline, metres (raked bow, counter stern). */
+  bow?: number;
+  stern?: number;
 }
 
 const PROFILES: Record<Outline, Profile> = {
@@ -22,11 +26,37 @@ const PROFILES: Record<Outline, Profile> = {
     funnels: [[50, 53.5, 14]],
     masts: [[16, 17], [58, 12]],
   },
+  // Raised bow and poop, a small tall bridge amidships, engines and funnel right aft.
+  collier: {
+    hull: [[0, 7.4], [11, 7], [11.5, 5.2], [66, 4.8], [66.5, 6.8], [88, 7]],
+    blocks: [[38, 46, 10.6], [39.5, 44.5, 13.2], [70, 84, 9.4]],
+    funnels: [[75, 79.5, 16.5]],
+    masts: [[24, 23], [56, 21]],
+    bow: 2,
+    stern: 3,
+  },
+  // An old steamer: plumb stem, low bridge, a very tall thin funnel, counter stern.
+  tramp: {
+    hull: [[0, 8.2], [15, 7.2], [85, 6.8], [102, 7.6]],
+    blocks: [[44, 58, 10.5], [47, 53, 12.6]],
+    funnels: [[53.5, 56.5, 23]],
+    masts: [[20, 25], [80, 24]],
+    stern: 4,
+  },
   freighter: {
     hull: [[0, 9.6], [14, 8], [100, 7], [118, 8.2]],
     blocks: [[47, 70, 13.5], [51, 62, 17.2]],
     funnels: [[63, 69, 22.5]],
     masts: [[28, 27], [41, 15], [81, 15], [93, 25]],
+  },
+  // Bridge right forward, a long empty deck, engine house and funnel aft.
+  ore: {
+    hull: [[0, 8], [12, 7.4], [118, 6.6], [130, 7.2]],
+    blocks: [[4, 15, 12.5], [6, 12, 15.2], [108, 128, 10.5], [112, 124, 12.8]],
+    funnels: [[118, 123, 17.5]],
+    masts: [[9, 19], [104, 14]],
+    bow: 2,
+    stern: 2,
   },
   tanker: {
     hull: [[0, 7], [11, 6], [128, 5], [138, 5.6]],
@@ -34,7 +64,33 @@ const PROFILES: Record<Outline, Profile> = {
     funnels: [[124, 130.5, 18.5]],
     masts: [[16, 21], [108, 19]],
   },
-  // Escorts (seen from the bridge): raised fo'c'sles, a tall bridge, one or two funnels.
+  // A fast motor ship: raked stem, long stepped house, a squat wide funnel, cruiser stern.
+  reefer: {
+    hull: [[0, 10.5], [20, 9.2], [120, 8.4], [140, 9]],
+    blocks: [[42, 100, 14.5], [48, 92, 17.5], [54, 78, 20.5]],
+    funnels: [[79, 92, 23.5, 2]],
+    masts: [[24, 29], [114, 21]],
+    bow: 8,
+    stern: 2,
+  },
+  // Long high houses, two funnels, the tallest masts in the book.
+  liner: {
+    hull: [[0, 11], [18, 10], [130, 9.4], [150, 10]],
+    blocks: [[36, 112, 16], [42, 104, 19.5], [52, 92, 22.5]],
+    funnels: [[60, 68, 28.5, 1.5], [78, 86, 28.5, 1.5]],
+    masts: [[26, 33], [124, 31]],
+    bow: 5,
+    stern: 4,
+  },
+  // Escorts (seen from the bridge and the scope): raised fo'c'sles, a tall bridge, one or two funnels.
+  trawler: {
+    hull: [[0, 6.8], [9, 6], [24, 4.2], [52, 3.8]],
+    blocks: [[3, 7, 8.4], [17, 30, 6.4], [18, 25, 9]],
+    funnels: [[27, 30, 13]],
+    masts: [[13, 18], [45, 9]],
+    bow: 2,
+    stern: 1,
+  },
   corvette: {
     hull: [[0, 7], [8, 6.6], [22, 5], [55, 4], [62, 4.4]],
     blocks: [[17, 28, 9.5], [19, 25, 12.5], [44, 50, 6.8]],
@@ -55,9 +111,36 @@ const PROFILES: Record<Outline, Profile> = {
   },
 };
 
+/** Where her tallest mast stands, metres from the bow (the manual marks the height there). */
+export function mastHeadAt(o: Outline): number {
+  return PROFILES[o].masts.reduce((a, m) => (m[1] > a[1] ? m : a))[0];
+}
+
 /** Length and masthead height of an outline, metres. */
 export function dims(o: Outline): { length: number; mast: number } {
-  return o in WARSHIP_DIMS ? WARSHIP_DIMS[o as keyof typeof WARSHIP_DIMS] : SHIP_CLASSES[o as keyof typeof SHIP_CLASSES];
+  return SHIP_CLASSES[o];
+}
+
+/**
+ * A neutral's flag at (u, v), each 0..1 from the hoist and the top. Invented flags, plain
+ * enough to read at a few pixels.
+ */
+export function flagColor(key: NeutralKey, u: number, v: number): ColorIndex {
+  switch (key) {
+    case 'alvenda':
+      return v >= 0.34 && v < 0.67 ? C.ink1 : C.amber0;
+    case 'kestria':
+      return Math.abs(u - v) < 0.24 ? C.red1 : C.white;
+    case 'norvale':
+      return u < 0.5 !== v < 0.5 ? C.red1 : C.white;
+    case 'solmara':
+      return u < 0.3 ? C.amber0 : C.bilge2;
+  }
+}
+
+/** Paint a flag into a Pix-like target (the manual's plates). */
+export function drawFlag(set: (x: number, y: number, c: ColorIndex) => void, key: NeutralKey, x: number, y: number, w: number, h: number): void {
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) set(x + i, y + j, flagColor(key, (i + 0.5) / w, (j + 0.5) / h));
 }
 
 /** A rendered silhouette: palette indices, -1 transparent. Bottom row is the waterline. */
@@ -83,12 +166,20 @@ function hullTop(p: Profile, x: number): number {
 
 const cache = new Map<string, Silhouette>();
 
+/** Where the hull meets the water under the overhangs: the stem and the stern rise from it. */
+function hullBottom(p: Profile, L: number, x: number): number {
+  if (p.bow && x < p.bow) return hullTop(p, 0) * ((p.bow - x) / p.bow);
+  if (p.stern && x > L - p.stern) return hullTop(p, L) * 0.75 * ((x - (L - p.stern)) / p.stern);
+  return 0;
+}
+
 /**
  * Silhouette at s px per metre, foreshortened by k = |sin AOB| (0..1), bow to the right
- * when dir = 1. Hull darkest, houses a step lighter, so the shape reads at any size.
+ * when dir = 1. Hull darkest, houses a step lighter, so the shape reads at any size. A
+ * neutral's flag (`marks`) is painted on the hull side amidships.
  */
-export function silhouette(cls: Outline, s: number, k: number, dir: 1 | -1, hullC: ColorIndex = C.iron0, houseC: ColorIndex = C.iron1): Silhouette {
-  const key = `${cls}:${s.toFixed(3)}:${k.toFixed(2)}:${dir}:${hullC}:${houseC}`;
+export function silhouette(cls: Outline, s: number, k: number, dir: 1 | -1, hullC: ColorIndex = C.iron0, houseC: ColorIndex = C.iron1, marks: NeutralKey | null = null, stays = true): Silhouette {
+  const key = `${cls}:${s.toFixed(3)}:${k.toFixed(2)}:${dir}:${hullC}:${houseC}:${marks ?? ''}:${stays}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const p = PROFILES[cls];
@@ -102,17 +193,41 @@ export function silhouette(cls: Outline, s: number, k: number, dir: 1 | -1, hull
   };
   const xm = (i: number) => (dir === 1 ? L - (i + 0.5 - 1) / sx : (i + 0.5 - 1) / sx);
   const col = (xMetres: number) => Math.round(dir === 1 ? (L - xMetres) * sx : xMetres * sx) + 1;
+  // The painted panel: a fifth of her length amidships, most of the hull's height.
+  const mx0 = L * 0.4;
+  const mx1 = L * 0.6;
+  const mzTop = hullTop(p, L / 2);
+  const mz0 = mzTop * 0.15;
+  const mz1 = mzTop * 0.85;
   for (let i = 0; i < w; i++) {
     const x = xm(i);
     const zh = hullTop(p, x);
     if (zh < 0) continue;
     const hh = Math.max(1, Math.round(zh * s));
-    for (let y = 0; y < hh; y++) put(i, h - 1 - y, hullC);
+    const h0 = Math.min(hh - 1, Math.round(hullBottom(p, L, x) * s));
+    const paint = marks !== null && x >= mx0 && x <= mx1;
+    for (let r = h0; r < hh; r++) {
+      if (paint) {
+        const z = (r + 0.5) / s;
+        if (z >= mz0 && z <= mz1) {
+          put(i, h - 1 - r, flagColor(marks, (x - mx0) / (mx1 - mx0), 1 - (z - mz0) / (mz1 - mz0)));
+          continue;
+        }
+      }
+      put(i, h - 1 - r, hullC);
+    }
     let zb = 0;
-    for (const [a, b, z] of [...p.blocks, ...p.funnels]) if (x >= a && x <= b) zb = Math.max(zb, z);
+    for (const [a, b, z] of p.blocks) if (x >= a && x <= b) zb = Math.max(zb, z);
     const hb = Math.round(zb * s);
-    for (let y = hh; y < hb; y++) put(i, h - 1 - y, houseC);
-    for (const [a, b, z] of p.funnels) if (x >= a && x <= b && s * z > 10) put(i, h - Math.round(z * s), C.black); // funnel cap
+    for (let r = hh; r < hb; r++) put(i, h - 1 - r, houseC);
+    // Funnels, raked aft as they rise; a black cap once big enough to show one.
+    for (const [a, b, z, rake = 0] of p.funnels) {
+      const top = Math.round(z * s);
+      for (let r = hh; r < top; r++) {
+        const sh = (rake * ((r + 0.5) / s)) / z;
+        if (x >= a + sh && x <= b + sh) put(i, h - 1 - r, s * z > 10 && r === top - 1 ? C.black : houseC);
+      }
+    }
   }
   // Masts: one pixel wide whatever the scale, so the masthead is a sharp mark to range on.
   const tops: [number, number][] = [];
@@ -123,7 +238,7 @@ export function silhouette(cls: Outline, s: number, k: number, dir: 1 | -1, hull
     tops.push([c, top]);
   }
   // Stays from the mastheads to bow and stern once the ship is big enough to show them.
-  if (mast * s > 14) {
+  if (stays && mast * s > 14) {
     const line = (x0: number, y0: number, x1: number, y1: number) => {
       const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
       for (let t = 0; t <= n; t++) {

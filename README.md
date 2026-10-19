@@ -127,6 +127,14 @@ The radio and sound room has two desks: RADIO DESK on the sound side slides the 
 - Decoding assist (pause card, DECODING: YOU or RADIOMAN, default YOU): the radioman sets the disc and works each signal himself.
 Node checks outside the repo: `node pw/radio26.mjs`; browser: `node pw/radio26b.mjs` (the done-when by touch: disc, WORK IT, PLOT, the square on the chart).
 
+## Recognition manual (chunk 3.1, Captain's desk, compartment 2)
+- The book: twelve invented ship types (eight merchants: coaster, collier, old tramp, three-island freighter, ore carrier, tanker, fast reefer, passenger-cargo liner; four warships: armed trawler, corvette, sloop, destroyer), and a page of neutral markings (four invented neutral flags).
+- At the desk the book lies open: the index on the left page (tap a ship), her page on the right: outline with the mast height marked in red, length, draught, tonnage, speed, screws, what to look for. PAGE arrows leaf through; TO THE SCOPE goes up to the tower.
+- The page last opened at a ship is the SCOPE CARD: the stadimeter in the tower ranges on that ship's mast height. The card shows on the desk and on the tower's RANGING board.
+- In the tower the book key on the scope card brings the manual up over the right-hand boards, the eyepiece still live: tap the ship on the index, her page opens and the card is set; INDEX goes back, the cross puts the book away.
+- At sea: convoys now carry colliers, old tramps, ore carriers, reefers and liners as well; slow convoys may have armed trawlers among the escorts; lone independents are often neutrals with the flag painted on both sides (seen from the bridge and through the scope at close range). The scope drill's merchant is any of the eight, one in four a neutral.
+Node checks outside the repo: `node pw/recog31.mjs` (classes, mastheads, told apart by shape, the mix at sea, neutrals, drill, saves); browser: `node pw/recog31b.mjs [seeds]` (the done-when: a ship seen in the scope matched in the manual and set on the card, then ranged).
+
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
 

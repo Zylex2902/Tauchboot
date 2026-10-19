@@ -113,7 +113,7 @@ function scopeReport(r: ScopeResult): TypedLine[] {
   row(L, 'FOUND', r.foundAt !== null ? `ON THE GLASS AT ${clock(r.foundAt)}` : 'NEVER ON THE GLASS');
   const cls = SHIP_CLASSES[r.cls];
   if (r.ranged) {
-    const ok = r.ranged.mast === cls.mast;
+    const ok = rightType(r);
     row(L, 'TYPE', `${cls.name}, MAST ${cls.mast} M${ok ? '' : `  (SET ${r.ranged.mast} M)`}`, ok ? C.ink0 : C.red0);
     const pct = Math.round((Math.abs(r.ranged.estimate - r.ranged.truth) / r.ranged.truth) * 100);
     row(L, 'RANGE', `${r.ranged.estimate} M  TRUE ${r.ranged.truth}  OFF ${pct}%`, pct <= 10 ? C.ink0 : C.red0);
@@ -125,11 +125,14 @@ function scopeReport(r: ScopeResult): TypedLine[] {
   return L;
 }
 
+/** The card was set to her type (older saves carry only the mast height). */
+const rightType = (r: ScopeResult) => (r.ranged?.set ? r.ranged.set === r.cls : r.ranged?.mast === SHIP_CLASSES[r.cls].mast);
+
 function scopeVerdict(r: ScopeResult): string {
   if (r.outcome === 'crushed') return 'VERDICT: LOST WITH ALL HANDS.';
   if (r.outcome === 'seen') return 'VERDICT: SPOTTED. LOWER SOONER, LOOK AGAIN LATER.';
   if (r.outcome === 'lost' || !r.ranged) return 'VERDICT: TOO SLOW. SHE WILL NOT WAIT.';
-  if (r.ranged.mast !== SHIP_CLASSES[r.cls].mast) return 'VERDICT: WRONG TYPE ON THE CARD, SO THE WRONG MAST HEIGHT.';
+  if (!rightType(r)) return 'VERDICT: WRONG TYPE ON THE CARD, SO THE WRONG MAST HEIGHT.';
   const pct = Math.abs(r.ranged.estimate - r.ranged.truth) / r.ranged.truth;
   if (pct <= 0.07) return 'VERDICT: GOOD. A SOLUTION YOU CAN FIRE ON.';
   if (pct <= 0.15) return 'VERDICT: FAIR. A WIDE SPREAD MIGHT HIT.';

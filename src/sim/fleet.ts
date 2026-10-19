@@ -1,5 +1,5 @@
-import type { ShipClassKey, Signature } from '../obs';
-import type { Rng } from './rng';
+import { NEUTRAL_KEYS, type NeutralKey, type ShipClassKey, type Signature } from '../obs';
+import { Rng } from './rng';
 
 /**
  * Ships at sea (chunk 2.1): convoys in columns behind a commodore, their escorts on
@@ -18,13 +18,14 @@ const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 
-export type HullKey = 'coaster' | 'freighter' | 'tanker' | 'corvette' | 'sloop' | 'destroyer';
+/** Every hull is one of the recognition manual's types (chunk 3.1: twelve). */
+export type HullKey = ShipClassKey;
 export type Role = 'merchant' | 'escort' | 'independent';
 
 export interface Hull {
   key: HullKey;
-  /** Recognition manual entry, for the merchant types the manual has so far. */
-  cls: ShipClassKey | null;
+  /** Recognition manual entry. */
+  cls: ShipClassKey;
   maxKn: number;
   /** Rate of turn with the helm hard over, deg/s. */
   turn: number;
@@ -47,11 +48,17 @@ export interface Hull {
 
 export const HULLS: Record<HullKey, Hull> = {
   coaster: { key: 'coaster', cls: 'coaster', maxKn: 9.5, turn: 0.9, accel: 0.012, rpmPerKn: 13, tons: 1400, mast: 17, smoke: 70, sl: 135, tone: 'medium', sig: { engine: 'diesel', blades: 3, shafts: 1 }, seaLoss: 0.06 },
+  collier: { key: 'collier', cls: 'collier', maxKn: 9.5, turn: 0.8, accel: 0.01, rpmPerKn: 9, tons: 2900, mast: 23, smoke: 85, sl: 137, tone: 'heavy', sig: { engine: 'steam', blades: 4, shafts: 1 }, seaLoss: 0.05 },
+  tramp: { key: 'tramp', cls: 'tramp', maxKn: 9.5, turn: 0.7, accel: 0.009, rpmPerKn: 8, tons: 3800, mast: 25, smoke: 110, sl: 139, tone: 'heavy', sig: { engine: 'steam', blades: 4, shafts: 1 }, seaLoss: 0.05 },
   freighter: { key: 'freighter', cls: 'freighter', maxKn: 11, turn: 0.6, accel: 0.008, rpmPerKn: 8.2, tons: 5500, mast: 27, smoke: 90, sl: 140, tone: 'heavy', sig: { engine: 'steam', blades: 4, shafts: 1 }, seaLoss: 0.04 },
+  ore: { key: 'ore', cls: 'ore', maxKn: 11, turn: 0.5, accel: 0.007, rpmPerKn: 8, tons: 6200, mast: 19, smoke: 80, sl: 140, tone: 'heavy', sig: { engine: 'steam', blades: 4, shafts: 1 }, seaLoss: 0.04 },
   tanker: { key: 'tanker', cls: 'tanker', maxKn: 12, turn: 0.5, accel: 0.006, rpmPerKn: 8.5, tons: 8500, mast: 21, smoke: 45, sl: 141, tone: 'heavy', sig: { engine: 'steam', blades: 4, shafts: 1 }, seaLoss: 0.035 },
-  corvette: { key: 'corvette', cls: null, maxKn: 16, turn: 2.4, accel: 0.05, rpmPerKn: 12, tons: 950, mast: 22, smoke: 35, sl: 138, tone: 'light', sig: { engine: 'steam', blades: 3, shafts: 1 }, seaLoss: 0.05 },
-  sloop: { key: 'sloop', cls: null, maxKn: 19, turn: 2.2, accel: 0.06, rpmPerKn: 14, tons: 1250, mast: 24, smoke: 30, sl: 137, tone: 'light', sig: { engine: 'turbine', blades: 3, shafts: 2 }, seaLoss: 0.04 },
-  destroyer: { key: 'destroyer', cls: null, maxKn: 30, turn: 3, accel: 0.1, rpmPerKn: 11, tons: 1400, mast: 26, smoke: 40, sl: 139, tone: 'light', sig: { engine: 'turbine', blades: 3, shafts: 2 }, seaLoss: 0.05 },
+  reefer: { key: 'reefer', cls: 'reefer', maxKn: 16, turn: 0.8, accel: 0.012, rpmPerKn: 7, tons: 7800, mast: 29, smoke: 30, sl: 138, tone: 'medium', sig: { engine: 'diesel', blades: 4, shafts: 1 }, seaLoss: 0.035 },
+  liner: { key: 'liner', cls: 'liner', maxKn: 15, turn: 0.6, accel: 0.008, rpmPerKn: 6.5, tons: 11000, mast: 33, smoke: 95, sl: 142, tone: 'heavy', sig: { engine: 'steam', blades: 4, shafts: 2 }, seaLoss: 0.03 },
+  trawler: { key: 'trawler', cls: 'trawler', maxKn: 12, turn: 2, accel: 0.04, rpmPerKn: 11, tons: 550, mast: 18, smoke: 60, sl: 136, tone: 'medium', sig: { engine: 'steam', blades: 3, shafts: 1 }, seaLoss: 0.06 },
+  corvette: { key: 'corvette', cls: 'corvette', maxKn: 16, turn: 2.4, accel: 0.05, rpmPerKn: 12, tons: 950, mast: 22, smoke: 35, sl: 138, tone: 'light', sig: { engine: 'steam', blades: 3, shafts: 1 }, seaLoss: 0.05 },
+  sloop: { key: 'sloop', cls: 'sloop', maxKn: 19, turn: 2.2, accel: 0.06, rpmPerKn: 14, tons: 1250, mast: 24, smoke: 30, sl: 137, tone: 'light', sig: { engine: 'turbine', blades: 3, shafts: 2 }, seaLoss: 0.04 },
+  destroyer: { key: 'destroyer', cls: 'destroyer', maxKn: 30, turn: 3, accel: 0.1, rpmPerKn: 11, tons: 1400, mast: 26, smoke: 40, sl: 139, tone: 'light', sig: { engine: 'turbine', blades: 3, shafts: 2 }, seaLoss: 0.05 },
 };
 
 /** Zigzag plans: (course offset deg, minutes) legs, sailed in turn by day. */
@@ -98,6 +105,8 @@ export interface ShipState {
   track: number[];
   trackT: number;
   gone: boolean;
+  /** A neutral: her flag is painted on both sides (chunk 3.1). */
+  flag?: NeutralKey;
 }
 
 export interface GroupState {
@@ -260,16 +269,23 @@ export function makeGroup(r: Rng, id: number, plan: ConvoyPlan, now: number, nex
   };
   const ships: ShipState[] = [];
   const mid = (cols - 1) / 2;
+  // The finer mix of types (chunk 3.1) comes from a side stream, so the convoy's own draws stay as they were.
+  const v = new Rng(r.s ^ 0x6c8e9cf5);
   for (let k = 0; k < n; k++) {
     const c = k % cols;
     // Tankers sail in the middle columns; coasters on the wings of a slow convoy.
     const inner = Math.abs(c - mid) <= Math.max(0.5, cols / 5);
     const x = r.next();
-    const hull: HullKey = plan.kind === 'independent' ? (x < 0.6 ? 'freighter' : 'tanker') : inner && x < 0.55 ? 'tanker' : plan.slow && !inner && x < 0.4 ? 'coaster' : 'freighter';
-    ships.push(newShip(r, nextShipId++, hull, plan.kind === 'independent' ? 'independent' : 'merchant', id, k));
+    let hull: HullKey = plan.kind === 'independent' ? (x < 0.6 ? 'freighter' : 'tanker') : inner && x < 0.55 ? 'tanker' : plan.slow && !inner && x < 0.4 ? 'coaster' : 'freighter';
+    hull = variant(hull, v.next(), plan.kind === 'independent');
+    const s = newShip(r, nextShipId++, hull, plan.kind === 'independent' ? 'independent' : 'merchant', id, k);
+    // Independents are often neutrals, sailing alone with their colours painted on.
+    if (plan.kind === 'independent' && v.next() < 0.4) s.flag = NEUTRAL_KEYS[Math.floor(v.next() * NEUTRAL_KEYS.length)];
+    ships.push(s);
   }
   for (let k = 0; k < plan.escorts; k++) {
-    const hull: HullKey = k === 0 && plan.escorts >= 4 ? 'destroyer' : k % 3 === 2 ? 'sloop' : 'corvette';
+    let hull: HullKey = k === 0 && plan.escorts >= 4 ? 'destroyer' : k % 3 === 2 ? 'sloop' : 'corvette';
+    if (hull === 'corvette' && plan.slow && v.next() < 0.4) hull = 'trawler';
     ships.push(newShip(r, nextShipId++, hull, 'escort', id, k));
   }
   for (const s of ships) {
@@ -283,6 +299,17 @@ export function makeGroup(r: Rng, id: number, plan: ConvoyPlan, now: number, nex
     g.ships.push(s.id);
   }
   return { group: g, ships };
+}
+
+/**
+ * The finer type for a slot: a freighter's slot may hold an ore carrier, a fast reefer or a
+ * liner; a coaster's (the slow wings) a collier or an old tramp. Each is as fast as the type it
+ * stands in for, so the convoy keeps the same speed.
+ */
+function variant(h: HullKey, x: number, alone: boolean): HullKey {
+  if (h === 'freighter') return alone ? (x < 0.3 ? 'reefer' : x < 0.5 ? 'liner' : x < 0.65 ? 'ore' : 'freighter') : x < 0.18 ? 'ore' : x < 0.28 ? 'reefer' : x < 0.35 ? 'liner' : 'freighter';
+  if (h === 'coaster') return x < 0.35 ? 'collier' : x < 0.6 ? 'tramp' : 'coaster';
+  return h;
 }
 
 function newShip(r: Rng, id: number, hull: HullKey, role: Role, group: number, slot: number): ShipState {

@@ -5,7 +5,7 @@ import type { Pix } from './pixels';
  * Custom pixel icons, drawn in the same hand as everything else (never emoji or font glyphs).
  * Each fits a 14 x 14 box; `ink` is the main colour, `hi` a lighter edge.
  */
-export type IconName = 'pencil' | 'eraser' | 'ruler' | 'dividers' | 'zoom' | 'zoomIn' | 'zoomOut' | 'boat' | 'left' | 'right';
+export type IconName = 'pencil' | 'eraser' | 'ruler' | 'dividers' | 'zoom' | 'zoomIn' | 'zoomOut' | 'boat' | 'left' | 'right' | 'book' | 'close';
 
 export const ICON = 14;
 
@@ -85,6 +85,27 @@ export function drawIcon(p: Pix, name: IconName, x: number, y: number, ink: Colo
         const w = 4 - Math.abs(4 - j);
         const x0 = name === 'left' ? 9 - w * 2 : 4;
         p.rect(x + x0, y + 2 + j, w * 2 + 1, 1, ink);
+      }
+      break;
+    case 'book':
+      // An open book: two pages sagging to the spine, lines of print on them.
+      for (let i = 0; i < 6; i++) {
+        const sag = i < 2 ? 0 : 1;
+        p.rect(x + 1 + i, y + 2 + sag, 1, 9 - sag, ink);
+        p.rect(x + 12 - i, y + 2 + sag, 1, 9 - sag, ink);
+      }
+      for (let j = 0; j < 3; j++) {
+        p.rect(x + 2, y + 5 + j * 2, 3, 1, hi);
+        p.rect(x + 9, y + 5 + j * 2, 3, 1, hi);
+      }
+      p.rect(x, y + 11, 14, 1, ink);
+      p.rect(x + 6, y + 11, 2, 2, ink);
+      break;
+    case 'close':
+      // A cross of two bars: shut it.
+      for (let k = 0; k < 9; k++) {
+        p.rect(x + 2 + k, y + 2 + k, 2, 1, ink);
+        p.rect(x + 10 - k, y + 2 + k, 2, 1, ink);
       }
       break;
   }

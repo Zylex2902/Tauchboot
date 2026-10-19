@@ -1,6 +1,6 @@
-import { Container } from 'pixi.js';
+import { Container, Rectangle, Sprite, Texture } from 'pixi.js';
 import { mixer, type LoopHandle } from '../core/audio';
-import { drawText, measure } from '../core/font';
+import { drawText } from '../core/font';
 import { haptic } from '../core/haptics';
 import { C } from '../core/palette';
 import { Pix } from '../core/pixels';
@@ -10,12 +10,13 @@ import { ease } from '../core/tween';
 import type { ControlSpec, Hold, KitContext } from '../controls';
 import { Odometer } from '../controls/odometer';
 import { BearingTape } from '../controls/tape';
-import { obs, SCOPE_SURFACE, send, SHIP_CLASSES, type ShipClassKey } from '../obs';
+import { obs, SCOPE_SURFACE, send, SHIP_CLASSES } from '../obs';
 import { plate } from './panel-art';
 import { PPD_HIGH, PPD_LOW, ScopeView, VIEW_D } from './scope-view';
-import { silhouette } from './ship-art';
+import { manual, onCardClass } from './manual';
+import { cardPix, RecognitionBook } from './recognition-book';
 import { StationScene } from './station';
-import { art, group, label, type LayoutNode } from './boards';
+import { art, boardTexture, group, label, type LayoutNode } from './boards';
 
 /** Periscope train: bearing degrees per turn of the wheel. */
 export const SCOPE_DEG_PER_TURN = 45;
@@ -26,7 +27,8 @@ const STAD_MAX_TURNS = 7;
 const RANGE_MAX = 20000;
 
 const CARD = { w: 126, h: 50 };
-const CLASS_ORDER: ShipClassKey[] = ['coaster', 'freighter', 'tanker'];
+/** The card's left margin, where the MANUAL key sits. */
+const CARD_KEY = 30;
 
 export const CONNING_TOWER: ControlSpec[] = [
   { kind: 'crank', id: 'train', x: 0, y: 0, radius: 38, mass: 0.95, friction: 2.6, ticksPerTurn: 36, resolution: 2000 },
@@ -41,7 +43,9 @@ export const CONNING_TOWER: ControlSpec[] = [
     min: 0, max: STAD_MAX_TURNS, label: 'STADIMETER', sounds: { tick: SFX.roll },
   },
   { kind: 'key', id: 'markRange', x: 0, y: 0, w: 44, h: 20, style: 'brass', text: 'MARK' },
-  { kind: 'lever', id: 'cls', x: 0, y: 0, axis: 'y', length: 26, detents: ['', '', ''], initial: 1, weight: 60 },
+  { kind: 'key', id: 'book', icon: 'book', text: '', w: 26, h: 26, style: 'paper', x: 0, y: 0 },
+  { kind: 'key', id: 'bookIndex', icon: 'left', text: 'INDEX', w: 48, h: 20, style: 'paper', x: 0, y: 0 },
+  { kind: 'key', id: 'bookClose', icon: 'close', text: '', w: 26, h: 20, style: 'paper', x: 0, y: 0 },
 ];
 
 /** The glass | pointing it | the hoist | ranging. */
@@ -76,33 +80,6 @@ function eyepieceArt(): Pix {
   return p;
 }
 
-/** Recognition card: type, silhouette, mast height; the selector lever sits in its margin. */
-function cardArt(p: Pix): void {
-  const { w, h } = CARD;
-  p.rect(1, 1, w, h, C.black);
-  p.rect(0, 0, w, h, C.paper0);
-  p.frame(0, 0, w, h, C.paper2);
-  drawText(p, 'RECOGNITION', 5, 3, C.ink1);
-  drawText(p, 'MAST M', w - 5 - measure('MAST M'), 3, C.ink1);
-  p.rect(3, 10, w - 6, 1, C.paper2);
-  CLASS_ORDER.forEach((k, i) => {
-    const c = SHIP_CLASSES[k];
-    const y = 18 + i * 12;
-    drawText(p, c.name, 26, y - 3, C.ink0);
-    const sil = silhouette(k, 0.25, 1, -1, C.ink0, C.ink1);
-    const sx = 73;
-    const sy = y + 3 - sil.h;
-    for (let j = 0; j < sil.h; j++)
-      for (let q = 0; q < sil.w; q++) {
-        const v = sil.data[j * sil.w + q];
-        if (v >= 0) p.set(sx + q, sy + j, v);
-      }
-    p.rect(sx - 1, y + 3, sil.w + 2, 1, C.paper2); // waterline
-    const m = String(c.mast);
-    drawText(p, m, w - 5 - measure(m), y - 3, C.ink0);
-  });
-}
-
 /**
  * Conning tower, grey box (chunk 0.5): the attack periscope. Hold RAISE to run the tube
  * up, DOWN to drop it. Train to the sound room's bearing, swing to 6X, then turn the
@@ -121,7 +98,13 @@ export class ConningTower extends StationScene {
   private height = 0;
   private high = false;
   private stadTurns = 0;
-  private cls: ShipClassKey = 'freighter';
+  private card = new Sprite(Texture.EMPTY);
+  private cardFor = '';
+  /** The recognition manual brought up to the tower: slides up over the right-hand boards. */
+  private bookLayer = new Container();
+  private bookFrame = new Sprite(Texture.EMPTY);
+  private book: RecognitionBook;
+  bookOpen = false;
   private upSeconds = 0;
   private wasAwash = 1;
   private lastWash = 0;
@@ -218,8 +201,20 @@ export class ConningTower extends StationScene {
     rng.addChild(this.rangeDrum.root);
     this.pin('ranging', group([rng, 0, 0], [this.ctl('markRange'), 2, 30]), 0, 0, 66, 2);
     const card = new Container();
-    card.addChild(art(CARD.w + 1, CARD.h + 1, cardArt));
-    this.pin('ranging', group([card, 0, 0], [this.ctl('cls'), 9, 18]), 0, 1, 0, -CARD.h, { spread: false });
+    this.card.anchor.set(0.5);
+    this.card.position.set((CARD.w + 1) / 2, (CARD.h + 1) / 2);
+    card.addChild(this.card);
+    this.showCard(false);
+    this.pin('ranging', group([card, 0, 0], [this.ctl('book'), 3, 12]), 0, 1, 0, -CARD.h, { spread: false });
+
+    // The manual, when brought up: over the TRAIN, HOIST and RANGING boards; the glass stays in view.
+    this.book = new RecognitionBook(ctx, true);
+    this.bookLayer.eventMode = 'static';
+    this.bookLayer.visible = false;
+    this.bookLayer.addChild(this.bookFrame, this.book.root, this.ctl('bookIndex'), this.ctl('bookClose'));
+    this.root.addChild(this.bookLayer);
+    this.book.onChange((pg) => this.ctl('bookIndex').visible = pg !== 'index');
+    this.ctl('bookIndex').visible = false;
 
     const c = (id: string) => this.controls.get(id)!;
     this.hoist = c('raise') as Hold;
@@ -244,11 +239,14 @@ export class ConningTower extends StationScene {
       this.view.stadDeg = this.stadTurns * STAD_DEG_PER_TURN;
       this.showRange();
     });
-    c('cls').onChange((i) => {
-      this.cls = CLASS_ORDER[i as number];
+    onCardClass(() => {
+      this.showCard(this.root.parent !== null);
       this.showRange();
     });
-    c('markRange').onChange(() => send({ type: 'scopeMark', range: this.range(), mast: SHIP_CLASSES[this.cls].mast }));
+    c('book').onChange(() => this.openBook(true));
+    c('bookClose').onChange(() => this.openBook(false));
+    c('bookIndex').onChange(() => this.book.go('index'));
+    c('markRange').onChange(() => send({ type: 'scopeMark', range: this.range(), mast: SHIP_CLASSES[manual.cls].mast, cls: manual.cls }));
 
     const slipFor = (d: typeof obs.drill) => (d.reported === null ? '' : `BRG ${String(d.reported).padStart(3, '0')}`);
     obs.on((e) => {
@@ -269,7 +267,7 @@ export class ConningTower extends StationScene {
   private range(): number {
     const a = (this.view.stadDeg * Math.PI) / 180;
     if (a <= 1e-5) return RANGE_MAX;
-    return Math.min(RANGE_MAX, SHIP_CLASSES[this.cls].mast / Math.tan(a));
+    return Math.min(RANGE_MAX, SHIP_CLASSES[manual.cls].mast / Math.tan(a));
   }
 
   private showRange(): void {
@@ -295,6 +293,86 @@ export class ConningTower extends StationScene {
         this.view.blink = Math.sin(Math.PI * st.p) * 0.85;
       },
     }).then(() => (this.view.blink = 0));
+  }
+
+  /** The scope card follows the manual: it flips over to the new type. */
+  private showCard(animate: boolean): void {
+    if (manual.cls === this.cardFor) return;
+    this.cardFor = manual.cls;
+    const tex = cardPix(manual.cls, CARD.w, CARD.h, CARD_KEY).toTexture();
+    const swap = () => {
+      const old = this.card.texture;
+      this.card.texture = tex;
+      if (old !== Texture.EMPTY) old.destroy(true);
+    };
+    if (!animate) return swap();
+    if (this.root.parent !== null) mixer.play(SFX.pickup, 'ui', { gain: 0.5, rate: 1.1 });
+    const st = { k: 1 };
+    void this.ctx.tw.to(st, { k: -1 }, {
+      duration: 220,
+      ease: ease.inOutSine,
+      snap: false,
+      onUpdate: () => {
+        if (st.k < 0 && this.card.texture !== tex) swap();
+        this.card.scale.y = Math.max(0.05, Math.abs(st.k));
+      },
+    }).then(() => (this.card.scale.y = 1));
+  }
+
+  /** Where the manual lies when it is up: everything right of the eyepiece's board. */
+  private bookRect(): { x: number; y: number; w: number; h: number } {
+    const r = this.boardRects();
+    const x = r.train.x;
+    return { x, y: r.train.y, w: r.ranging.x + r.ranging.w - x, h: r.train.h };
+  }
+
+  private layBook(): void {
+    const { x, y, w, h } = this.bookRect();
+    this.bookFrame.texture = boardTexture(w, h, 'RECOGNITION MANUAL', 'wood');
+    this.book.setSize(w - 10, h - 42);
+    this.book.root.position.set(Math.floor(w / 2), 36 + Math.floor((h - 42) / 2));
+    const idx = this.controls.get('bookIndex')!;
+    const cls = this.controls.get('bookClose')!;
+    idx.root.position.set(w - 6 - 26 - 6 - 48, 13);
+    cls.root.position.set(w - 6 - 26, 13);
+    this.bookLayer.hitArea = new Rectangle(0, 0, w, h);
+    this.bookLayer.x = x;
+    this.bookLayer.y = this.bookOpen ? y : this.h + 4;
+  }
+
+  /** Bring the manual up (it slides up over the boards, the glass still live) or put it away. */
+  openBook(open: boolean, animate = true): void {
+    if (open === this.bookOpen) return;
+    this.bookOpen = open;
+    const { y } = this.bookRect();
+    if (open) {
+      this.book.go('index', false);
+      this.bookLayer.visible = true;
+    }
+    mixer.play(SFX.book, 'ui', { gain: open ? 0.6 : 0.75, rate: open ? 1.05 : 0.95 });
+    haptic(open ? 'press' : 'release');
+    const to = open ? y : this.h + 4;
+    if (!animate) {
+      this.bookLayer.y = to;
+      this.bookLayer.visible = open;
+      return;
+    }
+    void this.ctx.tw.to(this.bookLayer, { y: to }, { duration: open ? 300 : 240, ease: open ? ease.outBack : ease.inOutSine }).then(() => {
+      if (!this.bookOpen) this.bookLayer.visible = false;
+    });
+  }
+
+  override setSize(w: number, h: number): void {
+    super.setSize(w, h);
+    this.layBook();
+  }
+
+  override saveExtra(): unknown {
+    return { book: this.bookOpen };
+  }
+
+  override restoreExtra(x: unknown): void {
+    if ((x as { book?: boolean } | undefined)?.book) this.openBook(true, false);
   }
 
   private writeSlip(text: string, type = true): void {

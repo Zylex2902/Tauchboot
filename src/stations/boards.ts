@@ -70,7 +70,7 @@ export function minOf(n: LayoutNode): [number, number] {
 const frameCache = new Map<string, Texture>();
 
 /** How a station's boards are finished: bare steel trays, or painted plates (art test). */
-export type Skin = 'iron' | 'paint';
+export type Skin = 'iron' | 'paint' | 'wood';
 
 /**
  * A painted instrument plate: lighter bilge green, a fine grain heavier toward the edges,
@@ -102,6 +102,52 @@ function paintTexture(w: number, h: number, title: string): Texture {
 }
 
 /**
+ * The captain's desk (chunk 3.1): a varnished wood top with long wandering grain, a darker
+ * rim worn lighter where the arms rest, brass corner guards and a brass title plate.
+ */
+function woodTexture(w: number, h: number, title: string): Texture {
+  const p = new Pix(w, h, C.rust1);
+  const r = rng(w * 71 + h * 29 + title.length);
+  // Grain: long streaks that wander a little up and down along the board.
+  for (let y = 2; y < h - 2; y += 2 + Math.floor(r() * 3)) {
+    const c = r() < 0.5 ? C.rust0 : C.rust2;
+    const ph = r() * 6.28;
+    const amp = 0.6 + r() * 1.4;
+    for (let x = 2; x < w - 2; x++) {
+      if (r() < 0.22) continue;
+      const yy = Math.round(y + Math.sin(x * 0.045 + ph) * amp);
+      if (yy > 1 && yy < h - 2) p.set(x, yy, c);
+    }
+  }
+  // Knots: a few tight dark rings.
+  for (let k = 0; k < Math.max(1, Math.floor((w * h) / 18000)); k++) {
+    const cx = 10 + Math.floor(r() * (w - 20));
+    const cy = 16 + Math.floor(r() * (h - 26));
+    for (let a = 0; a < 24; a++) p.set(cx + Math.round(Math.cos(a / 3.82) * 3), cy + Math.round(Math.sin(a / 3.82) * 1.6), C.rust0);
+    p.set(cx, cy, C.black);
+  }
+  p.frame(0, 0, w, h, C.black);
+  p.rect(1, 1, w - 2, 1, C.rust3);
+  p.rect(1, 1, 1, h - 2, C.rust2);
+  p.rect(1, h - 2, w - 2, 1, C.rust0);
+  p.rect(w - 2, 1, 1, h - 2, C.rust0);
+  for (const [x, y] of [[1, 1], [w - 5, 1], [1, h - 5], [w - 5, h - 5]]) {
+    p.rect(x, y, 4, 4, C.brass0);
+    p.rect(x + 1, y + 1, 2, 2, C.brass1);
+    p.set(x + 1, y + 1, C.brass2);
+  }
+  if (title) {
+    const tw = measure(title) + 8;
+    p.rect(8, 2, tw + 1, 10, C.black);
+    p.rect(8, 2, tw, 9, C.brass1);
+    p.rect(8, 2, tw, 1, C.brass2);
+    p.rect(8, 10, tw, 1, C.brass0);
+    drawText(p, title, 12, 4, C.ink0, C.brass2);
+  }
+  return p.toTexture();
+}
+
+/**
  * A board: a recessed steel tray with a lipped edge, screws in the corners and its job
  * stamped on a small plate in the top-left. Drawn per size and cached.
  */
@@ -109,8 +155,8 @@ export function boardTexture(w: number, h: number, title: string, skin: Skin = '
   const key = `${w}x${h}:${title}:${skin}`;
   const hit = frameCache.get(key);
   if (hit) return hit;
-  if (skin === 'paint') {
-    const t = paintTexture(w, h, title);
+  if (skin === 'paint' || skin === 'wood') {
+    const t = skin === 'paint' ? paintTexture(w, h, title) : woodTexture(w, h, title);
     frameCache.set(key, t);
     return t;
   }

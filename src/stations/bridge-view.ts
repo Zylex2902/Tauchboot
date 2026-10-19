@@ -295,7 +295,7 @@ export class BridgeView {
       return;
     }
     const k = Math.round(Math.abs(Math.sin(s.aob * D2R)) * 40) / 40;
-    const sil = silhouette(outline, Math.exp(Math.round(Math.log(sc) * 60) / 60), k, s.aob >= 0 ? 1 : -1, dark ? C.black : C.iron0, dark ? C.iron0 : C.iron1);
+    const sil = silhouette(outline, Math.exp(Math.round(Math.log(sc) * 60) / 60), k, s.aob >= 0 ? 1 : -1, dark ? C.black : C.iron0, dark ? C.iron0 : C.iron1, s.marks ?? null);
     const x0 = cx - sil.cx;
     const y0 = Math.round(hy) + hidPx - sil.h + 1;
     const occ = Math.max(1, Math.round(sc * 1.2));

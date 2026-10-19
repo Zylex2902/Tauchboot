@@ -417,7 +417,7 @@ export class Sim {
         this.crashDive();
         break;
       case 'scopeMark':
-        if (this.s.kind === 'scope') drill.markRange(d, this.host, c.range, c.mast);
+        if (this.s.kind === 'scope') drill.markRange(d, this.host, c.range, c.mast, c.cls);
         break;
       case 'debugAlarm': {
         const [st, l, text] = TEST_ALARMS[this.s.nextTest++ % TEST_ALARMS.length];

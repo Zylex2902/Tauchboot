@@ -28,14 +28,6 @@ export const PLACEHOLDERS: Record<number, PlaceholderSpec> = {
     captions: [['TUBE 1', 30, 44], ['TUBE 2', 92, 44], ['TUBE 3', 154, 44], ['TUBE 4', 216, 44]],
     stencil: [36, 150],
   },
-  1: {
-    controls: [
-      { kind: 'switch', id: 'deskLamp', x: 60, y: 96, lamp: true, label: 'LAMP' },
-      { kind: 'drag', id: 'pencil', x: 300, y: 120, item: 'pencil', bounds: { x: 202, y: 62, w: 176, h: 136 } },
-    ],
-    papers: [{ x: 200, y: 60, w: 180, h: 140, title: 'ORDERS' }],
-    stencil: [404, 150],
-  },
   5: {
     controls: [
       { kind: 'hold', id: 'raise', x: 90, y: 110, radius: 16, rate: 0.3, decay: 0.08, color: 'brass', label: 'RAISE SCOPE' },

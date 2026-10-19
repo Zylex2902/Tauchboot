@@ -1,4 +1,4 @@
-import { BLIND, BOAT, freshEnv, gridName, gridOf, obs, type BridgeSight, type EnvObs, type FixKind, type FixObs, type HydroVoice, type Landmark, type LookoutReport, type SightingKind, type Signal, type SoundSource, type TrackPoint } from '../obs';
+import { BLIND, BOAT, freshEnv, gridName, gridOf, MARKS_RANGE, obs, type BridgeSight, type EnvObs, type FixKind, type FixObs, type HydroVoice, type Landmark, type LookoutReport, type SightingKind, type Signal, type SoundSource, type TrackPoint } from '../obs';
 import type { BoatState } from './boat';
 import { isSurfaced } from './boat';
 import type { DrillState, Effect } from './drill';
@@ -624,6 +624,8 @@ function bridge(se: SenseState, w: WorldState, b: BoatState, t: number): void {
       outline: s.hull,
       haze: r > shapeR ? 1 : haze(r),
       smoke: r < smokeR && hull.smoke > 0 ? clamp(1.2 - r / Math.max(1, smokeR), 0.15, 1) : 0,
+      // A neutral's painted flag: plain inside the hull's range by day; at night her deck lights show it closer in.
+      marks: s.flag && r < Math.min(MARKS_RANGE, w.sky.light > 0.3 ? shapeR : 3500) ? s.flag : null,
     });
   }
   landSights(w, out, key, haze);

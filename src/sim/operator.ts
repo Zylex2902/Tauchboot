@@ -108,7 +108,9 @@ function classify(s: { sig: Signature; rpm: number }): { say: string; log: strin
     case 'turbine':
       return { say: `TURBINES, FAST TWIN SCREWS, ${rpm} TURNS. A DESTROYER`, log: 'DESTROYER' };
     case 'diesel':
-      return { say: `DIESEL KNOCK, ${rpm} TURNS. A SMALL SHIP, A COASTER`, log: 'COASTER' };
+      return s.sig.blades === 4
+        ? { say: `DIESEL, FOUR BLADES, ${rpm} TURNS. A BIG MOTOR SHIP`, log: 'MOTOR SHIP' }
+        : { say: `DIESEL KNOCK, ${rpm} TURNS. A SMALL SHIP, A COASTER`, log: 'COASTER' };
     default:
       return s.sig.blades === 3
         ? { say: `STEAM, LIGHT FAST BLADES, ${rpm} TURNS. AN ESCORT, A CORVETTE`, log: 'CORVETTE' }

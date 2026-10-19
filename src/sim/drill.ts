@@ -1,5 +1,5 @@
-import { BOAT, obs, SCOPE_FOV, SCOPE_SURFACE, SHIP_CLASSES, type DrillObs, type ScopeResult, type ShipClassKey, type Sight } from '../obs';
-import type { Rng } from './rng';
+import { BOAT, MERCHANT_KEYS, NEUTRAL_KEYS, obs, SCOPE_FOV, SCOPE_SURFACE, SHIP_CLASSES, type DrillObs, type NeutralKey, type ScopeResult, type ShipClassKey, type Sight } from '../obs';
+import { Rng } from './rng';
 
 /**
  * Chunk 0.5 drill: one merchant crossing ahead of a boat lying at periscope depth.
@@ -29,6 +29,8 @@ export interface Ship {
   knots: number;
   rpm: number;
   turnTo: number | null;
+  /** A neutral, with her flag painted on (chunk 3.1). */
+  flag?: NeutralKey;
 }
 
 export interface DrillState {
@@ -73,14 +75,17 @@ export const rangeOf = (s: Ship) => Math.hypot(s.x, s.y);
 const pad3 = (n: number) => String(Math.round(norm(n)) % 360).padStart(3, '0');
 
 function freshShip(r: Rng): Ship {
-  const keys = Object.keys(SHIP_CLASSES) as ShipClassKey[];
-  const cls = SHIP_CLASSES[keys[Math.floor(r.next() * keys.length)]];
+  // A merchant from the manual; one in four a neutral (from a side stream: the drill's draws stay as they were).
+  const side0 = new Rng(r.s ^ 0x2f6b1d3);
+  const cls = SHIP_CLASSES[MERCHANT_KEYS[Math.floor(r.next() * MERCHANT_KEYS.length)]];
+  const flag = side0.next() < 0.25 ? NEUTRAL_KEYS[Math.floor(side0.next() * NEUTRAL_KEYS.length)] : undefined;
   const side = r.next() < 0.5 ? 1 : -1;
   const b0 = side * (28 + r.next() * 34);
   const r0 = 1900 + r.next() * 900;
   const aob0 = -side * (58 + r.next() * 22); // showing the side nearer our bow: she crosses ahead
-  const knots = cls.knots + Math.round((r.next() - 0.5) * 2);
+  const knots = Math.min(10, cls.knots) + Math.round((r.next() - 0.5) * 2);
   return {
+    ...(flag ? { flag } : {}),
     cls: cls.key,
     x: Math.sin(b0 * D2R) * r0,
     y: Math.cos(b0 * D2R) * r0,
@@ -153,10 +158,10 @@ export const drill = {
     d.high = high;
   },
 
-  markRange(d: DrillState, h: DrillHost, est: number, mast: number): void {
+  markRange(d: DrillState, h: DrillHost, est: number, mast: number, set?: ShipClassKey): void {
     if (!live(d) || d.ending) return;
     h.say('FIRST OFFICER', `RANGE ${Math.round(est / 10) * 10}. MARK.`);
-    finish(d, 'ranged', { estimate: Math.round(est), truth: Math.round(rangeOf(d.ship)), mast }, 1.8);
+    finish(d, 'ranged', { estimate: Math.round(est), truth: Math.round(rangeOf(d.ship)), mast, ...(set ? { set } : {}) }, 1.8);
   },
 
   /** The boat is lost: the drill ends there. */
@@ -203,7 +208,7 @@ export const drill = {
     const sights: Sight[] = [];
     if (s.awash < 1) {
       const b = norm(Math.atan2(x, y) / D2R);
-      sights.push({ bearing: b, aob: wrap(b + 180 - d.ship.course), degPerM: 1 / (R * D2R), cls: d.ship.cls, haze: Math.max(0, Math.min(1, (R - 2600) / 7000)) });
+      sights.push({ bearing: b, aob: wrap(b + 180 - d.ship.course), degPerM: 1 / (R * D2R), cls: d.ship.cls, haze: Math.max(0, Math.min(1, (R - 2600) / 7000)), marks: d.ship.flag ?? null });
     }
     s.sights = sights;
   },
