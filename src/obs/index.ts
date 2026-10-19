@@ -129,6 +129,26 @@ export interface Sight {
   haze: number;
   /** A neutral's painted flag, when it shows at this range. */
   marks?: NeutralKey | null;
+  /** Stays with what you are looking at while she stays in sight (chunk 3.2: ships at sea). */
+  key?: string;
+  /** Metres of her hidden below the horizon from the low lens (hull down). */
+  low?: number;
+  /** Smoke over her, 0..1. */
+  smoke?: number;
+  /** Her bow wave and wake, 0..1 (how hard she is driving: a cue to her speed and her heading). */
+  wave?: number;
+}
+
+/** The captain's MARK at the scope (chunk 3.2): the bearing, the stadimeter's range, the angle on the bow as judged. */
+export interface ScopeMark {
+  n: number;
+  trained: number;
+  range: number;
+  aob: number | null;
+  cls: ShipClassKey | null;
+  at: number;
+  heading: number;
+  dr: { x: number; y: number };
 }
 
 /** What the attack periscope delivers: tube position, water on the glass, and sights. */
@@ -142,6 +162,11 @@ export interface ScopeObs {
   /** Own boat's roll/pitch at periscope depth, as a vertical offset of the horizon in degrees. */
   swell: number;
   sights: Sight[];
+  /**
+   * Chunk 3.2: how exposed the boat has been lately, 0 .. 1.5 (the scope up, its feather, a
+   * broaching bridge, the light and the sea). Own boat's state, not what the enemy knows.
+   */
+  exposure: number;
 }
 
 export type DrillKind = 'scope' | 'dive' | 'air';
@@ -157,7 +182,7 @@ export interface ScopeResult {
   heard: { reported: number; truth: number } | null; // debrief
   /** Drill seconds when she was first on the glass (in the field of view, lens clear). */
   foundAt: number | null;
-  ranged: { estimate: number; truth: number; mast: number; set?: ShipClassKey } | null; // debrief: filled when the drill is over
+  ranged: { estimate: number; truth: number; mast: number; set?: ShipClassKey; aob?: number | null; aobTruth?: number } | null; // debrief: filled when the drill is over
   /** Seconds the lens was above water. */
   scopeUp: number;
   seconds: number;
@@ -220,6 +245,7 @@ export type ObsEvent =
   | { type: 'voice'; line: VoiceLine }
   | { type: 'paused'; paused: boolean }
   | { type: 'hydroMark'; mark: HydroMark }
+  | { type: 'scopeMark'; mark: ScopeMark }
   | { type: 'hydroCall'; call: HydroCall }
   | { type: 'drill'; drill: DrillObs }
   | { type: 'timeScale'; scale: number; dropped: boolean }
@@ -246,7 +272,7 @@ export type Command =
   /** The captain has left a station: its crew carry on from where things stand. */
   | { type: 'leave'; station: number }
   | { type: 'scopeSet'; height: number; trained: number; high: boolean }
-  | { type: 'scopeMark'; range: number; mast: number; cls?: ShipClassKey }
+  | { type: 'scopeMark'; range: number; mast: number; cls?: ShipClassKey; aob?: number | null }
   /** The dive alarm: clear the bridge, flood, planes hard down, full ahead on the motors. */
   | { type: 'crashDive' }
   /** The helmsman: steer this course (degrees true). */
@@ -265,7 +291,7 @@ class Observation {
   paused = false;
   /** Updated every sim tick (polled by the UI, not evented). */
   readonly hydro: HydroObs = { trained: 0, level: 0, pan: 0, rpm: 0, voices: [], rest: 0, hand: false };
-  readonly scope: ScopeObs = { height: 0, awash: 1, trained: 0, high: false, swell: 0, sights: [] };
+  readonly scope: ScopeObs = { height: 0, awash: 1, trained: 0, high: false, swell: 0, sights: [], exposure: 0 };
   drill: DrillObs = { kind: 'scope', phase: 'brief', t: 0, reported: null, held: 0, result: null };
   /** Own boat's instruments, polled every frame. */
   readonly boat: BoatObs = freshBoatObs();

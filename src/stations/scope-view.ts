@@ -2,7 +2,7 @@ import { BufferImageSource, Sprite, Texture } from 'pixi.js';
 import { BAYER4 } from '../core/pixels';
 import { C, RGB } from '../core/palette';
 import { obs, SCOPE_FOV, SCOPE_SURFACE } from '../obs';
-import { silhouette } from './ship-art';
+import { dims, silhouette } from './ship-art';
 
 /** Eyepiece diameter in art pixels. */
 export const VIEW_D = 188;
@@ -111,6 +111,11 @@ export class ScopeView {
     return this.seed / 4294967296;
   }
 
+  /** The day's light on the glass: full by day, a dim grey at dusk, near black at night. */
+  private lightK(): number {
+    return 0.22 + 0.78 * obs.bridge.view.light;
+  }
+
   /** Quantise a 0..1 tone onto a ramp with the world-anchored ordered dither. */
   private static tone(ramp: number[], t: number, bx: number, by: number): number {
     const f = Math.max(0, Math.min(0.999, t)) * (ramp.length - 1);
@@ -158,6 +163,8 @@ export class ScopeView {
     // Sea in perspective: each row is a strip of water at the distance its depression angle
     // puts it, so near waves are big and slow, far ones fine; haze flattens the far rows.
     const EYE = 1.2; // lens height above the water, metres
+    const lk = this.lightK();
+    const rough = 0.7 + 0.15 * obs.bridge.view.seaState; // a heavier sea, a busier surface
     for (let y = Math.max(0, hy); y < rows; y++) {
       const by = y - hy;
       const x0 = y >= W ? R : 0;
@@ -168,8 +175,8 @@ export class ScopeView {
       const gy = dist / 6 + t * 0.55; // swell runs toward us
       const gy2 = dist / 2.2 - t * 0.9;
       const kx = (dist * Math.PI) / 180;
-      const contrast = 0.32 * (1 - far) + 0.05;
-      const base = 0.2 + far * 0.3;
+      const contrast = (0.32 * (1 - far) + 0.05) * rough * lk;
+      const base = (0.2 + far * 0.3) * lk;
       for (let x = x0; x < W; x++) {
         const gx = this.az[x] * kx;
         const w = noise(gx / 11, gy) * 0.6 + noise(gx / 3.5, gy2) * 0.4;
@@ -188,7 +195,8 @@ export class ScopeView {
 
   /** Sky depends only on where the scope points: cached until it trains or zooms. */
   private drawSky(shift: number, ppd: number): void {
-    const key = `${shift}:${ppd.toFixed(3)}`;
+    const lk = Math.round(this.lightK() * 20) / 20;
+    const key = `${shift}:${ppd.toFixed(3)}:${lk}`;
     if (key === this.skyKey) return;
     this.skyKey = key;
     const W = VIEW_D;
@@ -199,7 +207,7 @@ export class ScopeView {
         const az = this.az[x];
         const cl = noise(az * (64 / 360), el * 0.3 + 3, 63) * 0.65 + noise(az * (256 / 360), el * 1.0 + 9) * 0.35;
         const cloud = Math.max(0, cl - 0.45) * 1.4;
-        const tn = base + cloud * 0.2 - Math.max(0, cl - 0.62) * 0.55; // bright tops, dark bellies
+        const tn = (base + cloud * 0.2 - Math.max(0, cl - 0.62) * 0.55) * lk; // bright tops, dark bellies; dusk and night darken it all
         this.sky[er * W + x] = ScopeView.tone(GREY, tn, shift + x, -1 - er);
       }
     }
@@ -211,16 +219,33 @@ export class ScopeView {
     if (Math.abs(dx) > R + 200) return;
     const sc = Math.exp(Math.round(Math.log(sight.degPerM * ppd) * 120) / 120);
     const k = Math.round(Math.abs(Math.sin((sight.aob * Math.PI) / 180)) * 40) / 40;
-    const sil = silhouette(sight.cls, sc, k, sight.aob >= 0 ? 1 : -1, C.iron0, C.iron1, ghost ? null : (sight.marks ?? null));
-    const x0 = Math.round(R + dx) - sil.cx;
-    const y0 = hy - sil.h + 1 - ghost;
+    const dir: 1 | -1 = sight.aob >= 0 ? 1 : -1;
+    const { length, mast } = dims(sight.cls);
+    // Hull down: the low lens's horizon hides her lower part (metres -> pixels).
+    const hidPx = Math.round((sight.low ?? 0) * sc);
+    const cx = Math.round(R + dx);
     const hazeLvl = sight.haze * 12;
+    const t = this.t;
+    if (!ghost && (sight.smoke ?? 0) > 0) this.smoke(sight, cx, hy + hidPx - Math.round(mast * sc * 0.75), sc, hazeLvl, shift);
+    if (sight.haze >= 1 || hidPx >= mast * sc) return; // only her smoke shows
+    if (sc * length * Math.max(0.12, k) < 1.5) {
+      // A speck on the horizon: a mast, no more.
+      if (!ghost) for (let j = 0; j < Math.max(1, Math.round((mast - (sight.low ?? 0)) * sc)); j++) {
+        const y = hy - j;
+        if (y >= 0 && y < rows && cx >= 0 && cx < VIEW_D && BAYER4[y & 3][(shift + cx) & 3] >= hazeLvl) this.world[y * VIEW_D + cx] = C.iron1;
+      }
+      return;
+    }
+    const sil = silhouette(sight.cls, sc, k, dir, C.iron0, C.iron1, ghost ? null : (sight.marks ?? null));
+    const x0 = cx - sil.cx;
+    const y0 = hy - sil.h + 1 - ghost + hidPx;
     // Waves near her waterline: she bobs in and out of them.
     const occ = Math.max(1, Math.round(sc * 0.9));
-    const t = this.t;
     for (let j = 0; j < sil.h; j++) {
       const y = y0 + j;
       if (y < 0 || y >= rows) continue;
+      const fromKeel = sil.h - 1 - j;
+      if (fromKeel < hidPx) continue; // below the horizon
       for (let i = 0; i < sil.w; i++) {
         const c = sil.data[j * sil.w + i];
         if (c < 0) continue;
@@ -228,12 +253,58 @@ export class ScopeView {
         if (x < 0 || x >= VIEW_D) continue;
         if (ghost) {
           // The lifted image: clean amber, its keel line brightest (the edge you range with).
-          this.world[y * VIEW_D + x] = j === sil.h - 1 ? C.amber1 : C.amber0;
+          this.world[y * VIEW_D + x] = fromKeel === hidPx ? C.amber1 : C.amber0;
           continue;
         }
         if (BAYER4[y & 3][(shift + x) & 3] < hazeLvl) continue;
-        if (sil.h - 1 - j < occ && noise((shift + x) * 0.35, t * 2.2 + j * 3) > 0.55) continue;
+        if (fromKeel - hidPx < occ && noise((shift + x) * 0.35, t * 2.2 + j * 3) > 0.55) continue;
         this.world[y * VIEW_D + x] = c;
+      }
+    }
+    // Her bow wave and wake: white water at the stem, a trail astern, more the harder she drives.
+    const wave = sight.wave ?? 0;
+    if (!ghost && hidPx === 0 && wave > 0.12) {
+      const bowX = dir === 1 ? x0 + sil.w - 2 : x0 + 1;
+      const wl = y0 + sil.h - 1;
+      const bw = Math.max(1, Math.round(wave * sc * 7 * (0.4 + 0.6 * (1 - k))  + wave * sc * 3));
+      const bh = Math.max(1, Math.round(wave * sc * 2.2));
+      for (let q = -1; q <= bw; q++)
+        for (let j = 0; j <= bh; j++) {
+          const x = bowX + dir * (q - Math.floor(bw / 3));
+          const y = wl - j + (q > bw / 2 ? 1 : 0);
+          if (x < 0 || x >= VIEW_D || y < 0 || y >= rows) continue;
+          if (j > bh * (1 - Math.abs(q - bw / 3) / (bw + 1)) || noise((shift + x) * 0.5, t * 4 + j) < 0.35) continue;
+          if (BAYER4[y & 3][(shift + x) & 3] < hazeLvl) continue;
+          this.world[y * VIEW_D + x] = j === 0 ? C.iron8 : C.iron7;
+        }
+      // The wake: a broken low line of foam off her stern.
+      const sternX = dir === 1 ? x0 + 1 : x0 + sil.w - 2;
+      const wake = Math.round(wave * sc * 14 * Math.max(0.3, k));
+      for (let q = 0; q < wake; q++) {
+        const x = sternX - dir * q;
+        if (x < 0 || x >= VIEW_D || wl < 0 || wl >= rows) continue;
+        if (noise((shift + x) * 0.4, t * 1.5) < 0.45 + (q / Math.max(1, wake)) * 0.4) continue;
+        this.world[wl * VIEW_D + x] = C.iron7;
+      }
+    }
+  }
+
+  /** Smoke over her: a plume leaning downwind, thinning as it rises. */
+  private smoke(sight: (typeof obs.scope.sights)[number], cx: number, top: number, sc: number, hazeLvl: number, shift: number): void {
+    const v = obs.bridge.view;
+    const drift = Math.sin(((v.windFrom + 180 - sight.bearing) * Math.PI) / 180);
+    const tall = Math.max(2, Math.round((30 + 60 * (sight.smoke ?? 0)) * sc));
+    for (let j = 0; j < tall; j++) {
+      const y = top - j;
+      if (y < 0 || y >= VIEW_D) continue;
+      const spread = 1 + Math.floor(j * 0.5);
+      const xm = cx + Math.round(drift * j * 0.8);
+      for (let q = -spread; q <= spread; q++) {
+        const x = xm + q;
+        if (x < 0 || x >= VIEW_D) continue;
+        const thin = j / tall + Math.abs(q) / (spread + 1);
+        if (BAYER4[y & 3][(shift + x) & 3] < hazeLvl + thin * 7 || noise((shift + x) * 0.3, y * 0.3 + this.t) < 0.25) continue;
+        this.world[y * VIEW_D + x] = C.iron5;
       }
     }
   }

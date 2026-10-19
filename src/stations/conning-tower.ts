@@ -1,4 +1,4 @@
-import { Container, Rectangle, Sprite, Texture } from 'pixi.js';
+import { Container, Rectangle, Sprite, Texture, type FederatedPointerEvent } from 'pixi.js';
 import { mixer, type LoopHandle } from '../core/audio';
 import { drawText } from '../core/font';
 import { haptic } from '../core/haptics';
@@ -9,6 +9,8 @@ import { TypedText } from '../core/typed';
 import { ease } from '../core/tween';
 import type { ControlSpec, Hold, KitContext } from '../controls';
 import { Odometer } from '../controls/odometer';
+import type { NeedleMeter } from '../controls/meter';
+import { roundDial } from './gauges';
 import { BearingTape } from '../controls/tape';
 import { obs, SCOPE_SURFACE, send, SHIP_CLASSES } from '../obs';
 import { plate } from './panel-art';
@@ -29,6 +31,9 @@ const RANGE_MAX = 20000;
 const CARD = { w: 126, h: 50 };
 /** The card's left margin, where the MANUAL key sits. */
 const CARD_KEY = 30;
+/** A quick look: the motor runs the scope up, it stays up this long, then it runs down. */
+export const LOOK_S = 6;
+const LOOK_RATE = 0.9;
 
 export const CONNING_TOWER: ControlSpec[] = [
   { kind: 'crank', id: 'train', x: 0, y: 0, radius: 38, mass: 0.95, friction: 2.6, ticksPerTurn: 36, resolution: 2000 },
@@ -37,6 +42,7 @@ export const CONNING_TOWER: ControlSpec[] = [
     sounds: { loop: SFX.hoist, drain: SFX.hoist, full: SFX.endStop, empty: SFX.endStop }, drainGain: 0.55,
   },
   { kind: 'key', id: 'down', x: 0, y: 0, w: 36, h: 18, style: 'iron', text: 'DOWN' },
+  { kind: 'key', id: 'look', x: 0, y: 0, w: 36, h: 18, style: 'brass', text: 'LOOK' },
   { kind: 'lever', id: 'mag', x: 0, y: 0, axis: 'y', length: 24, detents: ['1.5X', '6X'], initial: 0, weight: 70, sounds: { lock: SFX.prism } },
   {
     kind: 'crank', id: 'stad', x: 0, y: 0, radius: 24, mass: 0.35, friction: 6, ticksPerTurn: 30, resolution: 4000,
@@ -92,6 +98,13 @@ export class ConningTower extends StationScene {
   private brg!: Odometer;
   private rangeDrum!: Odometer;
   private upDrum!: Odometer;
+  private expMeter!: NeedleMeter;
+  private expRed = false;
+  /** A quick look in progress: seconds the glass has been full up. */
+  private look: { since: number | null } | null = null;
+  /** The angle on her bow as judged on the card (null until set), degrees, + = her starboard side. */
+  aob: number | null = null;
+  private aobGrab = false;
   private slip = new Container();
   private hoist!: Hold;
   private trained = 0;
@@ -165,6 +178,13 @@ export class ConningTower extends StationScene {
 
     // HOIST: raise, drop, how long it has been up; and the magnification.
 
+    // In the eyepiece board's lower corners: how exposed we are, and the quick LOOK.
+    const exp = roundDial(tk, 12, { arc: 120, ticks: 7, major: 3, red: 0.55, figures: [[0.5, 'EXP']] });
+    this.expMeter = exp.meter;
+    this.pin('scope', exp.root, 0, 1, 14, -14, { spread: false });
+    this.pinControl('scope', 'look', 1, 1, -36, -18);
+
+    // HOIST: raise, drop, how long it has been up; and the magnification.
     this.upDrum = new Odometer(2, 0, tk);
     const up = new Container();
     up.addChild(art(22, 22, (p) => {
@@ -223,10 +243,12 @@ export class ConningTower extends StationScene {
       this.push();
     });
     c('down').onChange(() => {
+      this.look = null;
       if (this.height <= 0) return;
       this.hoist.drain(0.9);
       haptic('press');
     });
+    c('look').onChange(() => this.quickLook());
     c('train').onChange((turns) => {
       this.trained = ((((turns as number) * SCOPE_DEG_PER_TURN) % 360) + 360) % 360;
       this.tape.set(this.trained);
@@ -246,7 +268,8 @@ export class ConningTower extends StationScene {
     c('book').onChange(() => this.openBook(true));
     c('bookClose').onChange(() => this.openBook(false));
     c('bookIndex').onChange(() => this.book.go('index'));
-    c('markRange').onChange(() => send({ type: 'scopeMark', range: this.range(), mast: SHIP_CLASSES[manual.cls].mast, cls: manual.cls }));
+    c('markRange').onChange(() => send({ type: 'scopeMark', range: this.range(), mast: SHIP_CLASSES[manual.cls].mast, cls: manual.cls, aob: this.aob }));
+    this.bindCard(card);
 
     const slipFor = (d: typeof obs.drill) => (d.reported === null ? '' : `BRG ${String(d.reported).padStart(3, '0')}`);
     obs.on((e) => {
@@ -299,7 +322,7 @@ export class ConningTower extends StationScene {
   private showCard(animate: boolean): void {
     if (manual.cls === this.cardFor) return;
     this.cardFor = manual.cls;
-    const tex = cardPix(manual.cls, CARD.w, CARD.h, CARD_KEY).toTexture();
+    const tex = cardPix(manual.cls, CARD.w, CARD.h, CARD_KEY, this.aob).toTexture();
     const swap = () => {
       const old = this.card.texture;
       this.card.texture = tex;
@@ -317,6 +340,59 @@ export class ConningTower extends StationScene {
         this.card.scale.y = Math.max(0.05, Math.abs(st.k));
       },
     }).then(() => (this.card.scale.y = 1));
+  }
+
+  /**
+   * Angle on the bow, judged by eye: drag across the card and the drawing turns to match her
+   * in the glass, from bow-on (the middle) round to stern-on at either end; right of the middle
+   * she shows her starboard side.
+   */
+  private bindCard(card: Container): void {
+    card.eventMode = 'static';
+    card.cursor = 'ew-resize';
+    card.hitArea = new Rectangle(CARD_KEY, 0, CARD.w - CARD_KEY, CARD.h);
+    const at = (e: FederatedPointerEvent) => {
+      const x = card.toLocal(e.global).x;
+      const f = Math.max(-1, Math.min(1, ((x - CARD_KEY) / (CARD.w - CARD_KEY)) * 2 - 1));
+      this.setAob(Math.round((f * 180) / 5) * 5);
+    };
+    card.on('pointerdown', (e: FederatedPointerEvent) => {
+      this.aobGrab = true;
+      e.stopPropagation();
+      at(e);
+    });
+    card.on('globalpointermove', (e: FederatedPointerEvent) => {
+      if (this.aobGrab) at(e);
+    });
+    const end = () => {
+      if (!this.aobGrab) return;
+      this.aobGrab = false;
+      haptic('release');
+    };
+    card.on('pointerup', end);
+    card.on('pointerupoutside', end);
+  }
+
+  setAob(a: number | null): void {
+    if (a !== null) a = a === -180 ? 180 : a;
+    if (a === this.aob) return;
+    const step = this.aob === null || a === null || Math.floor(a / 10) !== Math.floor(this.aob / 10);
+    this.aob = a;
+    if (step) {
+      mixer.play(SFX.disc, 'ui', { gain: 0.35, rate: 1.3 });
+      haptic('tick');
+    }
+    // Redraw the card as she lies now (no flip: the drawing turns under the finger).
+    const old = this.card.texture;
+    this.card.texture = cardPix(manual.cls, CARD.w, CARD.h, CARD_KEY, this.aob).toTexture();
+    if (old !== Texture.EMPTY) old.destroy(true);
+  }
+
+  /** LOOK: the motor runs the glass up, it stays up six seconds, and runs down again. */
+  private quickLook(): void {
+    haptic('press');
+    this.look = { since: null };
+    if (this.height < 1) this.hoist.lift(LOOK_RATE);
   }
 
   /** Where the manual lies when it is up: everything right of the eyepiece's board. */
@@ -368,11 +444,17 @@ export class ConningTower extends StationScene {
   }
 
   override saveExtra(): unknown {
-    return { book: this.bookOpen };
+    return { book: this.bookOpen, aob: this.aob };
   }
 
   override restoreExtra(x: unknown): void {
-    if ((x as { book?: boolean } | undefined)?.book) this.openBook(true, false);
+    const v = x as { book?: boolean; aob?: number | null } | undefined;
+    if (v?.book) this.openBook(true, false);
+    if (typeof v?.aob === 'number') {
+      this.aob = v.aob;
+      this.cardFor = '';
+      this.showCard(false);
+    }
   }
 
   private writeSlip(text: string, type = true): void {
@@ -405,6 +487,25 @@ export class ConningTower extends StationScene {
     if (up) this.upSeconds += dt / 1000;
     else if (s.height < SCOPE_SURFACE) this.upSeconds = 0;
     this.upDrum.set(Math.min(99, Math.floor(this.upSeconds)));
+    // The quick look: once full up, a few seconds, then down (a hand on the hoist takes it over).
+    if (this.look) {
+      if (this.hoist.pressed) this.look = null;
+      else if (this.height >= 1) {
+        // Counted on the watch clock (the sim's seconds), whatever the frame rate.
+        this.look.since ??= obs.nav.t;
+        if (obs.nav.t - this.look.since >= LOOK_S) {
+          this.look = null;
+          this.hoist.drain(0.9);
+        }
+      } else if (!this.hoist.rising) this.look = null;
+    }
+    // Exposure: the needle follows; a relay clicks over as it enters the red.
+    this.expMeter.target = Math.min(1, s.exposure / 1.5);
+    const red = s.exposure > 0.82;
+    if (red !== this.expRed) {
+      this.expRed = red;
+      if (this.root.parent !== null) mixer.play(red ? SFX.lampOn : SFX.lampOff, 'ui', { gain: 0.3 });
+    }
     // Water over the head: the rush when it breaks out and each time a sea goes over.
     const now = performance.now();
     if (s.height > SCOPE_SURFACE - 0.02 && Math.abs(s.awash - this.wasAwash) > 0.45 && now - this.lastWash > 700) {

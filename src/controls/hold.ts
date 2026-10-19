@@ -58,6 +58,8 @@ export class Hold extends Control<number> {
   private coverTimer = 0;
   /** This touch only lifted the cover: it does not work the valve. */
   private lifting = false;
+  /** Run up by the motor (no hand on it), per second; 0 when not. */
+  private raising = 0;
 
   constructor(readonly s: HoldSpec, ctx: KitContext) {
     super(s, ctx, 0);
@@ -112,6 +114,7 @@ export class Hold extends Control<number> {
           clearTimeout(this.coverTimer);
         }
         this.forced = 0;
+        this.raising = 0;
         void ctx.tw.to(this.cap, { y: this.capY + 2 }, { duration: 50 });
         this.sfx('press', SFX.press, { gain: 0.7, rate: 1.2 });
         this.buzz('press', 'press');
@@ -146,6 +149,21 @@ export class Hold extends Control<number> {
       if (v >= 1 && !this.full) {
         this.full = true;
         this.loopSnd?.stop(60);
+        this.loopSnd = null;
+        this.sfx('full', SFX.full);
+        this.buzz('full', 'lock');
+      }
+    } else if (!this.held && this.raising > 0 && v < 1) {
+      // The motor running it up for someone (a quick look): its own loop, then the stop.
+      if (!this.loopSnd) this.loopSnd = mixer.loop(this.s.sounds?.loop ?? SFX.hiss, this.s.bus ?? 'machinery', { gain: 0.55, rate: 0.9 });
+      this.drainSnd?.stop(80);
+      this.drainSnd = null;
+      v = Math.min(1, v + this.raising * dt);
+      this.loopSnd.setRate(0.8 + v * 0.5);
+      if (v >= 1) {
+        this.raising = 0;
+        this.full = true;
+        this.loopSnd.stop(60);
         this.loopSnd = null;
         this.sfx('full', SFX.full);
         this.buzz('full', 'lock');
@@ -228,7 +246,25 @@ export class Hold extends Control<number> {
   /** Run the gauge down to empty at this rate per second (DOWN SCOPE), unless pressed again. */
   drain(rate: number): void {
     if (this.held || this.value <= 0) return;
+    this.raising = 0;
     this.forced = rate;
+  }
+
+  /** Run the gauge up to full at this rate per second by motor (a quick look), unless pressed. */
+  lift(rate: number): void {
+    if (this.held || this.value >= 1) return;
+    this.forced = 0;
+    this.raising = rate;
+  }
+
+  /** A hand is on it now. */
+  get pressed(): boolean {
+    return this.held;
+  }
+
+  /** The motor is running it up. */
+  get rising(): boolean {
+    return this.raising > 0;
   }
 
   private drawGauge(): void {

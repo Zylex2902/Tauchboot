@@ -107,6 +107,8 @@ export interface ShipState {
   gone: boolean;
   /** A neutral: her flag is painted on both sides (chunk 3.1). */
   flag?: NeutralKey;
+  /** Chunk 3.2: an escort sent to where a periscope was seen: run there at full speed, then search round it. */
+  hunt?: { x: number; y: number; until: number };
 }
 
 export interface GroupState {
@@ -142,6 +144,8 @@ export interface GroupState {
   cap: number;
   capH: number;
   done: boolean;
+  /** Chunk 3.2: a periscope seen: the commodore turns the whole convoy away and works up to full speed until then. */
+  alarm?: { course: number; until: number };
 }
 
 export interface ConvoyPlan {
@@ -363,8 +367,10 @@ export function stepGroup(g: GroupState, ships: Map<number, ShipState>, t: numbe
     g.zzUntil = t + plan[g.zzStep][1] * 60;
   }
   const off = g.zzOn && g.kind === 'convoy' ? plan[g.zzStep][0] : 0;
-  const want = norm(toWp + off);
-  g.gCourse = norm(g.gCourse + clamp(wrap(want - g.gCourse), -0.35 * dt, 0.35 * dt));
+  if (g.alarm && t >= g.alarm.until) delete g.alarm;
+  // An emergency turn away from a periscope: the whole formation, hard over.
+  const want = g.alarm ? g.alarm.course : norm(toWp + off);
+  g.gCourse = norm(g.gCourse + clamp(wrap(want - g.gCourse), -(g.alarm ? 1 : 0.35) * dt, (g.alarm ? 1 : 0.35) * dt));
   g.frame = norm(g.frame + clamp(wrap(legCourse - g.frame), -0.015 * dt, 0.015 * dt));
   // Speed: the plan's advance (more through the water on a zigzag leg), plus or minus to
   // make up the schedule, never more than the slowest ship can give with a knot in hand.
@@ -378,7 +384,7 @@ export function stepGroup(g: GroupState, ships: Map<number, ShipState>, t: numbe
   }
   const cap = g.cap;
   const lag = (t - g.depart) * g.soa * KN - progress(g);
-  const kn = clamp(g.soa / Math.cos(off * D2R) + clamp(lag / 1852, -1.5, 2), 2, cap);
+  const kn = g.alarm ? cap : clamp(g.soa / Math.cos(off * D2R) + clamp(lag / 1852, -1.5, 2), 2, cap);
   g.gKn += clamp(kn - g.gKn, -0.01 * dt, 0.01 * dt);
   g.gx += Math.sin(g.gCourse * D2R) * g.gKn * KN * dt;
   g.gy += Math.cos(g.gCourse * D2R) * g.gKn * KN * dt;
@@ -393,7 +399,14 @@ export function stepShip(s: ShipState, g: GroupState, t: number, dt: number, wav
   if (s.gone) return;
   const h = HULLS[s.hull];
   const top = maxIn(h, waveH);
-  if (steer && !g.done) {
+  if (s.hunt && t >= s.hunt.until) delete s.hunt;
+  if (steer && s.hunt) {
+    // Run in on the spot at full speed; there, search in a wide circle.
+    const dx = s.hunt.x - s.x;
+    const dy = s.hunt.y - s.y;
+    s.wantCourse = Math.hypot(dx, dy) > 500 ? norm(Math.atan2(dx, dy) / D2R) : norm(s.course + 25);
+    s.wantKn = top;
+  } else if (steer && !g.done) {
     const [bx, by] = slotOffset(g, s, t);
     const [px, py] = toWorld(g, bx + s.wander[0], by + s.wander[1]);
     let ex = px - s.x;

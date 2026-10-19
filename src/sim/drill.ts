@@ -1,5 +1,6 @@
 import { BOAT, MERCHANT_KEYS, NEUTRAL_KEYS, obs, SCOPE_FOV, SCOPE_SURFACE, SHIP_CLASSES, type DrillObs, type NeutralKey, type ScopeResult, type ShipClassKey, type Sight } from '../obs';
 import { Rng } from './rng';
+import { scopeSeen } from './sense';
 
 /**
  * Chunk 0.5 drill: one merchant crossing ahead of a boat lying at periscope depth.
@@ -158,10 +159,11 @@ export const drill = {
     d.high = high;
   },
 
-  markRange(d: DrillState, h: DrillHost, est: number, mast: number, set?: ShipClassKey): void {
+  markRange(d: DrillState, h: DrillHost, est: number, mast: number, set?: ShipClassKey, aob?: number | null): void {
     if (!live(d) || d.ending) return;
     h.say('FIRST OFFICER', `RANGE ${Math.round(est / 10) * 10}. MARK.`);
-    finish(d, 'ranged', { estimate: Math.round(est), truth: Math.round(rangeOf(d.ship)), mast, ...(set ? { set } : {}) }, 1.8);
+    const aobTruth = Math.round(wrap(bearingOf(d.ship) + 180 - d.ship.course));
+    finish(d, 'ranged', { estimate: Math.round(est), truth: Math.round(rangeOf(d.ship)), mast, ...(set ? { set } : {}), ...(aob !== undefined ? { aob, aobTruth } : {}) }, 1.8);
   },
 
   /** The boat is lost: the drill ends there. */
@@ -192,7 +194,7 @@ export const drill = {
   },
 
   /** Write what the glass sees, between steps: ship position lerped, sea at the in-between time. */
-  present(d: DrillState, prev: { x: number; y: number; clock: number }, a: number, own: Own): void {
+  present(d: DrillState, prev: { x: number; y: number; clock: number }, a: number, own: Own, withShip = true, exposure = 0): void {
     const s = obs.scope;
     const x = prev.x + (d.ship.x - prev.x) * a;
     const y = prev.y + (d.ship.y - prev.y) * a;
@@ -206,10 +208,15 @@ export const drill = {
     s.swell = 0.22 * Math.sin(0.61 * clock) + 0.1 * Math.sin(1.47 * clock + 0.8) - own.pitch * Math.cos(d.trained * D2R);
     const R = Math.hypot(x, y);
     const sights: Sight[] = [];
-    if (s.awash < 1) {
+    s.exposure = exposure;
+    if (s.awash < 1 && withShip) {
       const b = norm(Math.atan2(x, y) / D2R);
       sights.push({ bearing: b, aob: wrap(b + 180 - d.ship.course), degPerM: 1 / (R * D2R), cls: d.ship.cls, haze: Math.max(0, Math.min(1, (R - 2600) / 7000)), marks: d.ship.flag ?? null });
     }
+    // Ships at sea (chunk 3.2), drawn between ticks.
+    if (s.awash < 1)
+      for (const q of scopeSeen())
+        sights.push({ bearing: norm(q.relPrev + wrap(q.rel - q.relPrev) * a), aob: q.aob, degPerM: q.degPerM, cls: q.cls, haze: q.haze, marks: q.marks, low: q.low, smoke: q.smoke, wave: q.wave });
     s.sights = sights;
   },
 };
@@ -225,7 +232,7 @@ export function lensAbove(height: number, depth: number): number {
   return ((height - SCOPE_SURFACE) / (1 - SCOPE_SURFACE)) * LENS_TOP - (depth - BOAT.periscopeDepth);
 }
 
-function awashAt(height: number, lens: number, clock: number): number {
+export function awashAt(height: number, lens: number, clock: number): number {
   if (height < SCOPE_SURFACE - 0.05) return 1; // housed in the fairing
   return Math.max(0, Math.min(1, (sea(clock) - lens + 0.12) / 0.3));
 }

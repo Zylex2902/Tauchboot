@@ -1,13 +1,14 @@
-import { BOAT, connectSim, DIVE_DRILL, obs, TELEGRAPH, TIME_SCALES, type AlarmLevel, type AlarmObs, type Command, type DrillKind } from '../obs';
+import { BOAT, connectSim, DIVE_DRILL, obs, SCOPE_SURFACE, TELEGRAPH, TIME_SCALES, type AlarmLevel, type AlarmObs, type Command, type DrillKind } from '../obs';
 import { boat, boatAtPeriscopeDepth, boatSurfaced, isSurfaced, type BoatHost, type BoatState } from './boat';
 import { power } from './power';
 import { stepAir, type Drop } from './air';
 import { airDrill, airDrillBoat, newAirDrill, type AirDrillState } from './airdrill';
 import { dive, newDiveState, type DiveState } from './dive';
-import { drill, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
+import { awashAt, drill, lensAbove, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
+import { newDetect, stepDetect, type DetectHost, type DetectState } from './detect';
 import { Rng } from './rng';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
-import { beam, newNav, newSense, orderFix, stepSense, type SenseHost, type SenseState } from './sense';
+import { beam, newNav, newSense, orderFix, scopeWorld, stepSense, type SenseHost, type SenseState } from './sense';
 import { BAND, newRadio, stepRadio, type RadioState } from './radio';
 import { newAirWorld } from './air';
 import { defaultLandmarks, newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
@@ -25,9 +26,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 /** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6). */
-const MIGRATES = [4, 5, 6, 7, 8, 9];
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -67,7 +68,7 @@ export interface SimState {
   tick: number;
   scale: number;
   paused: boolean;
-  rng: { drill: number; hydro: number; boat: number; world: number; sense: number; air: number };
+  rng: { drill: number; hydro: number; boat: number; world: number; sense: number; air: number; spot: number };
   sched: Scheduled[];
   alarms: AlarmObs[];
   nextTest: number;
@@ -86,6 +87,10 @@ export interface SimState {
   sense: SenseState;
   /** The W/T room: receiver, the flotilla's broadcast, signals taken down (chunk 2.6). */
   radio: RadioState;
+  /** Being seen: the exposure meter, and who has seen the scope (chunk 3.2). */
+  detect: DetectState;
+  /** Scope MARKs logged so far. */
+  scopeMarks?: number;
 }
 
 export interface Snapshot {
@@ -101,6 +106,8 @@ export class Sim {
   private rngWorld: Rng;
   private rngSense: Rng;
   private rngAir: Rng;
+  private rngSpot: Rng;
+  private detectHost: DetectHost;
   private senseHost: SenseHost;
   private opHost: OperatorHost;
   private queue: Command[] = [];
@@ -120,6 +127,15 @@ export class Sim {
     this.rngWorld = new Rng(s.rng.world);
     this.rngSense = new Rng(s.rng.sense);
     this.rngAir = new Rng(s.rng.air);
+    this.rngSpot = new Rng(s.rng.spot);
+    this.detectHost = {
+      rng: this.rngSpot,
+      say: (from, text, delay) => (delay > 0 ? this.s.sched.push({ at: this.s.tick + Math.round(delay / TICK_S), fx: [{ kind: 'voice', from, text }] }) : this.effect({ kind: 'voice', from, text })),
+      heard: (id) => {
+        const tr = this.s.sense.src[`w${id}`];
+        return !!tr && this.s.world.n * TICK_S - tr.last < 5;
+      },
+    };
     this.senseHost = { rng: this.rngSense, effect: (f) => this.effect(f) };
     this.opHost = { rng: this.rngHydro, effect: (f) => this.effect(f), publish: (call) => obs.publish({ type: 'hydroCall', call }) };
     this.host = {
@@ -149,7 +165,7 @@ export class Sim {
       tick: 0,
       scale: 1,
       paused: false,
-      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0, sense: 0, air: (seed ^ 0x165667b1) >>> 0 || 11 },
+      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0, sense: 0, air: (seed ^ 0x165667b1) >>> 0 || 11, spot: (seed ^ 0x51ed27f3) >>> 0 || 13 },
       sched: [],
       alarms: Array.from({ length: 9 }, () => ({ level: 0 as AlarmLevel, report: QUIET })),
       nextTest: 0,
@@ -162,6 +178,7 @@ export class Sim {
       world: newWorld(worldRng, world),
       sense: null as unknown as SenseState,
       radio: newRadio(seed),
+      detect: newDetect(),
     };
     s.sense = newSense(senseRng, s.world);
     s.rng.sense = senseRng.s;
@@ -197,6 +214,8 @@ export class Sim {
     s.world.landmarks ??= defaultLandmarks(s.world.t0);
     if (s.sense.logK === undefined) Object.assign(s.sense, newNav(new Rng((s.seed ^ 0x2545f491) >>> 0 || 17), s.world));
     s.radio ??= newRadio(s.seed);
+    s.detect ??= newDetect();
+    s.rng.spot ??= (s.seed ^ 0x51ed27f3) >>> 0 || 13;
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -221,7 +240,7 @@ export class Sim {
 
   private present(a: number): void {
     boat.present(this.s.boat, obs.boat, this.prev, a);
-    drill.present(this.s.drill, this.prev, a, obs.boat);
+    drill.present(this.s.drill, this.prev, a, obs.boat, this.s.kind === 'scope', this.s.detect.e);
   }
 
   snapshot(): Snapshot {
@@ -231,6 +250,7 @@ export class Sim {
     this.s.rng.world = this.rngWorld.s;
     this.s.rng.sense = this.rngSense.s;
     this.s.rng.air = this.rngAir.s;
+    this.s.rng.spot = this.rngSpot.s;
     return { v: SAVE_VERSION, sim: structuredClone(this.s) };
   }
 
@@ -299,6 +319,14 @@ export class Sim {
     stepAir(this.s.world.air, this.s.world, this.rngAir, TICK_S, { depth: b.depth, speedKn: b.speed / 0.5144 }, (d) => this.bombs(d));
     stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S);
     stepRadio(this.s.radio, this.s.sense, this.senseHost, this.s.world, b, TICK_S);
+    // The attack periscope (chunk 3.2): what its lens sees, and what shows of us.
+    const d = this.s.drill;
+    const lens = lensAbove(d.height, b.depth);
+    const out = d.height >= SCOPE_SURFACE - 0.05 && !b.lost;
+    const up = out && awashAt(d.height, lens, d.clock) < 0.9;
+    scopeWorld(this.s.world, out ? lens : -1);
+    const drillLive = this.s.kind === 'scope' && (d.obs.phase === 'listen' || d.obs.phase === 'scope');
+    stepDetect(this.s.detect, this.detectHost, this.s.world, b, { lens: out ? lens : -1, up }, TICK_S, drillLive);
     if (this.s.world.n % 10 === 0) {
       const h = this.s.hydro;
       const drillKey = this.s.kind === 'scope' ? (this.s.sense.src.drill?.key ?? null) : null;
@@ -318,6 +346,7 @@ export class Sim {
     this.s.rng.world = this.rngWorld.s;
     this.s.rng.sense = this.rngSense.s;
     this.s.rng.air = this.rngAir.s;
+    this.s.rng.spot = this.rngSpot.s;
   }
 
   private keepPrev(): void {
@@ -416,9 +445,14 @@ export class Sim {
       case 'crashDive':
         this.crashDive();
         break;
-      case 'scopeMark':
-        if (this.s.kind === 'scope') drill.markRange(d, this.host, c.range, c.mast, c.cls);
+      case 'scopeMark': {
+        if (this.s.kind === 'scope') drill.markRange(d, this.host, c.range, c.mast, c.cls, c.aob);
+        // Logged for the chart and the attack table: bearing off the scope, range, angle on the bow.
+        const n = obs.nav;
+        this.s.scopeMarks = (this.s.scopeMarks ?? 0) + 1;
+        obs.publish({ type: 'scopeMark', mark: { n: this.s.scopeMarks, trained: Math.round(d.trained) % 360, range: Math.round(c.range / 10) * 10, aob: c.aob ?? null, cls: c.cls ?? null, at: n.t, heading: n.heading, dr: { x: Math.round(n.dr.x), y: Math.round(n.dr.y) } } });
         break;
+      }
       case 'debugAlarm': {
         const [st, l, text] = TEST_ALARMS[this.s.nextTest++ % TEST_ALARMS.length];
         this.effect({ kind: 'alarm', station: st, level: l, report: text });

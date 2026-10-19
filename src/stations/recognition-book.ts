@@ -432,7 +432,7 @@ export class RecognitionBook {
  * The scope card: the type the stadimeter works from, as the manual last opened at her.
  * `left` px are kept clear on the left (the tower puts the MANUAL key there).
  */
-export function cardPix(k: ShipClassKey, w: number, h: number, left = 0): Pix {
+export function cardPix(k: ShipClassKey, w: number, h: number, left = 0, aob?: number | null): Pix {
   const c = SHIP_CLASSES[k];
   const p = new Pix(w + 1, h + 1);
   p.rect(1, 1, w, h, C.black);
@@ -440,6 +440,11 @@ export function cardPix(k: ShipClassKey, w: number, h: number, left = 0): Pix {
   p.frame(0, 0, w, h, C.paper2);
   const x0 = left + 4;
   drawText(p, 'SCOPE CARD', x0, 3, C.ink1);
+  // In the tower the card is turned to how she lies: the angle on her bow as the captain judges it.
+  if (aob !== undefined) {
+    const t = aob === null ? 'AOB ?' : `AOB ${aob === 0 ? '' : aob > 0 ? 'S' : 'P'}${Math.abs(aob)}`;
+    drawText(p, t, w - 4 - measure(t), 3, aob === null ? C.ink1 : C.red1);
+  }
   p.rect(x0 - 1, 10, w - x0 - 3, 1, C.paper2);
   // Mast height, big and red: the figure the stadimeter turns into range.
   const m = String(c.mast);
@@ -448,11 +453,12 @@ export function cardPix(k: ShipClassKey, w: number, h: number, left = 0): Pix {
   drawText(p, 'M', w - 9, h - 9, C.red1);
   drawText(p, c.no, x0, h - 9, c.warship ? C.red1 : C.ink1);
   drawText(p, SHORT[k], x0 + measure(c.no) + 3, h - 9, C.ink0);
-  // Her outline over the name.
+  // Her outline over the name (foreshortened and turned when an angle is set).
   const sw = w - x0 - mw - 16;
   const sh = h - 26;
   const s = fit(k, sw, sh);
-  const sil = silhouette(k, s, 1, 1, C.ink0, C.ink1, null, false);
+  const kk = aob === undefined || aob === null ? 1 : Math.max(0.12, Math.abs(Math.sin((aob * Math.PI) / 180)));
+  const sil = silhouette(k, s, Math.round(kk * 40) / 40, aob !== undefined && aob !== null && aob < 0 ? -1 : 1, C.ink0, C.ink1, null, false);
   const by = h - 12;
   paste(p, sil, x0 + Math.floor((sw - sil.w) / 2), by - sil.h);
   p.rect(x0, by, sw, 1, C.paper2);

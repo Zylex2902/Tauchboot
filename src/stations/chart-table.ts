@@ -178,6 +178,7 @@ export class ChartTable extends StationScene {
       if (e.type === 'hydroCall' && e.call.bearing !== null) this.report({ src: 'SOUND', at: e.call.at, rel: e.call.bearing, heading: e.call.heading, dr: e.call.dr, group: e.call.group, what: e.call.log.slice(5) });
       if (e.type === 'lookout') this.report({ src: 'LOOKOUT', at: e.report.at, rel: e.report.bearing, heading: e.report.heading, dr: e.report.dr, what: e.report.what === 'aircraft' ? 'AIRCRAFT' : e.report.several ? `${e.report.what.toUpperCase()}, SEVERAL` : e.report.what.toUpperCase() });
       if (e.type === 'hydroMark') this.report({ src: 'MARK', at: e.mark.at, rel: e.mark.trained, heading: e.mark.heading, dr: e.mark.dr, what: `MARK ${e.mark.rpm} TURNS` });
+      if (e.type === 'scopeMark') this.report({ src: 'MARK', at: e.mark.at, rel: e.mark.trained, heading: e.mark.heading, dr: e.mark.dr, what: `SCOPE, RANGE ${e.mark.range}` });
     });
     onSettings(() => this.showSlip(true));
     // A signal's square from the radio room: pencilled in, and the chart goes there next time you look.

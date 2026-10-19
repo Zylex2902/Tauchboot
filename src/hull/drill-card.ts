@@ -117,6 +117,13 @@ function scopeReport(r: ScopeResult): TypedLine[] {
     row(L, 'TYPE', `${cls.name}, MAST ${cls.mast} M${ok ? '' : `  (SET ${r.ranged.mast} M)`}`, ok ? C.ink0 : C.red0);
     const pct = Math.round((Math.abs(r.ranged.estimate - r.ranged.truth) / r.ranged.truth) * 100);
     row(L, 'RANGE', `${r.ranged.estimate} M  TRUE ${r.ranged.truth}  OFF ${pct}%`, pct <= 10 ? C.ink0 : C.red0);
+    if (r.ranged.aobTruth !== undefined) {
+      const side = (a: number) => (a === 0 ? '0' : `${a > 0 ? 'S' : 'P'}${Math.abs(a)}`);
+      const t = r.ranged.aobTruth;
+      const a = r.ranged.aob ?? null;
+      const off = a === null ? null : Math.abs(((a - t + 540) % 360) - 180);
+      row(L, 'ANGLE', a === null ? `NOT SET  TRUE ${side(t)}` : `${side(a)}  TRUE ${side(t)}  OFF ${off}`, off !== null && off <= 20 ? C.ink0 : C.red0);
+    }
   } else row(L, 'TYPE', cls.name);
   row(L, 'SCOPE UP', `${r.scopeUp} S`);
   row(L, 'TIME', clock(r.seconds));

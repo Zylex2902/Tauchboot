@@ -792,3 +792,72 @@ function landSights(w: WorldState, out: BridgeSight[], key: (id: string) => stri
     });
   }
 }
+
+// ---------------------------------------------------------------- the attack periscope (chunk 3.2)
+
+/** A ship as the periscope's low lens can see her (internal; drill.present turns these into Sights). */
+export interface ScopeSeen {
+  id: number;
+  /** Relative bearing now and at the tick before (the glass draws in between). */
+  rel: number;
+  relPrev: number;
+  degPerM: number;
+  low: number;
+  aob: number;
+  cls: Hull['cls'];
+  haze: number;
+  smoke: number;
+  marks: BridgeSight['marks'];
+  wave: number;
+}
+
+let seen: ScopeSeen[] = [];
+/** What the glass would show this tick (empty while the lens is under). */
+export const scopeSeen = (): readonly ScopeSeen[] => seen;
+
+/**
+ * Every tick while the lens is out of the water: the ships the scope can see from its eye a
+ * metre or so above the sea. The horizon is close: masts first, the hull only well inside
+ * it; light, mist and haze as from the bridge.
+ */
+export function scopeWorld(w: WorldState, lens: number): void {
+  if (lens < -0.3) {
+    seen = [];
+    return;
+  }
+  const eye = Math.max(0.25, lens + 0.4);
+  const own = w.own.course;
+  const visL = lightVis(w);
+  const haze = (r: number) => clamp((r / Math.max(200, visL)) ** 1.6, 0, 1);
+  const before = new Map(seen.map((s) => [s.id, s.rel]));
+  const out: ScopeSeen[] = [];
+  for (const s of w.ships) {
+    if (s.gone) continue;
+    const dx = s.x - w.own.x;
+    const dy = s.y - w.own.y;
+    if (Math.abs(dx) > 30000 || Math.abs(dy) > 30000) continue;
+    const r = Math.hypot(dx, dy);
+    const hull = HULLS[s.hull];
+    const [smokeR, mastR, hullR] = sightRanges(w, hull);
+    const shapeR = Math.max(mastR, hullR);
+    if (r > Math.max(smokeR, shapeR)) continue;
+    const hid = Math.max(0, r / 3860 - Math.sqrt(eye)) ** 2;
+    if (hid >= hull.mast && !(r < smokeR && hull.smoke > hid)) continue;
+    const abs = Math.atan2(dx, dy) * R2D;
+    const rel = norm(abs - own);
+    out.push({
+      id: s.id,
+      rel,
+      relPrev: before.get(s.id) ?? rel,
+      degPerM: R2D / Math.max(50, r),
+      low: hid,
+      aob: wrap(abs + 180 - s.course),
+      cls: hull.cls,
+      haze: r > shapeR ? 1 : haze(r),
+      smoke: r < smokeR && hull.smoke > 0 ? clamp(1.2 - r / Math.max(1, smokeR), 0.15, 1) : 0,
+      marks: s.flag && r < Math.min(MARKS_RANGE, w.sky.light > 0.3 ? shapeR : 3500) ? s.flag : null,
+      wave: clamp(s.kn / hull.maxKn, 0, 1),
+    });
+  }
+  seen = out;
+}
