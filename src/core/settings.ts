@@ -11,10 +11,12 @@ export interface Settings {
   decodeAssist: boolean;
   /** Chunk 3.3: the first officer sets the attack table from each scope MARK (off: you crank the dials). */
   tableAssist: boolean;
+  /** Chunk 3.4: torpedoes fail as their era's did (depth keepers, pistols, gyros), or never. */
+  torpFailures: boolean;
 }
 
 const KEY = 'tiefgang.settings.v1';
-const defaults: Settings = { haptics: 'full', volume: 0.9, plotAssist: true, decodeAssist: false, tableAssist: true };
+const defaults: Settings = { haptics: 'full', volume: 0.9, plotAssist: true, decodeAssist: false, tableAssist: true, torpFailures: true };
 let current: Settings = { ...defaults };
 
 /** Load persisted settings. Preferences uses native storage on iOS/Android, localStorage on web. */

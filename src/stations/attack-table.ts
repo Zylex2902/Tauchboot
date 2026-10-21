@@ -9,7 +9,8 @@ import { TypedText } from '../core/typed';
 import type { AnyControl, ControlSpec, Crank, KitContext } from '../controls';
 import { NeedleMeter } from '../controls/meter';
 import { Odometer } from '../controls/odometer';
-import { band, keep, markedAt, obs, SHIP_CLASSES, trackFrom, twoMarks, type Band, type OwnFix, type ScopeMark, type Setting, type Source, type Sources, type Track } from '../obs';
+import { firing } from './firing';
+import { band, keep, markedAt, obs, send, SHIP_CLASSES, trackFrom, twoMarks, type Band, type OwnFix, type ScopeMark, type Setting, type Source, type Sources, type Track } from '../obs';
 import { art, Board, group, label, layout, type LayoutNode, type Rect } from './boards';
 import { paperDial, dialTicks } from './gauges';
 import { manual } from './manual';
@@ -28,7 +29,8 @@ export const ATTACK_TABLE: ControlSpec[] = [
   { kind: 'crank', id: 'tRange', x: 0, y: 0, radius: 24, mass: 0.9, friction: 2.4, ticksPerTurn: 20, resolution: 2000, min: 0.1, max: 12, initial: 1.5, style: 'spoked' },
   { kind: 'crank', id: 'tAob', x: 0, y: 0, radius: 24, mass: 0.7, friction: 2.8, ticksPerTurn: 72, resolution: 720, initial: 0.25, style: 'plain' },
   { kind: 'crank', id: 'tKn', x: 0, y: 0, radius: 24, mass: 0.8, friction: 2.6, ticksPerTurn: 20, resolution: 200, min: 0, max: 3, initial: 0.8, style: 'spoked' },
-  { kind: 'key', id: 'toScope', text: 'SCOPE', w: 52, h: 20, x: 0, y: 0 },
+  { kind: 'key', id: 'toScope', icon: 'left', text: 'SCOPE', w: 52, h: 20, x: 0, y: 0 },
+  { kind: 'key', id: 'toTubes', icon: 'right', text: 'TUBES', w: 52, h: 20, x: 0, y: 0 },
 ];
 
 /** The settings and their wheels | the gyro angle and its band. */
@@ -112,6 +114,7 @@ export class AttackTable {
   private hum: LoopHandle | null = null;
   private lastKept = 0;
   sol: Band | null = null;
+  private sentGyro: number | null = null;
 
   constructor(
     private ctx: KitContext,
@@ -235,8 +238,9 @@ export class AttackTable {
       0.5, 0, -72, y0, { spread: false },
     );
     this.lamp.position.set(0, 0);
-    this.board('gyro').pin(group([this.lamp, 0, 0], [label('IN RANGE', C.paper1), 14, 2]), 0, 1, 4, -18, { spread: false });
-    this.board('gyro').pin(this.ctl('toScope').root, 1, 1, -54, -22, { spread: false });
+    this.board('gyro').pin(group([this.lamp, 0, 0], [label('IN', C.paper1), 13, 0], [label('RANGE', C.paper1), 0, 11]), 0, 0, 4, 2, { spread: false });
+    this.board('gyro').pin(this.ctl('toScope').root, 0, 1, 4, -22, { spread: false });
+    this.board('gyro').pin(this.ctl('toTubes').root, 1, 1, -54, -22, { spread: false });
     this.showLamp(false);
 
     // A wheel turned by hand: the table takes it from there (the others kept where they stand).
@@ -371,7 +375,14 @@ export class AttackTable {
     this.side('aob', s.aob);
     for (const k of ['range', 'aob', 'kn'] as const) this.tag(k);
     const len = SHIP_CLASSES[manual.cls].length;
-    this.sol = this.track ? band(this.track, this.src, own, len) : null;
+    this.sol = this.track ? band(this.track, this.src, own, len, firing.kn, firing.range) : null;
+    firing.time = this.sol?.shot.time ?? null;
+    // The gyro goes down to the tubes (the follow-up motors set it on the fish as it changes).
+    const send1 = this.sol ? Math.round(this.sol.gyro * 10) / 10 : 0;
+    if (send1 !== this.sentGyro) {
+      this.sentGyro = send1;
+      send({ type: 'gyroSet', deg: send1 });
+    }
     const g = this.sol?.gyro ?? 0;
     this.needle.target = Math.max(0, Math.min(1, (g + 90) / 180));
     this.gyroDrum.set(Math.round(Math.abs(g)));

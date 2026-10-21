@@ -12,6 +12,7 @@ import { beam, newNav, newSense, orderFix, scopeWorld, stepSense, type SenseHost
 import { BAND, newRadio, stepRadio, type RadioState } from './radio';
 import { newAirWorld } from './air';
 import { defaultLandmarks, newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
+import { fire, newTorp, runningFish, scopeTorps, setFailures, setGyro, stepTorp, tubes, type TorpHost, type TorpWorld } from './torpedo';
 
 /**
  * The sim core (chunk 1.1): a fixed 10 Hz tick, seeded RNG, time compression with an
@@ -26,9 +27,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 11;
-/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10];
+export const SAVE_VERSION = 12;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4). */
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -68,7 +69,7 @@ export interface SimState {
   tick: number;
   scale: number;
   paused: boolean;
-  rng: { drill: number; hydro: number; boat: number; world: number; sense: number; air: number; spot: number };
+  rng: { drill: number; hydro: number; boat: number; world: number; sense: number; air: number; spot: number; torp: number };
   sched: Scheduled[];
   alarms: AlarmObs[];
   nextTest: number;
@@ -91,6 +92,8 @@ export interface SimState {
   detect: DetectState;
   /** Scope MARKs logged so far. */
   scopeMarks?: number;
+  /** The bow tubes, the fish running, what became of them (chunk 3.4). */
+  torp: TorpWorld;
 }
 
 export interface Snapshot {
@@ -107,6 +110,8 @@ export class Sim {
   private rngSense: Rng;
   private rngAir: Rng;
   private rngSpot: Rng;
+  private rngTorp: Rng;
+  private torpHost: TorpHost;
   private detectHost: DetectHost;
   private senseHost: SenseHost;
   private opHost: OperatorHost;
@@ -128,6 +133,11 @@ export class Sim {
     this.rngSense = new Rng(s.rng.sense);
     this.rngAir = new Rng(s.rng.air);
     this.rngSpot = new Rng(s.rng.spot);
+    this.rngTorp = new Rng(s.rng.torp);
+    this.torpHost = {
+      rng: this.rngTorp,
+      say: (from, text, delay) => (delay > 0 ? this.s.sched.push({ at: this.s.tick + Math.round(delay / TICK_S), fx: [{ kind: 'voice', from, text }] }) : this.effect({ kind: 'voice', from, text })),
+    };
     this.detectHost = {
       rng: this.rngSpot,
       say: (from, text, delay) => (delay > 0 ? this.s.sched.push({ at: this.s.tick + Math.round(delay / TICK_S), fx: [{ kind: 'voice', from, text }] }) : this.effect({ kind: 'voice', from, text })),
@@ -165,7 +175,7 @@ export class Sim {
       tick: 0,
       scale: 1,
       paused: false,
-      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0, sense: 0, air: (seed ^ 0x165667b1) >>> 0 || 11, spot: (seed ^ 0x51ed27f3) >>> 0 || 13 },
+      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0, sense: 0, air: (seed ^ 0x165667b1) >>> 0 || 11, spot: (seed ^ 0x51ed27f3) >>> 0 || 13, torp: (seed ^ 0x7f4a7c15) >>> 0 || 19 },
       sched: [],
       alarms: Array.from({ length: 9 }, () => ({ level: 0 as AlarmLevel, report: QUIET })),
       nextTest: 0,
@@ -179,6 +189,7 @@ export class Sim {
       sense: null as unknown as SenseState,
       radio: newRadio(seed),
       detect: newDetect(),
+      torp: newTorp(),
     };
     s.sense = newSense(senseRng, s.world);
     s.rng.sense = senseRng.s;
@@ -216,6 +227,8 @@ export class Sim {
     s.radio ??= newRadio(s.seed);
     s.detect ??= newDetect();
     s.rng.spot ??= (s.seed ^ 0x51ed27f3) >>> 0 || 13;
+    s.torp ??= newTorp();
+    s.rng.torp ??= (s.seed ^ 0x7f4a7c15) >>> 0 || 19;
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -251,6 +264,7 @@ export class Sim {
     this.s.rng.sense = this.rngSense.s;
     this.s.rng.air = this.rngAir.s;
     this.s.rng.spot = this.rngSpot.s;
+    this.s.rng.torp = this.rngTorp.s;
     return { v: SAVE_VERSION, sim: structuredClone(this.s) };
   }
 
@@ -317,7 +331,8 @@ export class Sim {
     this.helm(b.lost ? 0 : b.speed);
     stepWorld(this.s.world, this.rngWorld, TICK_S, b.lost ? 0 : b.speed);
     stepAir(this.s.world.air, this.s.world, this.rngAir, TICK_S, { depth: b.depth, speedKn: b.speed / 0.5144 }, (d) => this.bombs(d));
-    stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S);
+    stepTorp(this.s.torp, this.torpHost, this.s.world, b, this.s.detect, TICK_S);
+    stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S, runningFish(this.s.torp));
     stepRadio(this.s.radio, this.s.sense, this.senseHost, this.s.world, b, TICK_S);
     // The attack periscope (chunk 3.2): what its lens sees, and what shows of us.
     const d = this.s.drill;
@@ -325,12 +340,14 @@ export class Sim {
     const out = d.height >= SCOPE_SURFACE - 0.05 && !b.lost;
     const up = out && awashAt(d.height, lens, d.clock) < 0.9;
     scopeWorld(this.s.world, out ? lens : -1);
+    scopeTorps(this.s.torp, this.s.world, out);
     const drillLive = this.s.kind === 'scope' && (d.obs.phase === 'listen' || d.obs.phase === 'scope');
     stepDetect(this.s.detect, this.detectHost, this.s.world, b, { lens: out ? lens : -1, up }, TICK_S, drillLive);
     if (this.s.world.n % 10 === 0) {
       const h = this.s.hydro;
       const drillKey = this.s.kind === 'scope' ? (this.s.sense.src.drill?.key ?? null) : null;
-      h.trained = stepOperator(h.op, this.opHost, obs.sound.sources, this.s.world.n * TICK_S, drillKey, h.hand, h.trained);
+      // Our own fish are not contacts: the sound room knows what we fired.
+      h.trained = stepOperator(h.op, this.opHost, obs.sound.sources.filter((x) => !x.own), this.s.world.n * TICK_S, drillKey, h.hand, h.trained);
     }
     this.hydroTick(true);
     if (this.s.sched.length) {
@@ -347,6 +364,7 @@ export class Sim {
     this.s.rng.sense = this.rngSense.s;
     this.s.rng.air = this.rngAir.s;
     this.s.rng.spot = this.rngSpot.s;
+    this.s.rng.torp = this.rngTorp.s;
   }
 
   private keepPrev(): void {
@@ -453,6 +471,24 @@ export class Sim {
         obs.publish({ type: 'scopeMark', mark: { n: this.s.scopeMarks, trained: Math.round(d.trained) % 360, range: Math.round(c.range / 10) * 10, aob: c.aob ?? null, cls: c.cls ?? null, at: n.t, heading: n.heading, dr: { x: Math.round(n.dr.x), y: Math.round(n.dr.y) } } });
         break;
       }
+      case 'tubeSet':
+        tubes.set(this.s.torp, this.torpHost, c.tube, c.set);
+        break;
+      case 'tubeFlood':
+        tubes.flood(this.s.torp, this.torpHost, c.tube);
+        break;
+      case 'tubeDoor':
+        tubes.door(this.s.torp, this.torpHost, c.tube, c.open);
+        break;
+      case 'gyroSet':
+        setGyro(this.s.torp, c.deg);
+        break;
+      case 'fire':
+        if (!this.s.boat.lost) fire(this.s.torp, this.torpHost, this.s.world, this.s.boat, c.tubes, c.spread, TICK_S);
+        break;
+      case 'torpFailures':
+        setFailures(this.s.torp, c.on);
+        break;
       case 'debugAlarm': {
         const [st, l, text] = TEST_ALARMS[this.s.nextTest++ % TEST_ALARMS.length];
         this.effect({ kind: 'alarm', station: st, level: l, report: text });

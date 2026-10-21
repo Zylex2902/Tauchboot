@@ -109,6 +109,33 @@ export interface ShipState {
   flag?: NeutralKey;
   /** Chunk 3.2: an escort sent to where a periscope was seen: run there at full speed, then search round it. */
   hunt?: { x: number; y: number; until: number };
+  /** Chunk 3.4: she saw a torpedo's track: hard over to comb it, full speed, until then. */
+  evade?: { course: number; until: number };
+  /** Chunk 3.4: torpedoed. */
+  hit?: HitState;
+  /** Sunk (she is gone from the sea for good). */
+  sunk?: boolean;
+}
+
+/** A torpedoed ship: water in her, how she is taking it, when she goes. */
+export interface HitState {
+  hits: number;
+  /** Damage taken against what she can stand (>= 1: she sinks). */
+  flood: number;
+  /** World s she began to go down, and how long it takes (null: still afloat). */
+  sinkT0: number | null;
+  sinkDur: number;
+  /** World s she will founder if no more is done to her (badly hurt, slowly), or null. */
+  founderAt: number | null;
+  /** Down by the stern (+) or the head (-), from where the hits went in. */
+  trim: number;
+  /** World s of the last hit and where along her it struck (-1 stern .. 1 bow). */
+  lastT: number;
+  lastAlong: number;
+  /** Her speed now she is hurt (a cripple falls out of the convoy). */
+  maxKn: number;
+  /** Her going down has been heard (breaking-up noises). */
+  told?: boolean;
 }
 
 export interface GroupState {
@@ -379,8 +406,9 @@ export function stepGroup(g: GroupState, ships: Map<number, ShipState>, t: numbe
     g.cap = 99;
     for (const id of g.ships) {
       const s = ships.get(id)!;
-      if (s.role !== 'escort') g.cap = Math.min(g.cap, maxIn(HULLS[s.hull], waveH) - (g.kind === 'convoy' ? 1 : 0));
+      if (s.role !== 'escort' && !s.hit && !s.gone) g.cap = Math.min(g.cap, maxIn(HULLS[s.hull], waveH) - (g.kind === 'convoy' ? 1 : 0));
     }
+    if (g.cap === 99) g.cap = g.soa + 1; // all her merchants hurt: the escorts go on at the plan's pace
   }
   const cap = g.cap;
   const lag = (t - g.depart) * g.soa * KN - progress(g);
@@ -400,7 +428,15 @@ export function stepShip(s: ShipState, g: GroupState, t: number, dt: number, wav
   const h = HULLS[s.hull];
   const top = maxIn(h, waveH);
   if (s.hunt && t >= s.hunt.until) delete s.hunt;
-  if (steer && s.hunt) {
+  if (s.evade && t >= s.evade.until) delete s.evade;
+  if (s.hit) {
+    // Hurt: she holds her head as it was and makes what she can, out of the convoy.
+    if (steer) s.wantKn = Math.min(s.wantKn, s.hit.maxKn);
+    if (s.hit.sinkT0 !== null || s.hit.maxKn <= 0) s.wantKn = 0;
+  } else if (steer && s.evade) {
+    s.wantCourse = s.evade.course;
+    s.wantKn = top;
+  } else if (steer && s.hunt) {
     // Run in on the spot at full speed; there, search in a wide circle.
     const dx = s.hunt.x - s.x;
     const dy = s.hunt.y - s.y;
@@ -435,7 +471,8 @@ export function stepShip(s: ShipState, g: GroupState, t: number, dt: number, wav
   // The helmsman yaws her a degree or two either side; a heavy sea throws her about more.
   const yaw = (1 + 0.5 * waveH) * Math.sin((2 * Math.PI * t) / s.wander[2] + s.wander[3]);
   s.course = norm(s.course + clamp(wrap(s.wantCourse + yaw - s.course), -h.turn * dt, h.turn * dt));
-  s.kn += clamp(Math.min(s.wantKn, top) - s.kn, -h.accel * 2 * dt, h.accel * dt);
+  s.kn += clamp(Math.min(s.wantKn, top, s.hit ? s.hit.maxKn : 99) - s.kn, -h.accel * (s.hit ? 6 : 2) * dt, h.accel * dt);
+  if (s.kn < 0) s.kn = 0;
   s.x += Math.sin(s.course * D2R) * s.kn * KN * dt;
   s.y += Math.cos(s.course * D2R) * s.kn * KN * dt;
   s.rpm = s.kn * h.rpmPerKn * s.rpmK;

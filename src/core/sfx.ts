@@ -243,6 +243,13 @@ export const SFX = {
   book: 'book',
   /** Attack table (chunk 3.3): the computer's gear trains and follow-up motors turning (loop). */
   tdc: 'tdc',
+  /** Torpedoes (chunk 3.4). */
+  launch: 'launch',
+  tubeDoor: 'tubeDoor',
+  detonation: 'detonation',
+  clang: 'clang',
+  breakup: 'breakup',
+  watch: 'watch',
 } as const;
 
 /**
@@ -250,7 +257,7 @@ export const SFX = {
  * screw, in two voices each (timbre 0, 1), named `screw-<engine><blades>-<timbre>`.
  * Rate = rpm / SIG_RPM[sig].
  */
-export const SIG_RPM: Record<string, number> = { steam4: 80, steam3: 150, diesel3: 110, diesel4: 100, turbine3: 220 };
+export const SIG_RPM: Record<string, number> = { steam4: 80, steam3: 150, diesel3: 110, diesel4: 100, turbine3: 220, torpedo4: 1200 };
 export const sigSound = (sig: string, timbre: number) => `screw-${sig}-${timbre & 1}`;
 
 /** Turns per minute the screw loop is rendered at. */
@@ -326,6 +333,14 @@ export const SFX_NOTES: Record<string, string> = {
   page: 'a stiff manual page turned over and laid flat',
   book: 'a cloth-bound book laid on the desk, its boards meeting',
   tdc: 'the attack table running: small gear trains, a follow-up motor, cam followers ticking, loops',
+  launch: 'a torpedo leaving the tube: the air impulse kick, the boat shuddering, the slug of air venting back',
+  tubeDoor: 'a bow outer door swinging on its linkage forward, heard down the boat',
+  detonation: 'a torpedo going off against a ship, through the water: a heavy blow, a long rumble',
+  clang: 'a dud striking a hull: a dull metallic knock far off',
+  breakup: 'a ship going down: bulkheads bursting, boilers, steel tearing, long',
+  watch: 'the stopwatch crown pressed: a hard click and the escapement starting',
+  'screw-torpedo4-0': 'our own torpedo running: fast contra-rotating screws, a thin high whine, loops',
+  'screw-torpedo4-1': 'our own torpedo, second voice, loops',
   'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
   'screw-steam4-1': 'merchant, second voice (a nicked blade, a bigger hull), loops',
   'screw-steam3-0': 'corvette: lighter three-blade screw, fast steam, loops',
@@ -350,7 +365,8 @@ function screwSig(sr: number, engine: string, blades: number, timbre: number): F
   const lowK = timbre ? 0.85 : 1;
   const seed = 700 + (engine.length * 13 + blades) * 10 + timbre * 5;
   const heavy = engine === 'steam' && blades === 4;
-  const thin = engine === 'turbine';
+  const fish = engine === 'torpedo';
+  const thin = engine === 'turbine' || fish;
   // Blade chuffs: duller and longer for a big slow screw, short and bright for a fast thin one.
   const ms = heavy ? 40 : thin ? 9 : engine === 'diesel' ? 24 : 16;
   const lo = (heavy ? 45 : thin ? 140 : engine === 'diesel' ? 70 : 90) * lowK;
@@ -384,6 +400,14 @@ function screwSig(sr: number, engine: string, blades: number, timbre: number): F
     // Firing: six cylinders, four-stroke, three hard metallic ticks a revolution.
     for (let k = 0; k * (L / 3) < L + X; k++) add(out, contact(sr, 0.12, seed + 70 + (k % 3), 280 * lowK, 1600 * lowK, 0.015), 0.28, k * (L / 3) + L * 0.07, sr);
   }
+  if (fish) {
+    // A torpedo's screws: a hard fast buzz and the thin whine of its engine over it.
+    const exc = new Float32Array(out.length);
+    const rr = rng(seed + 85);
+    for (let i = 0; i < exc.length; i++) exc[i] = (rr() * 2 - 1) * 0.2;
+    const whine = Math.round(1700 * lowK * L) / L;
+    add(out, resonate(sr, exc, [[whine, 0.3, 1], [whine * 1.33, 0.2, 0.4], [Math.round(3100 * lowK * L) / L, 0.15, 0.3]]), 0.35);
+  }
   if (engine === 'turbine') {
     // Reduction gear whine: noise ringing narrow gear-mesh modes, a whole number of cycles per revolution so it loops.
     const exc = new Float32Array(out.length);
@@ -392,7 +416,7 @@ function screwSig(sr: number, engine: string, blades: number, timbre: number): F
     const mesh = Math.round(1000 * lowK * L) / L;
     add(out, resonate(sr, exc, [[mesh, 0.25, 1], [mesh * 1.5, 0.2, 0.5], [mesh * 2.02, 0.12, 0.25]]), 0.22);
   }
-  return loopable(lowpass(out, thin ? 2600 : 1600, sr), sr, X);
+  return loopable(lowpass(out, fish ? 4200 : thin ? 2600 : 1600, sr), sr, X);
 }
 
 /** A small hard contact (switch blade, pawl, type bar tip). */
@@ -1174,4 +1198,77 @@ export function defineSounds(): void {
     add(out, strike(sr, dur, 40, 463, 0.9, cluster(464, 50, 240, 8, 0.15)), 0.6, 0, sr); // the hull lifting
     return lowpass(highpass(out, 60, sr), 3000, sr);
   }, 0.7);
+
+  // ---------------------------------------------------------------- torpedoes (chunk 3.4)
+
+  d(SFX.launch, (sr) => {
+    // The impulse air: a heavy thump forward, the boat shuddering, the air slug roaring back inboard.
+    const dur = 2.8;
+    const out = strike(sr, dur, 45, 901, 0.92, cluster(902, 28, 140, 10, 0.35));
+    add(out, strike(sr, dur, 10, 903, 0.5, cluster(904, 180, 1400, 12, 0.12)), 0.3, 0.01, sr);
+    const air = rush(sr, dur, 905, 900, 2);
+    for (let i = 0; i < air.length; i++) {
+      const t = i / sr;
+      air[i] *= 2.2 * Math.min(1, Math.max(0, t - 0.08) / 0.12) * Math.exp(-Math.max(0, t - 0.2) / 0.7);
+    }
+    add(out, air, 0.8);
+    add(out, bubbleTrain(sr, dur, 906, 40, 120, 600), 0.12, 0.3, sr);
+    return grit(lowpass(out, 2200, sr), 2.5);
+  }, 1);
+
+  d(SFX.tubeDoor, (sr) => {
+    // Forward, through the boat: rods and links taking up, the door thudding home on its seat.
+    const dur = 1.3;
+    const out = scrape(sr, dur, 260, 911, (p) => (p < 0.7 ? 0.5 + 0.5 * Math.sin(p * 30) ** 2 : 0) * 0.6);
+    add(out, strike(sr, dur, 30, 912, 0.85, cluster(913, 50, 300, 10, 0.18)), 1, 0.72, sr);
+    add(out, contact(sr, dur, 914, 600, 2400, 0.03, 0.74), 0.25);
+    return lowpass(out, 1500, sr);
+  }, 0.7);
+
+  d(SFX.detonation, (sr) => {
+    // Far off through the water: one heavy blow, the hull answering, a long rolling rumble.
+    const dur = 4.5;
+    const out = strike(sr, dur, 90, 921, 0.97, cluster(922, 18, 90, 10, 0.9));
+    add(out, strike(sr, dur, 14, 923, 0.6, cluster(924, 140, 900, 12, 0.2)), 0.25, 0.04, sr);
+    const roll = scrape(sr, dur, 60, 925, (p) => Math.exp(-p * 2.2) * (0.6 + 0.4 * Math.sin(p * 17)));
+    add(out, lowpass(roll, 300, sr), 1.4, 0.08, sr);
+    return grit(lowpass(out, 900, sr), 2.2);
+  }, 1);
+
+  d(SFX.clang, (sr) => {
+    // A fish striking and not going off: a dull iron knock, far away, then nothing.
+    const dur = 1.4;
+    const out = strike(sr, dur, 6, 931, 0.55, cluster(932, 220, 1300, 10, 0.12));
+    add(out, strike(sr, dur, 20, 933, 0.9, cluster(934, 60, 240, 6, 0.2)), 0.6, 0, sr);
+    return lowpass(out, 1400, sr);
+  }, 0.7);
+
+  d(SFX.breakup, (sr) => {
+    // A ship going down: bulkheads bursting one after another, groaning steel, a boiler, the long rush.
+    const dur = 9;
+    const out = len(sr, dur);
+    const r = rng(941);
+    for (let k = 0; k < 14; k++) {
+      const at = 0.2 + r() * (dur - 2);
+      add(out, strike(sr, dur - at, 25 + r() * 60, 942 + k, 0.8, cluster(960 + k, 25, 260, 10, 0.3 + r() * 0.5)), 0.4 + r() * 0.6, at, sr);
+    }
+    for (let k = 0; k < 4; k++) {
+      // Plates tearing: a slow scrape through ringing steel.
+      const at = 0.5 + r() * (dur - 3);
+      const tear = resonate(sr, scrape(sr, 1.6, 140 + r() * 200, 980 + k, (p) => Math.sin(Math.PI * p)), cluster(990 + k, 90, 700, 10, 0.08));
+      add(out, tear, 0.5, at, sr);
+    }
+    add(out, rush(sr, dur, 999, 300, 2), 1.1, 1, sr);
+    for (let i = 0; i < out.length; i++) out[i] *= Math.min(1, (dur - i / sr) / 2.5);
+    return grit(lowpass(out, 1100, sr), 2);
+  }, 0.85);
+
+  d(SFX.watch, (sr) => {
+    // The stopwatch crown pressed home, and the balance starting.
+    const dur = 0.6;
+    const out = contact(sr, dur, 1001, 2200, 7000, 0.01);
+    add(out, contact(sr, dur, 1002, 3000, 8000, 0.006, 0.05), 0.5);
+    for (let k = 1; k < 4; k++) add(out, contact(sr, dur, 1003 + k, 3500, 9000, 0.004, 0.05 + k * 0.125), 0.18);
+    return highpass(out, 600, sr);
+  }, 0.5);
 }

@@ -185,7 +185,9 @@ export class ScopeView {
         this.world[row + x] = ScopeView.tone(GREY, tn, shift + x, by);
       }
     }
+    this.drawWakes(hy, shift, rows);
     for (const sight of s.sights) this.drawShip(sight, hy, shift, rows);
+    this.drawBlasts(hy, shift, rows);
     // Stadimeter: a second, amber image of her, lifted by the split angle. Bring its keel
     // up onto the real masthead and the drum reads the range.
     const lift = Math.min(MAXD, Math.round(this.stadDeg * ppd));
@@ -221,8 +223,9 @@ export class ScopeView {
     const k = Math.round(Math.abs(Math.sin((sight.aob * Math.PI) / 180)) * 40) / 40;
     const dir: 1 | -1 = sight.aob >= 0 ? 1 : -1;
     const { length, mast } = dims(sight.cls);
-    // Hull down: the low lens's horizon hides her lower part (metres -> pixels).
-    const hidPx = Math.round((sight.low ?? 0) * sc);
+    // Hull down: the low lens's horizon hides her lower part (metres -> pixels); a torpedoed
+    // ship settles until the sea closes over her masts.
+    const hidPx = Math.round(((sight.low ?? 0) + (sight.settle ?? 0) * (mast + 4)) * sc);
     const cx = Math.round(R + dx);
     const hazeLvl = sight.haze * 12;
     const t = this.t;
@@ -239,16 +242,20 @@ export class ScopeView {
     const sil = silhouette(sight.cls, sc, k, dir, C.iron0, C.iron1, ghost ? null : (sight.marks ?? null));
     const x0 = cx - sil.cx;
     const y0 = hy - sil.h + 1 - ghost + hidPx;
+    // Down by the stern (trim > 0) or the head: each column of her drops or lifts along her length.
+    const trimPx = Math.tan(Math.min(40, Math.abs(sight.trim ?? 0) * 14) * (Math.PI / 180)) * (length / 2) * sc * k * Math.sign(sight.trim ?? 0);
+    const tilt = (i: number) => (trimPx ? Math.round(-trimPx * ((i - sil.cx) / Math.max(1, sil.w / 2)) * dir) : 0);
     // Waves near her waterline: she bobs in and out of them.
     const occ = Math.max(1, Math.round(sc * 0.9));
     for (let j = 0; j < sil.h; j++) {
-      const y = y0 + j;
-      if (y < 0 || y >= rows) continue;
       const fromKeel = sil.h - 1 - j;
-      if (fromKeel < hidPx) continue; // below the horizon
       for (let i = 0; i < sil.w; i++) {
         const c = sil.data[j * sil.w + i];
         if (c < 0) continue;
+        const ti = tilt(i);
+        const y = y0 + j + ti;
+        if (y < 0 || y >= rows) continue;
+        if (fromKeel < hidPx + ti) continue; // below the horizon, or under the water
         const x = x0 + i;
         if (x < 0 || x >= VIEW_D) continue;
         if (ghost) {
@@ -285,6 +292,74 @@ export class ScopeView {
         if (x < 0 || x >= VIEW_D || wl < 0 || wl >= rows) continue;
         if (noise((shift + x) * 0.4, t * 1.5) < 0.45 + (q / Math.max(1, wake)) * 0.4) continue;
         this.world[wl * VIEW_D + x] = C.iron7;
+      }
+    }
+  }
+
+  /**
+   * Steam torpedoes' tracks: a line of white bubbles on the water, from near us out toward
+   * where she is running (only in some light; the bubbles show white against a grey sea).
+   */
+  private drawWakes(hy: number, shift: number, rows: number): void {
+    const wakes = obs.scope.wakes;
+    if (!wakes.length) return;
+    const lk = this.lightK();
+    if (lk < 0.35) return;
+    const ppd = this.ppd;
+    const EYE = 1.2;
+    const at = (b: number, r: number): [number, number] => [R + wrapDeg(b - obs.scope.trained) * ppd, hy + (Math.atan(EYE / Math.max(30, r)) * 180 / Math.PI) * ppd];
+    for (const pts of wakes) {
+      const n = pts.length / 2;
+      for (let k = 0; k + 1 < n; k++) {
+        const [xa, ya] = at(pts[2 * k], pts[2 * k + 1]);
+        const [xb, yb] = at(pts[2 * k + 2], pts[2 * k + 3]);
+        const steps = Math.max(1, Math.ceil(Math.max(Math.abs(xb - xa), Math.abs(yb - ya))));
+        const age = (n - 1 - k) / n; // older bubbles are fading
+        for (let q = 0; q <= steps; q++) {
+          const x = Math.round(xa + ((xb - xa) * q) / steps);
+          const y = Math.round(ya + ((yb - ya) * q) / steps);
+          if (x < 0 || x >= VIEW_D || y <= hy || y >= rows) continue;
+          if (BAYER4[y & 3][(shift + x) & 3] < age * 12 || noise((shift + x) * 0.6, y * 0.4 + this.t * 2) < 0.2) continue;
+          // A streak two pixels deep: even far off, a white line lying on the grey.
+          this.world[y * VIEW_D + x] = age < 0.4 ? C.white : C.iron8;
+          if (y + 1 < rows) this.world[(y + 1) * VIEW_D + x] = C.iron7;
+        }
+      }
+    }
+  }
+
+  /** Where a torpedo went off: a column of white water shooting up, hanging, falling back. */
+  private drawBlasts(hy: number, shift: number, rows: number): void {
+    const ppd = this.ppd;
+    const night = this.lightK() < 0.5;
+    for (const b of obs.scope.blasts) {
+      if (b.age > 9) continue;
+      const dx = wrapDeg(b.bearing - obs.scope.trained) * ppd;
+      if (Math.abs(dx) > R + 40) continue;
+      const sc = ((180 / Math.PI) / Math.max(50, b.range)) * ppd;
+      const cx = Math.round(R + dx);
+      const base = hy + Math.round((Math.atan(1.2 / Math.max(30, b.range)) * 180 / Math.PI) * ppd);
+      // Rises in under a second, hangs, collapses and spreads over a few more.
+      const rise = Math.min(1, b.age / 0.7);
+      const fall = b.age > 1.5 ? Math.min(1, (b.age - 1.5) / 6) : 0;
+      const tall = Math.max(2, Math.round((b.big ? 55 : 38) * sc * rise * (1 - 0.85 * fall)));
+      const half = Math.max(1, Math.round((b.big ? 9 : 6) * sc * (1 + 1.5 * fall)));
+      for (let j = 0; j < tall; j++) {
+        const y = base - j;
+        if (y < 0 || y >= rows) continue;
+        const w = Math.round(half * (0.55 + 0.45 * (j / tall)) * (1 + 0.3 * Math.sin(j * 0.7 + b.age * 3)));
+        for (let q = -w; q <= w; q++) {
+          const x = cx + q;
+          if (x < 0 || x >= VIEW_D) continue;
+          const edge = Math.abs(q) >= w - 1 || j >= tall - 2;
+          const thin = Math.abs(q) / (w + 1) + fall * 0.8;
+          if (BAYER4[y & 3][(shift + x) & 3] < thin * 12 || noise((shift + x) * 0.5, y * 0.5 - b.age * 4) < 0.18) continue;
+          // At night the flash shows fire inside the column for a moment. By day: white water,
+          // its shaded side and edges grey so it stands out against a pale sky.
+          const flash = night && b.age < 0.5 ? (j < tall * 0.6 ? C.amber1 : C.amber0) : null;
+          const shade = q < -w / 3 ? C.iron6 : j > tall * 0.8 ? C.iron7 : C.white;
+          this.world[y * VIEW_D + x] = flash ?? (edge ? C.iron5 : shade);
+        }
       }
     }
   }

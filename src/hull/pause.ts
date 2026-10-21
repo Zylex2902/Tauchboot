@@ -57,17 +57,18 @@ function cardArt(): Pix {
   const title = 'PATROL PAUSED';
   drawText(p, title, Math.floor((w - measure(title)) / 2), 8, C.amber1, C.black);
   p.rect(10, 18, w - 20, 1, C.brass0);
-  p.blit(HAPTIC_ICON, 12, 78);
-  drawText(p, 'HAPTICS', 26, 79, C.paper1);
-  p.blit(SPEAKER_ICON, 12, 120);
-  drawText(p, 'VOLUME', 26, 121, C.paper1);
-  drawIcon(p, 'ruler', 9, 157, C.iron7, C.iron4);
-  drawText(p, 'PLOTTING', 26, 157, C.paper1);
-  drawText(p, 'ASSIST', 26, 165, C.paper1);
-  drawIcon(p, 'zoom', 9, 183, C.iron7, C.iron4);
-  drawText(p, 'DECODING', 26, 183, C.paper1);
-  drawText(p, 'ATTACK', 26, 209, C.paper1);
-  drawText(p, 'TABLE', 26, 217, C.paper1);
+  p.blit(HAPTIC_ICON, 12, 72);
+  drawText(p, 'HAPTICS', 26, 73, C.paper1);
+  p.blit(SPEAKER_ICON, 12, 106);
+  drawText(p, 'VOLUME', 26, 107, C.paper1);
+  // Realism switches, two by two: a caption over each lever.
+  const cap = (t: string, cx: number, y: number) => drawText(p, t, cx - Math.floor(measure(t) / 2), y, C.paper1);
+  drawIcon(p, 'ruler', 18, 132, C.iron7, C.iron4);
+  cap('PLOTTING ASSIST', 74, 136);
+  drawIcon(p, 'zoom', 150, 132, C.iron7, C.iron4);
+  cap('DECODING', 198, 136);
+  cap('ATTACK TABLE', 70, 188);
+  cap('TORPEDO FAILURES', 194, 188);
   drawText(p, 'THE PATROL IS SAVED AS YOU PLAY.', 12, h - 12, C.iron6);
   return p;
 }
@@ -102,7 +103,7 @@ export class Pause {
     resume.onChange(() => this.set(false));
     const hap = createControl(
       {
-        kind: 'lever', id: 'set-haptics', x: 110, y: 76, axis: 'x', length: 100, detents: ['OFF', 'REDUCED', 'FULL'],
+        kind: 'lever', id: 'set-haptics', x: 110, y: 70, axis: 'x', length: 100, detents: ['OFF', 'REDUCED', 'FULL'],
         initial: Math.max(0, HAPTIC_LEVELS.indexOf(settings().haptics)), weight: 40, haptics: { lock: null },
       },
       ctx,
@@ -114,7 +115,7 @@ export class Pause {
     });
     const vol = createControl(
       {
-        kind: 'lever', id: 'set-volume', x: 110, y: 118, axis: 'x', length: 120, detents: ['OFF', '', '', '', 'MAX'],
+        kind: 'lever', id: 'set-volume', x: 110, y: 104, axis: 'x', length: 120, detents: ['OFF', '', '', '', 'MAX'],
         initial: Math.round(settings().volume * 4), weight: 40,
       },
       ctx,
@@ -126,23 +127,29 @@ export class Pause {
     });
     // Realism switch (chunk 2.5): the navigator rules bearing lines and works out tracks, or you do.
     const plot = createControl(
-      { kind: 'lever', id: 'set-plot', x: 110, y: 160, axis: 'x', length: 60, detents: ['OFF', 'ON'], initial: settings().plotAssist ? 1 : 0, weight: 40 },
+      { kind: 'lever', id: 'set-plot', x: 38, y: 158, axis: 'x', length: 64, detents: ['OFF', 'ON'], initial: settings().plotAssist ? 1 : 0, weight: 40 },
       ctx,
     );
     plot.onChange((i) => updateSettings({ plotAssist: i === 1 }));
     // Realism switch (chunk 2.6): signals worked out on the cipher disc by you, or by the radioman.
     const dec = createControl(
-      { kind: 'lever', id: 'set-decode', x: 110, y: 186, axis: 'x', length: 60, detents: ['YOU', 'RADIOMAN'], initial: settings().decodeAssist ? 1 : 0, weight: 40 },
+      { kind: 'lever', id: 'set-decode', x: 162, y: 158, axis: 'x', length: 64, detents: ['YOU', 'RADIOMAN'], initial: settings().decodeAssist ? 1 : 0, weight: 40 },
       ctx,
     );
     dec.onChange((i) => updateSettings({ decodeAssist: i === 1 }));
     // Realism switch (chunk 3.3): the attack table set from each scope MARK by the first officer, or by you.
     const tab = createControl(
-      { kind: 'lever', id: 'set-table', x: 110, y: 212, axis: 'x', length: 60, detents: ['YOU', 'OFFICER'], initial: settings().tableAssist ? 1 : 0, weight: 40 },
+      { kind: 'lever', id: 'set-table', x: 38, y: 210, axis: 'x', length: 64, detents: ['YOU', 'OFFICER'], initial: settings().tableAssist ? 1 : 0, weight: 40 },
       ctx,
     );
     tab.onChange((i) => updateSettings({ tableAssist: i === 1 }));
-    this.card.addChild(resume.root, hap.root, vol.root, plot.root, dec.root, tab.root);
+    // Realism switch (chunk 3.4): torpedoes that fail as their era's did, or never.
+    const torp = createControl(
+      { kind: 'lever', id: 'set-torp', x: 162, y: 210, axis: 'x', length: 64, detents: ['OFF', 'ON'], initial: settings().torpFailures ? 1 : 0, weight: 40 },
+      ctx,
+    );
+    torp.onChange((i) => updateSettings({ torpFailures: i === 1 }));
+    this.card.addChild(resume.root, hap.root, vol.root, plot.root, dec.root, tab.root, torp.root);
 
     this.tab.position.set(TAB.x, TAB.y);
     this.tab.addChild(new Sprite(tabArt().toTexture()));

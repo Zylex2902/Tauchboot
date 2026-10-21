@@ -135,6 +135,27 @@ export class BoatSound {
         mixer.play(SFX.bomb, 'machinery', { gain: 0.55, rate: 0.75 });
         haptic('impact');
         break;
+      case 'launch':
+        // A fish away: the kick forward, felt through the deck.
+        mixer.play(SFX.launch, 'machinery', { gain: 0.95 });
+        haptic('launch');
+        break;
+      case 'detonation':
+        mixer.play(SFX.detonation, 'machinery', { gain: 1 });
+        this.creak(0.35, 1.1);
+        haptic('impact');
+        break;
+      case 'detonationFar':
+        mixer.play(SFX.detonation, 'machinery', { gain: 0.55, rate: 0.8 });
+        haptic('tick');
+        break;
+      case 'clang':
+        mixer.play(SFX.clang, 'machinery', { gain: 0.5, rate: 0.9 + Math.random() * 0.15 });
+        haptic('tick');
+        break;
+      case 'breakup':
+        mixer.play(SFX.breakup, 'machinery', { gain: 0.75 });
+        break;
     }
   }
 }

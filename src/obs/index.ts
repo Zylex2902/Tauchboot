@@ -7,6 +7,7 @@ import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type N
 import type { NeutralKey, ShipClassKey } from './ships';
 import { freshBridge, type BridgeObs } from './bridge';
 import type { KeyDay } from './cipher';
+import { freshTubes, type TorpSet, type TubesObs } from './torpedo';
 
 /** Time compression steps, real time first. */
 export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
@@ -19,6 +20,7 @@ export { freshBridge, type BridgeObs, type BridgeSight, type BridgeView, type Ou
 export { ALPHA, dayLabel, decipher, encipher, groups, keyDay, MORSE, pad5, parsePlain, plainOf, shiftOf, type ConvoyReport, type KeyDay } from './cipher';
 export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
+export { BOW_TUBES, DEPTH_MAX, DEPTH_MIN, eraOf, freshTubes, NO_SET, RUN, TORPEDOES, turnOut, type Era, type Pistol, type TorpSet, type TorpSpec, type TorpType, type TubeObs, type TubesObs } from './torpedo';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
 export type AlarmLevel = 0 | 1 | 2;
@@ -138,6 +140,18 @@ export interface Sight {
   smoke?: number;
   /** Her bow wave and wake, 0..1 (how hard she is driving: a cue to her speed and her heading). */
   wave?: number;
+  /** Chunk 3.4: torpedoed: how far down she is (0..1) and her trim (+ down by the stern). */
+  settle?: number;
+  trim?: number;
+}
+
+/** Chunk 3.4: a column of water thrown up where a torpedo went off, as the glass sees it. */
+export interface Blast {
+  bearing: number;
+  range: number;
+  age: number;
+  /** Under a keel: a taller, wider column. */
+  big: boolean;
 }
 
 /** The captain's MARK at the scope (chunk 3.2): the bearing, the stadimeter's range, the angle on the bow as judged. */
@@ -168,6 +182,9 @@ export interface ScopeObs {
    * broaching bridge, the light and the sea). Own boat's state, not what the enemy knows.
    */
   exposure: number;
+  /** Chunk 3.4: steam torpedoes' bubble tracks: [relative bearing, range m, ...] from the oldest point to her. */
+  wakes: number[][];
+  blasts: Blast[];
 }
 
 export type DrillKind = 'scope' | 'dive' | 'air';
@@ -239,7 +256,8 @@ export interface DrillObs {
 
 /** Heard all over the boat. */
 /** alarm: the dive alarm bell, rung through the boat. bomb / bombFar: aircraft bombs close aboard or off. */
-export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar';
+/** launch: a torpedo leaving the tube. detonation(Far): a torpedo going off. clang: a dud striking. breakup: a ship going down. */
+export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup';
 
 export type ObsEvent =
   | { type: 'alarm'; station: number; obs: AlarmObs }
@@ -252,7 +270,9 @@ export type ObsEvent =
   | { type: 'timeScale'; scale: number; dropped: boolean }
   | { type: 'hull'; kind: HullSound }
   | { type: 'lookout'; report: LookoutReport }
-  | { type: 'signal'; signal: Signal };
+  | { type: 'signal'; signal: Signal }
+  /** Chunk 3.4: a fish has left its tube (the stopwatch starts on the first). */
+  | { type: 'torpedo'; kind: 'launch'; tube: number; at: number };
 
 export type Command =
   | { type: 'pause'; on: boolean }
@@ -283,7 +303,17 @@ export type Command =
   /** The sound room: report the bearings of everything you hear. */
   | { type: 'askBearings' }
   /** The W/T receiver's dial, turned by the captain (megacycles). */
-  | { type: 'radioTune'; mc: number };
+  | { type: 'radioTune'; mc: number }
+  /** Chunk 3.4: orders to the bow room: settings into a tube's fish, flood it, swing its outer door. */
+  | { type: 'tubeSet'; tube: number | number[] | 'all'; set: Partial<TorpSet> }
+  | { type: 'tubeFlood'; tube: number | number[] | 'all' }
+  | { type: 'tubeDoor'; tube: number | number[] | 'all'; open: boolean }
+  /** The gyro angle the attack table sends to the tubes, degrees off the bow. */
+  | { type: 'gyroSet'; deg: number }
+  /** Fire these tubes in turn, fanned across `spread` degrees. */
+  | { type: 'fire'; tubes: number[]; spread: number }
+  /** The realism switch: torpedoes fail as their era's do, or never. */
+  | { type: 'torpFailures'; on: boolean };
 
 type Listener = (e: ObsEvent) => void;
 
@@ -292,7 +322,9 @@ class Observation {
   paused = false;
   /** Updated every sim tick (polled by the UI, not evented). */
   readonly hydro: HydroObs = { trained: 0, level: 0, pan: 0, rpm: 0, voices: [], rest: 0, hand: false };
-  readonly scope: ScopeObs = { height: 0, awash: 1, trained: 0, high: false, swell: 0, sights: [], exposure: 0 };
+  readonly scope: ScopeObs = { height: 0, awash: 1, trained: 0, high: false, swell: 0, sights: [], exposure: 0, wakes: [], blasts: [] };
+  /** Chunk 3.4: the bow tubes as the firing panel shows them (every tick). */
+  readonly tubes: TubesObs = freshTubes();
   drill: DrillObs = { kind: 'scope', phase: 'brief', t: 0, reported: null, held: 0, result: null };
   /** Own boat's instruments, polled every frame. */
   readonly boat: BoatObs = freshBoatObs();

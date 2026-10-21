@@ -105,6 +105,8 @@ export interface OperatorHost {
 function classify(s: { sig: Signature; rpm: number }): { say: string; log: string } {
   const rpm = Math.round(s.rpm / 5) * 5;
   switch (s.sig.engine) {
+    case 'torpedo':
+      return { say: `HIGH-SPEED SCREWS, A TORPEDO`, log: 'TORPEDO' };
     case 'turbine':
       return { say: `TURBINES, FAST TWIN SCREWS, ${rpm} TURNS. A DESTROYER`, log: 'DESTROYER' };
     case 'diesel':
@@ -120,6 +122,7 @@ function classify(s: { sig: Signature; rpm: number }): { say: string; log: strin
 
 /** A faint sound is easily mistaken for her neighbour type. */
 function misheard(sig: Signature): Signature {
+  if (sig.engine === 'torpedo') return sig;
   if (sig.engine === 'steam' && sig.blades === 4) return { engine: 'diesel', blades: 3, shafts: 1 };
   if (sig.engine === 'diesel') return { engine: 'steam', blades: 4, shafts: 1 };
   if (sig.engine === 'turbine') return { engine: 'steam', blades: 3, shafts: 1 };

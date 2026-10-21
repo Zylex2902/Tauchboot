@@ -17,6 +17,7 @@ import { plate } from './panel-art';
 import { PPD_HIGH, PPD_LOW, ScopeView, VIEW_D } from './scope-view';
 import { manual, onCardClass } from './manual';
 import { ATTACK_TABLE, AttackTable } from './attack-table';
+import { FIRING_PANEL, FiringPanel } from './firing-panel';
 import { cardPix, RecognitionBook } from './recognition-book';
 import { StationScene } from './station';
 import { art, boardTexture, GAP, group, label, type LayoutNode } from './boards';
@@ -56,7 +57,12 @@ export const CONNING_TOWER: ControlSpec[] = [
   { kind: 'key', id: 'bookClose', icon: 'close', text: '', w: 26, h: 20, style: 'paper', x: 0, y: 0 },
   { kind: 'key', id: 'toTable', text: 'TABLE', w: 40, h: 18, x: 0, y: 0 },
   ...ATTACK_TABLE,
+  ...FIRING_PANEL,
 ];
+
+/** The tower's sides, left to right: the periscope, the attack table, the firing panel. */
+export const SIDES = ['scope', 'table', 'tubes'] as const;
+export type Side = (typeof SIDES)[number];
 
 /** The glass | pointing it | the hoist | ranging. */
 const LAYOUT: LayoutNode = {
@@ -122,10 +128,11 @@ export class ConningTower extends StationScene {
   private bookFrame = new Sprite(Texture.EMPTY);
   private book: RecognitionBook;
   bookOpen = false;
-  /** Chunk 3.3: the tower's two sides: the periscope, and the attack table. */
+  /** Chunk 3.3: the tower's sides: the periscope, the attack table (and 3.4: the firing panel). */
   private scopeSide = new Container();
   readonly table: AttackTable;
-  side: 'scope' | 'table' = 'scope';
+  readonly panel: FiringPanel;
+  side: Side = 'scope';
   private upSeconds = 0;
   private wasAwash = 1;
   private lastWash = 0;
@@ -252,6 +259,9 @@ export class ConningTower extends StationScene {
     this.root.addChildAt(this.scopeSide, 1);
     this.root.addChild(this.table.root);
     this.table.root.visible = false;
+    this.panel = new FiringPanel(ctx, (id) => this.controls.get(id)!);
+    this.root.addChild(this.panel.root);
+    this.panel.root.visible = false;
 
     const c = (id: string) => this.controls.get(id)!;
     this.hoist = c('raise') as Hold;
@@ -287,6 +297,9 @@ export class ConningTower extends StationScene {
     c('bookIndex').onChange(() => this.book.go('index'));
     c('toTable').onChange(() => this.setSide('table', true));
     c('toScope').onChange(() => this.setSide('scope', true));
+    c('toTubes').onChange(() => this.setSide('tubes', true));
+    c('tToTable').onChange(() => this.setSide('table', true));
+    c('tToScope').onChange(() => this.setSide('scope', true));
     c('markRange').onChange(() => send({ type: 'scopeMark', range: this.range(), mast: SHIP_CLASSES[manual.cls].mast, cls: manual.cls, aob: this.aob }));
     this.bindCard(card);
 
@@ -460,48 +473,61 @@ export class ConningTower extends StationScene {
   override setSize(w: number, h: number): void {
     super.setSize(w, h);
     this.layBook();
-    this.table.place({ x: GAP, y: HEADER_H, w: w - GAP * 2, h: h - HEADER_H - GAP });
-    this.scopeSide.x = this.side === 'scope' ? 0 : -w;
-    this.table.root.x = this.side === 'table' ? 0 : w;
+    const inner = { x: GAP, y: HEADER_H, w: w - GAP * 2, h: h - HEADER_H - GAP };
+    this.table.place(inner);
+    this.panel.place(inner);
+    this.lay(false);
   }
 
-  /** Over to the other side of the tower: the one slides away, the other in. */
-  setSide(side: 'scope' | 'table', animate: boolean): void {
+  private sideRoots(): Container[] {
+    return [this.scopeSide, this.table.root, this.panel.root];
+  }
+
+  /** Each side sits a screen's width from the next; the one shown at 0. */
+  private lay(animate: boolean, done?: () => void): void {
+    const i = SIDES.indexOf(this.side);
+    const roots = this.sideRoots();
+    roots.forEach((r, k) => {
+      const x = (k - i) * this.w;
+      if (!animate) r.x = x;
+      else void this.ctx.tw.to(r, { x }, { duration: 340, ease: ease.inOutCubic }).then(() => k === i && done?.());
+    });
+  }
+
+  /** Over to another side of the tower: the one slides away, the next in. */
+  setSide(side: Side, animate: boolean): void {
     if (side === this.side) return;
+    const from = SIDES.indexOf(this.side);
     this.side = side;
-    const w = this.w;
-    const toScope = side === 'scope';
-    this.scopeSide.visible = true;
-    this.table.root.visible = true;
-    const done = () => {
-      this.scopeSide.visible = toScope;
-      this.table.root.visible = !toScope;
-    };
+    const to = SIDES.indexOf(side);
+    const roots = this.sideRoots();
+    // Everything between the two slides past; only the one arrived at stays shown.
+    roots.forEach((r, k) => (r.visible = k >= Math.min(from, to) && k <= Math.max(from, to)));
+    const done = () => roots.forEach((r, k) => (r.visible = k === to));
     if (!animate) {
-      this.scopeSide.x = toScope ? 0 : -w;
-      this.table.root.x = toScope ? w : 0;
+      this.lay(false);
       done();
       return;
     }
     haptic('press');
     mixer.play(SFX.slide, 'ui', { gain: 0.45, rate: 0.85 });
     mixer.play(SFX.roll, 'ui', { gain: 0.3, rate: 0.75 });
-    void this.ctx.tw.to(this.scopeSide, { x: toScope ? 0 : -w }, { duration: 340, ease: ease.inOutCubic });
-    void this.ctx.tw.to(this.table.root, { x: toScope ? w : 0 }, { duration: 340, ease: ease.inOutCubic }).then(() => {
+    this.lay(true, () => {
       done();
       mixer.play(SFX.plate, 'ui', { gain: 0.3, rate: 0.95 });
     });
   }
 
   override saveExtra(): unknown {
-    return { book: this.bookOpen, aob: this.aob, side: this.side, table: this.table.saveExtra() };
+    return { book: this.bookOpen, aob: this.aob, side: this.side, table: this.table.saveExtra(), panel: this.panel.saveExtra() };
   }
 
   override restoreExtra(x: unknown): void {
-    const v = x as { book?: boolean; aob?: number | null; side?: 'scope' | 'table'; table?: unknown } | undefined;
+    const v = x as { book?: boolean; aob?: number | null; side?: Side; table?: unknown; panel?: unknown } | undefined;
     if (v?.book) this.openBook(true, false);
     if (v?.table) this.table.restoreExtra(v.table);
-    if (v?.side === 'table') this.setSide('table', false);
+    if (v?.panel) this.panel.restoreExtra(v.panel);
+    if (v?.side && v.side !== 'scope' && SIDES.includes(v.side)) this.setSide(v.side, false);
     if (typeof v?.aob === 'number') {
       this.aob = v.aob;
       this.cardFor = '';
@@ -522,6 +548,7 @@ export class ConningTower extends StationScene {
 
   override enter(): void {
     this.table.enter();
+    this.panel.enter();
     // Open to the tower: wind over the bridge and sea slapping the casing, faintly.
     mixer.whenRunning(() => {
       if (this.hum || this.root.parent === null) return;
@@ -531,6 +558,7 @@ export class ConningTower extends StationScene {
 
   override leave(): void {
     this.table.leave();
+    this.panel.leave();
     this.hum?.stop(400);
     this.hum = null;
   }
@@ -569,5 +597,6 @@ export class ConningTower extends StationScene {
     } else if (s.height < SCOPE_SURFACE - 0.02) this.wasAwash = 1;
     if (this.root.parent !== null && this.side === 'scope') this.view.render(dt);
     this.table.update(dt, this.root.parent !== null && this.side === 'table');
+    this.panel.update(dt, this.root.parent !== null && this.side === 'tubes');
   }
 }

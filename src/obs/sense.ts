@@ -15,7 +15,8 @@ export type Tone = 'heavy' | 'medium' | 'light';
  * What drives her screws, as it sounds: a merchant's slow reciprocating steam engine, a
  * coaster's diesel knock, an escort's geared turbines whining over fast thin blades.
  */
-export type Engine = 'steam' | 'diesel' | 'turbine';
+/** 'torpedo': a running fish's contra-rotating screws (chunk 3.4: our own, in the sound field). */
+export type Engine = 'steam' | 'diesel' | 'turbine' | 'torpedo';
 
 /** A ship's sound signature: the engine, blades per screw and how many screws. */
 export interface Signature {
@@ -51,6 +52,8 @@ export interface SoundSource {
   timbre: number;
   /** Cavitation hiss off her blades, 0..1 (she is driving her screws hard). */
   cav: number;
+  /** One of our own torpedoes (the sound room knows what we fired and does not report it as a contact). */
+  own?: boolean;
 }
 
 export interface SoundObs {

@@ -71,10 +71,13 @@ export class Lever extends Control<number> {
     // Track plate, slot and detent notches, labels beside it.
     const labelW = Math.max(0, ...s.detents.map((d) => measure(d)));
     this.labelW = labelW;
-    const pw = vertical ? SLOT + 18 + 6 + labelW : s.length + 24;
+    // Horizontal: room either side for the end labels to sit whole under their detents.
+    const padL = vertical ? 4 : Math.max(12, Math.ceil(measure(s.detents[0] ?? '') / 2) + 1);
+    const padR = vertical ? 0 : Math.max(12, Math.ceil(measure(s.detents[n - 1] ?? '') / 2) + 1);
+    const pw = vertical ? SLOT + 18 + 6 + labelW : s.length + padL + padR;
     const ph = vertical ? s.length + 24 : SLOT + 30;
     const p = new Pix(pw, ph);
-    const sx = vertical ? 4 : 12;
+    const sx = vertical ? 4 : padL;
     const sy = vertical ? 12 : 4;
     if (vertical) {
       p.rect(sx - 1, sy - 7, SLOT + 2, s.length + 14, C.iron4);

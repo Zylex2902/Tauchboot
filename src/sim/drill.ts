@@ -216,7 +216,7 @@ export const drill = {
     // Ships at sea (chunk 3.2), drawn between ticks.
     if (s.awash < 1)
       for (const q of scopeSeen())
-        sights.push({ bearing: norm(q.relPrev + wrap(q.rel - q.relPrev) * a), aob: q.aob, degPerM: q.degPerM, cls: q.cls, haze: q.haze, marks: q.marks, low: q.low, smoke: q.smoke, wave: q.wave });
+        sights.push({ bearing: norm(q.relPrev + wrap(q.rel - q.relPrev) * a), aob: q.aob, degPerM: q.degPerM, cls: q.cls, haze: q.haze, marks: q.marks, low: q.low, smoke: q.smoke, wave: q.wave, settle: q.settle, trim: q.trim });
     s.sights = sights;
   },
 };

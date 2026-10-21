@@ -41,6 +41,8 @@ export interface DetectState {
   warned: number;
   /** Ships that have seen the scope: id -> world seconds. */
   seen: Record<number, number>;
+  /** When the sound room last called screws speeding up (one call covers a convoy's reaction). */
+  said?: number;
 }
 
 export const newDetect = (): DetectState => ({ e: 0, v: 0, warned: 0, seen: {} });
@@ -102,12 +104,12 @@ export function stepDetect(ds: DetectState, h: DetectHost, w: WorldState, b: Boa
     const lam = e2 * reach * EYE[s.role] * HAZARD;
     if (h.rng.next() >= 1 - Math.exp(-lam)) continue;
     ds.seen[s.id] = t;
-    sighted(w, h, s.id, t);
+    sighted(ds, w, h, s.id, t);
   }
 }
 
 /** She saw the scope: the convoy turns away, an escort runs in on the spot. */
-function sighted(w: WorldState, h: DetectHost, id: number, t: number): void {
+function sighted(ds: DetectState, w: WorldState, h: DetectHost, id: number, t: number): void {
   const s = w.ships.find((q) => q.id === id)!;
   const g = w.groups.find((q) => q.id === s.group);
   const away = norm(Math.atan2(s.x - w.own.x, s.y - w.own.y) / D2R);
@@ -124,7 +126,8 @@ function sighted(w: WorldState, h: DetectHost, id: number, t: number): void {
   if (hunter) hunter.hunt = { x: w.own.x, y: w.own.y, until: t + 900 };
   // What the boat can know of it: screws speeding up, if the sound room has them.
   const loud = hunter && h.heard(hunter.id) ? hunter : h.heard(s.id) ? s : null;
-  if (loud) {
+  if (loud && t - (ds.said ?? -1e9) > 90) {
+    ds.said = t;
     const brg = Math.round(norm(Math.atan2(loud.x - w.own.x, loud.y - w.own.y) / D2R - w.own.course) / 5) * 5 % 360;
     const what = loud.role === 'escort' ? 'AN ESCORT, CLOSING' : 'SHE IS RUNNING';
     h.say('SOUND ROOM', `SCREWS SPEEDING UP, BEARING ${String(brg).padStart(3, '0')}. ${what}.`, 4 + h.rng.next() * 3);

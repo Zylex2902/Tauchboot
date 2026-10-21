@@ -11,14 +11,16 @@
  * -180..180, + = her starboard side to us (she heads to our right).
  */
 
+import { turnOut } from './torpedo';
+
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
 
-/** The torpedo the table is set for (3.4 brings the types): knots and greatest run, metres. */
-export const TORPEDO = { kn: 40, range: 7000 };
+/** The torpedo the table works for unless told otherwise (an S-type at its middle setting): knots and greatest run, metres. */
+export const TORPEDO = { kn: 40, range: 7500 };
 
 /** Own boat as the navigator has her: reckoned position and gyro heading, at watch time t (s). */
 export interface OwnFix {
@@ -84,18 +86,8 @@ export interface Shot {
   inRange: boolean;
 }
 
-/**
- * The gyro angle for a torpedo leaving the bow now and running straight at `kn` to meet her.
- * Null when it cannot catch her.
- */
-export function gyroFor(s: Setting, own: OwnFix, kn = TORPEDO.kn, maxRun = TORPEDO.range): Shot | null {
-  const brg = norm(s.rel + own.heading);
-  const px = Math.sin(brg * D2R) * s.range;
-  const py = Math.cos(brg * D2R) * s.range;
-  const course = norm(brg + 180 - s.aob);
-  const vx = Math.sin(course * D2R) * s.kn * KN;
-  const vy = Math.cos(course * D2R) * s.kn * KN;
-  const w = kn * KN;
+/** Intercept from the origin for a target at P moving at v, a fish at w: the earliest time, or null. */
+function meet(px: number, py: number, vx: number, vy: number, w: number): number | null {
   // |P + v t| = w t
   const a = vx * vx + vy * vy - w * w;
   const b = 2 * (px * vx + py * vy);
@@ -108,12 +100,48 @@ export function gyroFor(s: Setting, own: OwnFix, kn = TORPEDO.kn, maxRun = TORPE
     const roots = [(-b - Math.sqrt(disc)) / (2 * a), (-b + Math.sqrt(disc)) / (2 * a)].filter((r) => r > 0);
     t = roots.length ? Math.min(...roots) : NaN;
   }
-  if (!Number.isFinite(t) || t <= 0) return null;
-  const ax = px + vx * t;
-  const ay = py + vy * t;
-  const aim = norm(Math.atan2(ax, ay) * R2D);
+  return Number.isFinite(t) && t > 0 ? t : null;
+}
+
+/**
+ * The gyro angle for a torpedo leaving the bow now to meet her. With `turn` (the default) the
+ * fish runs the real path: out of the tube forward of the periscope, its reach, round its
+ * turning circle onto the gyro course, then straight; the table works the angle that puts
+ * that path on her (a few rounds of correction). Without it, a straight runner from the
+ * periscope. Null when it cannot catch her.
+ */
+export function gyroFor(s: Setting, own: OwnFix, kn = TORPEDO.kn, maxRun = TORPEDO.range, turn = true): Shot | null {
+  const brg = norm(s.rel + own.heading);
+  const px = Math.sin(brg * D2R) * s.range;
+  const py = Math.cos(brg * D2R) * s.range;
+  const course = norm(brg + 180 - s.aob);
+  const vx = Math.sin(course * D2R) * s.kn * KN;
+  const vy = Math.cos(course * D2R) * s.kn * KN;
+  const w = kn * KN;
+  const t0 = meet(px, py, vx, vy, w);
+  if (t0 === null) return null;
+  let aim = norm(Math.atan2(px + vx * t0, py + vy * t0) * R2D);
+  let time = t0;
+  let run = w * t0;
+  if (turn) {
+    const hx = Math.sin(own.heading * D2R);
+    const hy = Math.cos(own.heading * D2R);
+    for (let i = 0; i < 8; i++) {
+      const o = turnOut(wrap(aim - own.heading));
+      const ax = hx * o.f + hy * o.s;
+      const ay = hy * o.f - hx * o.s;
+      const ta = o.run / w;
+      const qx = px + vx * ta - ax;
+      const qy = py + vy * ta - ay;
+      const t = meet(qx, qy, vx, vy, w);
+      if (t === null) return null;
+      aim = norm(Math.atan2(qx + vx * t, qy + vy * t) * R2D);
+      time = ta + t;
+      run = o.run + w * t;
+    }
+  }
   const track = Math.abs(wrap(course - aim));
-  return { gyro: wrap(aim - own.heading), run: w * t, time: t, track, inRange: w * t <= maxRun };
+  return { gyro: wrap(aim - own.heading), run, time, track, inRange: run <= maxRun };
 }
 
 /** How each setting was got: a MARK at the scope, two MARKs a while apart, by hand, or not at all. */
@@ -154,8 +182,8 @@ export interface Band {
  * The band round the needle: the gyro worked through every corner of the settings'
  * uncertainties (one standard error either way), each laid down as it was set and kept to now.
  */
-export function band(tr: Track, src: Sources, own: OwnFix, length: number, kn = TORPEDO.kn): Band | null {
-  const shot = gyroFor(keep(tr, own), own, kn);
+export function band(tr: Track, src: Sources, own: OwnFix, length: number, kn = TORPEDO.kn, maxRun = TORPEDO.range): Band | null {
+  const shot = gyroFor(keep(tr, own), own, kn, maxRun);
   if (!shot) return null;
   const sg = sigmas(src, tr.range);
   const sA = sg.aob + AOB_AGE * Math.max(0, own.t - tr.t0);
@@ -165,7 +193,7 @@ export function band(tr: Track, src: Sources, own: OwnFix, length: number, kn = 
     for (const da of [-1, 1])
       for (const dk of [-1, 1]) {
         const t2: Track = { ...tr, range: Math.max(100, tr.range + dr * sg.range), aob: tr.aob + da * sA, kn: Math.max(0, tr.kn + dk * sg.kn) };
-        const g = gyroFor(keep(t2, own), own, kn);
+        const g = gyroFor(keep(t2, own), own, kn, maxRun);
         if (!g) continue;
         const d = wrap(g.gyro - shot.gyro);
         lo = Math.min(lo, d);

@@ -8,6 +8,7 @@ import { layerLoss, waterTemp } from './ocean';
 import { Rng } from './rng';
 import { beaufortOf, seaStateOf, waveHeight } from './weather';
 import type { WorldState } from './world';
+import { settled } from './torpedo';
 
 /**
  * The observation layer's sim side (chunk 2.2): turns the true world into what the boat
@@ -134,6 +135,7 @@ interface Emitter {
   kn: number;
   rpm: number;
   drill: boolean;
+  own?: boolean;
 }
 
 function gauss(r: Rng): number {
@@ -212,6 +214,37 @@ function emitters(w: WorldState, drill: DrillState | null, ownSpeed: number): Em
   return out;
 }
 
+/** A running torpedo as the sound field needs it (chunk 3.4). */
+export interface RunningFish {
+  id: number;
+  x: number;
+  y: number;
+  heading: number;
+  kn: number;
+  type: 'S' | 'E';
+}
+
+/** Our own fish: a high thin whine of fast screws (steam louder than electric). */
+const FISH_HULL: Record<'S' | 'E', Hull> = {
+  S: { ...HULLS.destroyer, sl: 118, tone: 'light', rpmPerKn: 30, sig: { engine: 'torpedo', blades: 4, shafts: 1 } },
+  E: { ...HULLS.destroyer, sl: 110, tone: 'light', rpmPerKn: 30, sig: { engine: 'torpedo', blades: 4, shafts: 1 } },
+};
+
+function fishEmitters(w: WorldState, fish: readonly RunningFish[], ownSpeed: number): Emitter[] {
+  const oc = w.own.course;
+  const ovx = Math.sin(oc * D2R) * ownSpeed;
+  const ovy = Math.cos(oc * D2R) * ownSpeed;
+  return fish.map((f) => {
+    const dx = f.x - w.own.x;
+    const dy = f.y - w.own.y;
+    const range = Math.hypot(dx, dy);
+    const late = range / 1500;
+    const lx = dx - (Math.sin(f.heading * D2R) * f.kn * KN - ovx) * late;
+    const ly = dy - (Math.cos(f.heading * D2R) * f.kn * KN - ovy) * late;
+    return { id: `t${f.id}`, rel: norm(Math.atan2(dx, dy) * R2D - oc), range, relLate: norm(Math.atan2(lx, ly) * R2D - oc), rangeLate: Math.hypot(lx, ly), hull: FISH_HULL[f.type], kn: f.kn, rpm: f.kn * 30, drill: false, own: true };
+  });
+}
+
 /** Transmission loss, dB: spherical to a kilometre, then cylindrical, plus absorption. */
 function tl(r: number): number {
   return r < 1000 ? 20 * Math.log10(Math.max(10, r)) : 60 + 10 * Math.log10(r / 1000) + 0.25 * (r / 1000);
@@ -277,6 +310,7 @@ function hear(se: SenseState, r: Rng, w: WorldState, b: BoatState, em: Emitter[]
       timbre: e.drill ? 0 : timbreOf(e.id),
       // Blades driven hard cavitate: a hiss that comes in with tip speed (a warship's fast small screws).
       cav: Math.round(smooth((e.rpm - 140) / 160) * 100) / 100,
+      ...(e.own ? { own: true } : {}),
     });
   }
   // Forget sounds long gone.
@@ -527,7 +561,7 @@ function judgeWeather(se: SenseState, r: Rng, w: WorldState, b: BoatState, t: nu
  * One tick of the senses. The navigator and the instruments run every tick; the
  * hydrophone field, lookouts, signals and the weather once a second.
  */
-export function stepSense(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, drill: DrillState | null, dt: number): void {
+export function stepSense(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, drill: DrillState | null, dt: number, fish: readonly RunningFish[] = []): void {
   const t = w.n * dt;
   const n = obs.nav;
   // Dead reckoning: gyro and log, both a little off, and no current.
@@ -555,7 +589,7 @@ export function stepSense(se: SenseState, h: SenseHost, w: WorldState, b: BoatSt
   const water = waterTemp(w.ocean, t, b.depth);
   se.thermo = se.thermo === 0 ? water : se.thermo + (water - se.thermo) / 45;
   const em = emitters(w, drill, b.speed);
-  hear(se, h.rng, w, b, em, t);
+  hear(se, h.rng, w, b, fish.length ? [...em, ...fishEmitters(w, fish, b.speed)] : em, t);
   look(se, h, w, b, em, t);
   signals(se, h, w, b, t);
   judgeWeather(se, h.rng, w, b, t);
@@ -809,6 +843,13 @@ export interface ScopeSeen {
   smoke: number;
   marks: BridgeSight['marks'];
   wave: number;
+  settle: number;
+  trim: number;
+}
+
+/** Chunk 3.4: a torpedoed ship settling by the head or the stern. */
+function sunkLook(s: WorldState['ships'][number], t: number): { settle: number; trim: number } {
+  return s.hit ? settled(s, t) : { settle: 0, trim: 0 };
 }
 
 let seen: ScopeSeen[] = [];
@@ -857,6 +898,7 @@ export function scopeWorld(w: WorldState, lens: number): void {
       smoke: r < smokeR && hull.smoke > 0 ? clamp(1.2 - r / Math.max(1, smokeR), 0.15, 1) : 0,
       marks: s.flag && r < Math.min(MARKS_RANGE, w.sky.light > 0.3 ? shapeR : 3500) ? s.flag : null,
       wave: clamp(s.kn / hull.maxKn, 0, 1),
+      ...sunkLook(s, w.n * 0.1),
     });
   }
   seen = out;
