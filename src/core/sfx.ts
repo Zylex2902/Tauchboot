@@ -241,6 +241,8 @@ export const SFX = {
   /** Recognition manual (chunk 3.1): a page turned over; the book laid open on wood or shut. */
   page: 'page',
   book: 'book',
+  /** Attack table (chunk 3.3): the computer's gear trains and follow-up motors turning (loop). */
+  tdc: 'tdc',
 } as const;
 
 /**
@@ -323,6 +325,7 @@ export const SFX_NOTES: Record<string, string> = {
   disc: 'the cipher disc turned one place',
   page: 'a stiff manual page turned over and laid flat',
   book: 'a cloth-bound book laid on the desk, its boards meeting',
+  tdc: 'the attack table running: small gear trains, a follow-up motor, cam followers ticking, loops',
   'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
   'screw-steam4-1': 'merchant, second voice (a nicked blade, a bigger hull), loops',
   'screw-steam3-0': 'corvette: lighter three-blade screw, fast steam, loops',
@@ -810,6 +813,17 @@ export function defineSounds(): void {
     add(out, scrape(sr, 0.2, 1800, 745, (p) => Math.exp(-p * 6)), 0.5, 0.01, sr);
     return lowpass(out, 4000, sr);
   }, 0.8);
+
+  d(SFX.tdc, (sr) => {
+    // Fine gear mesh (a dense dry whirr), a small motor's brush hiss, and cam followers ticking.
+    const dur = 2;
+    const out = scrape(sr, dur + 0.1, 5200, 751, () => 1);
+    for (let i = 0; i < out.length; i++) out[i] *= 0.25;
+    const mesh = resonate(sr, scrape(sr, dur + 0.1, 900, 752, () => 1), [[1460, 0.02, 1], [2190, 0.015, 0.5], [3650, 0.01, 0.3]]);
+    add(out, mesh, 0.35);
+    for (let k = 0; k < 9; k++) add(out, contact(sr, 0.06, 760 + (k % 3), 1800, 5200, 0.004), 0.22, k * (dur / 9) + 0.05, sr);
+    return loopable(lowpass(highpass(out, 400, sr), 7000, sr), sr, 0.08);
+  }, 0.35, true);
 
   d(SFX.tick, (sr) => add(contact(sr, 0.05, 691, 3000, 9000, 0.003), strike(sr, 0.05, 1, 692, 0.2, [[2900, 0.006, 1], [4700, 0.004, 0.5]]), 0.5), 0.35);
 

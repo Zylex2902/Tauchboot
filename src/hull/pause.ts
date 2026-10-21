@@ -14,7 +14,7 @@ import { createControl, hitPolicy, type KitContext } from '../controls';
 import { plate, STRIP_Y } from '../stations/panel-art';
 
 const HAPTIC_LEVELS: HapticLevel[] = ['off', 'reduced', 'full'];
-const CARD = { x: 110, y: 14, w: 260, h: 226 };
+const CARD = { x: 110, y: 10, w: 260, h: 252 };
 const TAB = { x: 458, y: STRIP_Y + 3, w: 20, h: 24 };
 const VEIL_STEPS = [0, 3, 6, 8]; // Bayer levels out of 16: the station stays visible behind
 
@@ -66,6 +66,8 @@ function cardArt(): Pix {
   drawText(p, 'ASSIST', 26, 165, C.paper1);
   drawIcon(p, 'zoom', 9, 183, C.iron7, C.iron4);
   drawText(p, 'DECODING', 26, 183, C.paper1);
+  drawText(p, 'ATTACK', 26, 209, C.paper1);
+  drawText(p, 'TABLE', 26, 217, C.paper1);
   drawText(p, 'THE PATROL IS SAVED AS YOU PLAY.', 12, h - 12, C.iron6);
   return p;
 }
@@ -134,7 +136,13 @@ export class Pause {
       ctx,
     );
     dec.onChange((i) => updateSettings({ decodeAssist: i === 1 }));
-    this.card.addChild(resume.root, hap.root, vol.root, plot.root, dec.root);
+    // Realism switch (chunk 3.3): the attack table set from each scope MARK by the first officer, or by you.
+    const tab = createControl(
+      { kind: 'lever', id: 'set-table', x: 110, y: 212, axis: 'x', length: 60, detents: ['YOU', 'OFFICER'], initial: settings().tableAssist ? 1 : 0, weight: 40 },
+      ctx,
+    );
+    tab.onChange((i) => updateSettings({ tableAssist: i === 1 }));
+    this.card.addChild(resume.root, hap.root, vol.root, plot.root, dec.root, tab.root);
 
     this.tab.position.set(TAB.x, TAB.y);
     this.tab.addChild(new Sprite(tabArt().toTexture()));

@@ -16,9 +16,11 @@ import { obs, SCOPE_SURFACE, send, SHIP_CLASSES } from '../obs';
 import { plate } from './panel-art';
 import { PPD_HIGH, PPD_LOW, ScopeView, VIEW_D } from './scope-view';
 import { manual, onCardClass } from './manual';
+import { ATTACK_TABLE, AttackTable } from './attack-table';
 import { cardPix, RecognitionBook } from './recognition-book';
 import { StationScene } from './station';
-import { art, boardTexture, group, label, type LayoutNode } from './boards';
+import { art, boardTexture, GAP, group, label, type LayoutNode } from './boards';
+import { HEADER_H } from './station';
 
 /** Periscope train: bearing degrees per turn of the wheel. */
 export const SCOPE_DEG_PER_TURN = 45;
@@ -52,6 +54,8 @@ export const CONNING_TOWER: ControlSpec[] = [
   { kind: 'key', id: 'book', icon: 'book', text: '', w: 26, h: 26, style: 'paper', x: 0, y: 0 },
   { kind: 'key', id: 'bookIndex', icon: 'left', text: 'INDEX', w: 48, h: 20, style: 'paper', x: 0, y: 0 },
   { kind: 'key', id: 'bookClose', icon: 'close', text: '', w: 26, h: 20, style: 'paper', x: 0, y: 0 },
+  { kind: 'key', id: 'toTable', text: 'TABLE', w: 40, h: 18, x: 0, y: 0 },
+  ...ATTACK_TABLE,
 ];
 
 /** The glass | pointing it | the hoist | ranging. */
@@ -118,6 +122,10 @@ export class ConningTower extends StationScene {
   private bookFrame = new Sprite(Texture.EMPTY);
   private book: RecognitionBook;
   bookOpen = false;
+  /** Chunk 3.3: the tower's two sides: the periscope, and the attack table. */
+  private scopeSide = new Container();
+  readonly table: AttackTable;
+  side: 'scope' | 'table' = 'scope';
   private upSeconds = 0;
   private wasAwash = 1;
   private lastWash = 0;
@@ -236,6 +244,15 @@ export class ConningTower extends StationScene {
     this.book.onChange((pg) => this.ctl('bookIndex').visible = pg !== 'index');
     this.ctl('bookIndex').visible = false;
 
+    // TABLE: over to the attack table (the eyepiece board's top right corner).
+    this.pinControl('scope', 'toTable', 1, 0, -40, -2);
+    this.table = new AttackTable(ctx, (id) => this.controls.get(id)!);
+    for (const b of this.boards.values()) this.scopeSide.addChild(b.root);
+    this.scopeSide.addChild(this.bookLayer);
+    this.root.addChildAt(this.scopeSide, 1);
+    this.root.addChild(this.table.root);
+    this.table.root.visible = false;
+
     const c = (id: string) => this.controls.get(id)!;
     this.hoist = c('raise') as Hold;
     this.hoist.onChange((v) => {
@@ -268,6 +285,8 @@ export class ConningTower extends StationScene {
     c('book').onChange(() => this.openBook(true));
     c('bookClose').onChange(() => this.openBook(false));
     c('bookIndex').onChange(() => this.book.go('index'));
+    c('toTable').onChange(() => this.setSide('table', true));
+    c('toScope').onChange(() => this.setSide('scope', true));
     c('markRange').onChange(() => send({ type: 'scopeMark', range: this.range(), mast: SHIP_CLASSES[manual.cls].mast, cls: manual.cls, aob: this.aob }));
     this.bindCard(card);
 
@@ -441,15 +460,48 @@ export class ConningTower extends StationScene {
   override setSize(w: number, h: number): void {
     super.setSize(w, h);
     this.layBook();
+    this.table.place({ x: GAP, y: HEADER_H, w: w - GAP * 2, h: h - HEADER_H - GAP });
+    this.scopeSide.x = this.side === 'scope' ? 0 : -w;
+    this.table.root.x = this.side === 'table' ? 0 : w;
+  }
+
+  /** Over to the other side of the tower: the one slides away, the other in. */
+  setSide(side: 'scope' | 'table', animate: boolean): void {
+    if (side === this.side) return;
+    this.side = side;
+    const w = this.w;
+    const toScope = side === 'scope';
+    this.scopeSide.visible = true;
+    this.table.root.visible = true;
+    const done = () => {
+      this.scopeSide.visible = toScope;
+      this.table.root.visible = !toScope;
+    };
+    if (!animate) {
+      this.scopeSide.x = toScope ? 0 : -w;
+      this.table.root.x = toScope ? w : 0;
+      done();
+      return;
+    }
+    haptic('press');
+    mixer.play(SFX.slide, 'ui', { gain: 0.45, rate: 0.85 });
+    mixer.play(SFX.roll, 'ui', { gain: 0.3, rate: 0.75 });
+    void this.ctx.tw.to(this.scopeSide, { x: toScope ? 0 : -w }, { duration: 340, ease: ease.inOutCubic });
+    void this.ctx.tw.to(this.table.root, { x: toScope ? w : 0 }, { duration: 340, ease: ease.inOutCubic }).then(() => {
+      done();
+      mixer.play(SFX.plate, 'ui', { gain: 0.3, rate: 0.95 });
+    });
   }
 
   override saveExtra(): unknown {
-    return { book: this.bookOpen, aob: this.aob };
+    return { book: this.bookOpen, aob: this.aob, side: this.side, table: this.table.saveExtra() };
   }
 
   override restoreExtra(x: unknown): void {
-    const v = x as { book?: boolean; aob?: number | null } | undefined;
+    const v = x as { book?: boolean; aob?: number | null; side?: 'scope' | 'table'; table?: unknown } | undefined;
     if (v?.book) this.openBook(true, false);
+    if (v?.table) this.table.restoreExtra(v.table);
+    if (v?.side === 'table') this.setSide('table', false);
     if (typeof v?.aob === 'number') {
       this.aob = v.aob;
       this.cardFor = '';
@@ -469,6 +521,7 @@ export class ConningTower extends StationScene {
   }
 
   override enter(): void {
+    this.table.enter();
     // Open to the tower: wind over the bridge and sea slapping the casing, faintly.
     mixer.whenRunning(() => {
       if (this.hum || this.root.parent === null) return;
@@ -477,6 +530,7 @@ export class ConningTower extends StationScene {
   }
 
   override leave(): void {
+    this.table.leave();
     this.hum?.stop(400);
     this.hum = null;
   }
@@ -513,6 +567,7 @@ export class ConningTower extends StationScene {
       mixer.play(SFX.wash, 'machinery', { gain: s.awash > this.wasAwash ? 0.5 : 0.35, rate: 0.9 + Math.random() * 0.2 });
       this.wasAwash = s.awash;
     } else if (s.height < SCOPE_SURFACE - 0.02) this.wasAwash = 1;
-    if (this.root.parent !== null) this.view.render(dt);
+    if (this.root.parent !== null && this.side === 'scope') this.view.render(dt);
+    this.table.update(dt, this.root.parent !== null && this.side === 'table');
   }
 }

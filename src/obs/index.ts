@@ -11,6 +11,7 @@ import type { KeyDay } from './cipher';
 /** Time compression steps, real time first. */
 export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
 
+export { band, gyroFor, keep, markedAt, sigmas, trackFrom, twoMarks, TORPEDO, type Band, type OwnFix, type Setting, type Shot, type Source, type Sources, type Track } from './attack';
 export { MANUAL_ORDER, MARKS_RANGE, MERCHANT_KEYS, NEUTRAL_KEYS, NEUTRALS, SHIP_CLASSES, SCOPE_FOV, SCOPE_SURFACE, type Neutral, type NeutralKey, type ShipClass, type ShipClassKey } from './ships';
 export { CHARGE_HOURS, DIESEL_RPM, ENDURANCE, NOISE, NOISE_DEPTHS, NOISE_DIESELS, POWER, RANGE, type DieselState, type Drive, type EngineSet, type PowerObs } from './power';
 export { BLIND, freshEnv, freshNav, freshSound, sigKey, type DayPhase, type Engine, type FixKind, type FixObs, type Landmark, type TrackPoint, type Signature, type EnvObs, type LookoutReport, type NavObs, type SightingKind, type Signal, type SoundObs, type SoundSource, type Tone } from './sense';
