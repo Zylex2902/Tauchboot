@@ -32,6 +32,34 @@ const WORD = ['NONE', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'];
 export const FLOOD_S = 12;
 export const DOOR_S = 6;
 export const SET_S = 5;
+/** Pumping a tube dry into the compensating tank, seconds. */
+export const DRAIN_S = 60;
+
+/**
+ * Reloading a bow tube (chunk 3.5): the torpedo gang's job, in steps. Fixed steps take their
+ * time whatever the gang (machinery, a pump) but need a man on them; work steps are
+ * man-seconds of heaving, done at hands^HAND_EXP (more hands help, but they get in each
+ * other's way round one fish on its chains). A full gang of six takes about ten minutes.
+ */
+export const GANG = 6;
+export const HAND_EXP = 0.85;
+export const RELOAD_STEPS: { key: string; name: string; fixed?: number; work?: number }[] = [
+  { key: 'door', name: 'SHUTTING THE OUTER DOOR', fixed: DOOR_S },
+  { key: 'drain', name: 'DRAINING THE TUBE', fixed: DRAIN_S },
+  { key: 'breech', name: 'OPENING THE BREECH', work: 60 },
+  { key: 'hoist', name: 'HOISTING FROM THE RACK', work: 1300 },
+  { key: 'ram', name: 'RAMMING HER HOME', work: 900 },
+  { key: 'secure', name: 'SHUTTING THE BREECH', work: 210 },
+];
+/** Spare fish in the bow room's racks and under its deck plates at the start of a patrol. */
+export const RACKS = { S: 4, E: 2 };
+
+/** Seconds a reload takes with this many hands, from the start (door shut and tube dry: from the breech). */
+export function reloadSeconds(hands: number, fromBreech = false): number {
+  if (hands <= 0) return Infinity;
+  const rate = hands ** HAND_EXP;
+  return RELOAD_STEPS.reduce((t, st, i) => (fromBreech && i < 2 ? t : t + (st.fixed ?? (st.work ?? 0) / rate)), 0);
+}
 /** Between fish in a fan, seconds. */
 export const FAN_GAP = 1.6;
 /** A magnetic pistol feels a hull this far below her keel, metres. */
@@ -116,8 +144,18 @@ export interface TubeState {
   set: TorpSet;
   flood: number;
   door: number;
-  busy: { kind: 'flood' | 'door' | 'set'; open?: boolean; set?: TorpSet; left: number; batch: number } | null;
+  busy: { kind: 'flood' | 'door' | 'set' | 'drain' | 'reload'; open?: boolean; set?: TorpSet; left: number; batch: number; hand?: boolean } | null;
   wear: number;
+}
+
+export interface ReloadJob {
+  tube: number;
+  type: TorpType;
+  step: number;
+  /** Seconds (fixed steps) or man-seconds (work steps) done on this step. */
+  done: number;
+  /** The fish is out of the rack (on the chains or in the tube). */
+  drawn: boolean;
 }
 
 export type Outcome = 'hit' | 'keel' | 'dud' | 'unarmed' | 'premature' | 'under' | 'end' | 'own';
@@ -194,6 +232,9 @@ export interface TorpWorld {
   log: LogEntry[];
   /** Orders to several tubes at once: reported together when the last is done. */
   batches: Record<number, { kind: string; ns: number[] }>;
+  /** Chunk 3.5: spare fish in the racks, and the torpedo gang's reloads. */
+  racks: { S: number; E: number };
+  reload: { queue: { tube: number; type: TorpType }[]; job: ReloadJob | null; hands: number; stalled: string | null };
 }
 
 export function newTorp(): TorpWorld {
@@ -211,6 +252,8 @@ export function newTorp(): TorpWorld {
     splashes: [],
     log: [],
     batches: {},
+    racks: { ...RACKS },
+    reload: { queue: [], job: null, hands: GANG, stalled: null },
   };
 }
 
@@ -242,7 +285,16 @@ const pistolWord = (p: Pistol) => (p === 'contact' ? 'CONTACT' : 'MAGNETIC');
 
 /** Orders to the bow room. */
 export const tubes = {
-  set(tw: TorpWorld, h: TorpHost, sel: Sel, patch: Partial<TorpSet>): void {
+  set(tw: TorpWorld, h: TorpHost, sel: Sel, patch: Partial<TorpSet>, hand = false): void {
+    if (hand) {
+      // At the tube: the spindles turned by hand, at once (an empty tube keeps the setting for its next fish).
+      for (const n of tubeList(sel)) {
+        const tu = tw.tubes[n - 1];
+        tu.set = fixSet(tu.type, { ...tu.set, ...patch });
+        if (tu.busy?.kind === 'set') tu.busy = null;
+      }
+      return;
+    }
     const ns = tubeList(sel).filter((n) => tw.tubes[n - 1].type);
     if (!ns.length) return h.say('BOW ROOM', `${names(tubeList(sel))} EMPTY, CAPTAIN.`, 0.8);
     const b = tw.batch++;
@@ -275,8 +327,19 @@ export const tubes = {
     tw.batches[b] = { kind: 'flood', ns };
     h.say('BOW ROOM', `FLOODING ${names(ns)}.`, 0.8);
   },
-  door(tw: TorpWorld, h: TorpHost, sel: Sel, open: boolean): void {
+  door(tw: TorpWorld, h: TorpHost, sel: Sel, open: boolean, hand = false): void {
     const all = tubeList(sel);
+    if (hand) {
+      // At the tube: the lever moves the door, if the interlock lets it (the sea outside must be in the tube).
+      for (const n of all) {
+        const tu = tw.tubes[n - 1];
+        if (tu.busy?.kind === 'reload') return h.say('TORPEDO MATE', `TUBE ${WORD[n]} IS BEING LOADED, SIR.`, 0.6);
+        if (open && tu.flood < 1) return h.say('TORPEDO MATE', `TUBE ${WORD[n]} IS NOT FLOODED. THE DOOR WILL NOT COME.`, 0.6);
+        if (tu.door === (open ? 1 : 0) && !tu.busy) continue;
+        tu.busy = { kind: 'door', open, left: DOOR_S * (open ? 1 - tu.door : tu.door), batch: 0, hand: true };
+      }
+      return;
+    }
     const want = open ? 1 : 0;
     const ns = all.filter((n) => {
       const tu = tw.tubes[n - 1];
@@ -291,6 +354,110 @@ export const tubes = {
     tw.batches[b] = { kind: open ? 'open' : 'shut', ns };
   },
 };
+
+/**
+ * The tube's flood and drain valve, worked by hand in the bow room: water in from the
+ * compensating tank, shut, or pumped back out. It runs until full, empty or shut again.
+ */
+export function valve(tw: TorpWorld, h: TorpHost, n: number, pos: 'flood' | 'shut' | 'drain'): void {
+  const tu = tw.tubes[n - 1];
+  if (!tu) return;
+  if (tu.busy?.kind === 'reload') return h.say('TORPEDO MATE', `TUBE ${WORD[n]} IS BEING LOADED, SIR.`, 0.6);
+  if (pos === 'shut') {
+    if (tu.busy?.kind === 'flood' || tu.busy?.kind === 'drain') tu.busy = null;
+    return;
+  }
+  if (tu.busy && tu.busy.kind !== 'flood' && tu.busy.kind !== 'drain') return h.say('TORPEDO MATE', `TUBE ${WORD[n]} IS BUSY, SIR.`, 0.6);
+  if (pos === 'drain' && tu.door > 0) return h.say('TORPEDO MATE', `OUTER DOOR OPEN ON TUBE ${WORD[n]}. SHUT IT BEFORE WE DRAIN.`, 0.6);
+  if (pos === 'flood' && tu.flood < 1) tu.busy = { kind: 'flood', left: FLOOD_S * (1 - tu.flood), batch: 0, hand: true };
+  if (pos === 'drain' && tu.flood > 0) tu.busy = { kind: 'drain', left: DRAIN_S * tu.flood, batch: 0, hand: true };
+}
+
+/** Reload orders: a tube to load with a fish from the racks, to the back of the gang's list. */
+export const reloads = {
+  order(tw: TorpWorld, h: TorpHost, sel: Sel, type: TorpType): void {
+    const R = tw.reload;
+    const ns = tubeList(sel).filter((n) => !tw.tubes[n - 1].type && !R.queue.some((q) => q.tube === n) && R.job?.tube !== n);
+    if (!ns.length) return h.say('TORPEDO MATE', `${names(tubeList(sel))} ${tubeList(sel).every((n) => tw.tubes[n - 1].type) ? 'LOADED ALREADY' : 'ON THE LIST ALREADY'}, SIR.`, 0.8);
+    const waiting = R.queue.filter((q) => q.type === type).length + (R.job && !R.job.drawn && R.job.type === type ? 1 : 0);
+    const left = tw.racks[type] - waiting;
+    if (left <= 0) return h.say('TORPEDO MATE', `NO ${type === 'S' ? 'STEAM' : 'ELECTRIC'} FISH LEFT IN THE RACKS, SIR.`, 0.8);
+    const take = ns.slice(0, left);
+    for (const n of take) R.queue.push({ tube: n, type });
+    h.say('TORPEDO MATE', `RELOAD ${names(take)}, ${type === 'S' ? 'STEAM' : 'ELECTRIC'}. AYE, SIR.${take.length < ns.length ? ' THAT IS THE LAST OF THEM.' : ''}`, 0.8);
+  },
+  cancel(tw: TorpWorld, h: TorpHost, n: number): void {
+    const R = tw.reload;
+    const before = R.queue.length;
+    R.queue = R.queue.filter((q) => q.tube !== n);
+    if (R.job?.tube === n) {
+      if (R.job.drawn) return h.say('TORPEDO MATE', `SHE IS ON THE CHAINS ALREADY, SIR. WE FINISH TUBE ${WORD[n]}.`, 0.6);
+      const tu = tw.tubes[n - 1];
+      if (tu.busy?.kind === 'reload') tu.busy = null;
+      R.job = null;
+    } else if (R.queue.length === before) return;
+    h.say('TORPEDO MATE', `TUBE ${WORD[n]} OFF THE LIST.`, 0.6);
+  },
+  hands(tw: TorpWorld, k: number): void {
+    tw.reload.hands = clamp(Math.round(k), 0, GANG);
+  },
+};
+
+/** One tick of the torpedo gang. */
+function stepReload(tw: TorpWorld, h: TorpHost, dt: number): void {
+  const R = tw.reload;
+  if (!R.job) {
+    const next = R.queue.shift();
+    if (!next) return;
+    const tu = tw.tubes[next.tube - 1];
+    if (tu.type || (tu.busy && tu.busy.kind !== 'flood' && tu.busy.kind !== 'drain')) {
+      // Not free yet (a fish in it, or its door moving): to the back of the list.
+      if (!tu.type) R.queue.push(next);
+      return;
+    }
+    R.job = { tube: next.tube, type: next.type, step: 0, done: 0, drawn: false };
+    tu.busy = { kind: 'reload', left: 0, batch: 0 };
+  }
+  const job = R.job;
+  const tu = tw.tubes[job.tube - 1];
+  const hands = R.hands;
+  // Steps already done by the state of the tube are passed over.
+  while (job.step < 2 && job.done === 0 && ((job.step === 0 && tu.door <= 0) || (job.step === 1 && tu.flood <= 0))) job.step++;
+  if (hands <= 0) {
+    if (R.stalled !== 'hands') h.say('TORPEDO MATE', `RELOAD OF TUBE ${WORD[job.tube]} STOPPED. NO HANDS ON IT.`, 0.4);
+    R.stalled = 'hands';
+    return;
+  }
+  const st = RELOAD_STEPS[job.step];
+  if (st.key === 'hoist' && !job.drawn) {
+    if (tw.racks[job.type] <= 0) {
+      h.say('TORPEDO MATE', `NO ${job.type === 'S' ? 'STEAM' : 'ELECTRIC'} FISH LEFT IN THE RACKS. TUBE ${WORD[job.tube]} STAYS EMPTY.`, 0.4);
+      tu.busy = null;
+      R.job = null;
+      return;
+    }
+    tw.racks[job.type]--;
+    job.drawn = true;
+  }
+  R.stalled = null;
+  job.done += st.fixed !== undefined ? dt : dt * hands ** HAND_EXP;
+  const need = st.fixed ?? st.work ?? 1;
+  const k = Math.min(1, job.done / need);
+  if (st.key === 'door') tu.door = Math.min(tu.door, 1 - k);
+  if (st.key === 'drain') tu.flood = Math.min(tu.flood, 1 - k);
+  if (job.done < need) return;
+  job.step++;
+  job.done = 0;
+  if (job.step < RELOAD_STEPS.length) return;
+  tu.type = job.type;
+  tu.set = fixSet(job.type, tu.set);
+  tu.wear = 0;
+  tu.flood = 0;
+  tu.door = 0;
+  tu.busy = null;
+  R.job = null;
+  h.say('TORPEDO MATE', `TUBE ${WORD[job.tube]} LOADED, ${job.type === 'S' ? 'STEAM' : 'ELECTRIC'}.`, 0.4);
+}
 
 /** Ready to fire: a fish in it, flooded, the door open. */
 export const ready = (tu: TubeState) => !!tu.type && tu.flood >= 1 && tu.door >= 1 && !tu.busy;
@@ -590,15 +757,19 @@ export function stepTorp(tw: TorpWorld, h: TorpHost, w: WorldState, b: BoatState
     const job = tu.busy;
     if (!job) continue;
     job.left -= dt;
+    if (job.kind === 'reload') continue; // the torpedo gang's (stepReload)
     if (job.kind === 'flood') tu.flood = Math.min(1, 1 - job.left / FLOOD_S);
+    if (job.kind === 'drain') tu.flood = Math.max(0, job.left / DRAIN_S);
     if (job.kind === 'door') tu.door = clamp(job.open ? 1 - job.left / DOOR_S : job.left / DOOR_S, 0, 1);
     if (job.left > 0) continue;
     if (job.kind === 'flood') tu.flood = 1;
+    if (job.kind === 'drain') tu.flood = 0;
     if (job.kind === 'door') tu.door = job.open ? 1 : 0;
     if (job.kind === 'set') tu.set = job.set!;
     tu.busy = null;
-    finished.add(job.batch);
+    if (!job.hand) finished.add(job.batch);
   }
+  stepReload(tw, h, dt);
   // The bow room reports an order when the last tube of it is done.
   for (const batch of finished) {
     const f = tw.batches[batch];
@@ -722,7 +893,28 @@ export function settled(s: ShipState, t: number): { settle: number; trim: number
 /** The tubes and the running fish as the firing panel and the glass show them. */
 function present(tw: TorpWorld, w: WorldState): void {
   const o = obs.tubes;
-  o.tubes = tw.tubes.map((tu) => ({ n: tu.n, type: tu.type, set: tu.set, flood: tu.flood, door: tu.door, busy: tu.busy?.kind ?? null }));
+  o.tubes = tw.tubes.map((tu) => ({ n: tu.n, type: tu.type, set: tu.set, flood: tu.flood, door: tu.door, busy: tu.busy?.kind ?? null, hand: !!tu.busy?.hand }));
+  o.racks = { ...tw.racks };
+  const R = tw.reload;
+  const j = R.job;
+  const rate = R.hands ** HAND_EXP;
+  let eta = Infinity;
+  if (j && R.hands > 0) {
+    eta = 0;
+    RELOAD_STEPS.forEach((st, i) => {
+      if (i < j.step) return;
+      const need = st.fixed ?? (st.work ?? 0);
+      const left = i === j.step ? need - j.done : need;
+      eta += st.fixed !== undefined ? left : left / rate;
+    });
+  }
+  o.reload = {
+    job: j ? { tube: j.tube, type: j.type, step: j.step, steps: RELOAD_STEPS.length, name: RELOAD_STEPS[j.step]?.name ?? '', k: Math.min(1, j.done / (RELOAD_STEPS[j.step]?.fixed ?? RELOAD_STEPS[j.step]?.work ?? 1)), drawn: j.drawn, eta } : null,
+    queue: R.queue.map((q) => ({ ...q })),
+    hands: R.hands,
+    gang: GANG,
+    stalled: R.stalled,
+  };
   o.gyro = tw.gyro;
   o.salvo = tw.salvo ? tw.salvo.tubes.length - tw.salvo.k : 0;
   o.failures = tw.failures;

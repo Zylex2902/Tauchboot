@@ -447,8 +447,8 @@ export class FiringPanel {
       l.door.texture = LAMPS.door[dr];
       if (visible && settled) mixer.play(SFX.lampOn, 'ui', { gain: 0.25 });
     }
-    const type = tu.type ? TORPEDOES[tu.type].short : 'EMPTY';
-    this.tag(this.typeTags[i], this.typeShown, i, type, tu.type ? C.paper1 : C.iron6, visible);
+    const type = tu.busy === 'reload' ? 'LOADING' : tu.type ? TORPEDOES[tu.type].short : 'EMPTY';
+    this.tag(this.typeTags[i], this.typeShown, i, type, tu.busy === 'reload' ? C.amber0 : tu.type ? C.paper1 : C.iron6, visible);
     const s = tu.set;
     const set = tu.type ? `${s.depth}M ${tu.type === 'S' ? TORPEDOES.S.speeds[s.speed].kn : 30} ${s.pistol === 'contact' ? 'C' : 'M'}` : '';
     this.tag(this.setTags[i], this.setShown, i, set, tu.busy === 'set' ? C.amber0 : C.iron7, visible);

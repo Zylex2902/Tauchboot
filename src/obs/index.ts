@@ -7,7 +7,7 @@ import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type N
 import type { NeutralKey, ShipClassKey } from './ships';
 import { freshBridge, type BridgeObs } from './bridge';
 import type { KeyDay } from './cipher';
-import { freshTubes, type TorpSet, type TubesObs } from './torpedo';
+import { freshTubes, type TorpSet, type TorpType, type TubesObs } from './torpedo';
 
 /** Time compression steps, real time first. */
 export const TIME_SCALES = [1, 8, 32, 128, 1024] as const;
@@ -20,7 +20,7 @@ export { freshBridge, type BridgeObs, type BridgeSight, type BridgeView, type Ou
 export { ALPHA, dayLabel, decipher, encipher, groups, keyDay, MORSE, pad5, parsePlain, plainOf, shiftOf, type ConvoyReport, type KeyDay } from './cipher';
 export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
-export { BOW_TUBES, DEPTH_MAX, DEPTH_MIN, eraOf, freshTubes, NO_SET, RUN, TORPEDOES, turnOut, type Era, type Pistol, type TorpSet, type TorpSpec, type TorpType, type TubeObs, type TubesObs } from './torpedo';
+export { BOW_TUBES, DEPTH_MAX, DEPTH_MIN, eraOf, freshTubes, NO_SET, RUN, TORPEDOES, turnOut, type Era, type Pistol, type TorpSet, type TorpSpec, type TorpType, type TubeObs, type TubesObs, type ReloadObs } from './torpedo';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
 export type AlarmLevel = 0 | 1 | 2;
@@ -305,9 +305,15 @@ export type Command =
   /** The W/T receiver's dial, turned by the captain (megacycles). */
   | { type: 'radioTune'; mc: number }
   /** Chunk 3.4: orders to the bow room: settings into a tube's fish, flood it, swing its outer door. */
-  | { type: 'tubeSet'; tube: number | number[] | 'all'; set: Partial<TorpSet> }
+  | { type: 'tubeSet'; tube: number | number[] | 'all'; set: Partial<TorpSet>; hand?: boolean }
   | { type: 'tubeFlood'; tube: number | number[] | 'all' }
-  | { type: 'tubeDoor'; tube: number | number[] | 'all'; open: boolean }
+  | { type: 'tubeDoor'; tube: number | number[] | 'all'; open: boolean; hand?: boolean }
+  /** Chunk 3.5, in the bow room by hand: a tube's flood and drain valve. */
+  | { type: 'tubeValve'; tube: number; pos: 'flood' | 'shut' | 'drain' }
+  /** The torpedo gang: reload tubes from the racks, take one off the list, how many hands on it. */
+  | { type: 'reload'; tube: number | number[] | 'all'; torp: TorpType }
+  | { type: 'reloadCancel'; tube: number }
+  | { type: 'reloadHands'; hands: number }
   /** The gyro angle the attack table sends to the tubes, degrees off the bow. */
   | { type: 'gyroSet'; deg: number }
   /** Fire these tubes in turn, fanned across `spread` degrees. */

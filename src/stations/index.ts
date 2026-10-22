@@ -5,6 +5,7 @@ import { EngineRoom } from './engine-room';
 import { STATIONS } from './panel-art';
 import { PlaceholderStation } from './placeholders';
 import { Bridge } from './bridge';
+import { BowRoom } from './bow-room';
 import { CaptainsDesk } from './captains-desk';
 import { ChartTable } from './chart-table';
 import { RadioRoom } from './radio-room';
@@ -15,6 +16,7 @@ export { StationScene } from './station';
 
 /** Station index (bow to stern) -> scene. Real stations replace placeholders chunk by chunk. */
 export function createStation(index: number, ctx: KitContext): StationScene {
+  if (index === 0) return new BowRoom(index, ctx);
   if (index === 1) return new CaptainsDesk(index, ctx);
   if (index === 2) return new RadioRoom(index, ctx);
   if (index === 3) return new ControlRoom(index, ctx);

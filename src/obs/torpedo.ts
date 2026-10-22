@@ -54,8 +54,21 @@ export interface TubeObs {
   flood: number;
   /** 0 shut .. 1 open (the outer door is moving between). */
   door: number;
-  /** An order to the bow room on its way (the crew are at it). */
-  busy: 'flood' | 'door' | 'set' | 'drain' | null;
+  /** Work on the tube under way: an order to the bow room, a valve or lever worked by hand, or the torpedo gang reloading it. */
+  busy: 'flood' | 'door' | 'set' | 'drain' | 'reload' | null;
+  /** The work is being done by hand at the tube (the captain in the bow room), not by order. */
+  hand?: boolean;
+}
+
+/** The torpedo gang's reload in progress (chunk 3.5). */
+export interface ReloadObs {
+  job: { tube: number; type: TorpType; step: number; steps: number; name: string; k: number; drawn: boolean; eta: number } | null;
+  queue: { tube: number; type: TorpType }[];
+  /** Hands on the job, of the gang. */
+  hands: number;
+  gang: number;
+  /** Why it has stopped ('hands': nobody on it), or null. */
+  stalled: string | null;
 }
 
 /** Everything on the firing panel's side of the boat: the four bow tubes, the gyro being sent, a fan in progress. */
@@ -70,6 +83,9 @@ export interface TubesObs {
   /** Fish fired this patrol, and still running as far as anyone knows. */
   fired: number;
   running: number;
+  /** Spare fish in the racks, and the reload under way. */
+  racks: { S: number; E: number };
+  reload: ReloadObs;
 }
 
 export const BOW_TUBES = 4;
@@ -81,6 +97,8 @@ export const freshTubes = (): TubesObs => ({
   failures: true,
   fired: 0,
   running: 0,
+  racks: { S: 4, E: 2 },
+  reload: { job: null, queue: [], hands: 6, gang: 6, stalled: null },
 });
 
 /** The war's phases, which decide how far the fish can be trusted. */

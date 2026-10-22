@@ -12,7 +12,7 @@ import { beam, newNav, newSense, orderFix, scopeWorld, stepSense, type SenseHost
 import { BAND, newRadio, stepRadio, type RadioState } from './radio';
 import { newAirWorld } from './air';
 import { defaultLandmarks, newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
-import { fire, newTorp, runningFish, scopeTorps, setFailures, setGyro, stepTorp, tubes, type TorpHost, type TorpWorld } from './torpedo';
+import { fire, GANG, newTorp, RACKS, reloads, valve, runningFish, scopeTorps, setFailures, setGyro, stepTorp, tubes, type TorpHost, type TorpWorld } from './torpedo';
 
 /**
  * The sim core (chunk 1.1): a fixed 10 Hz tick, seeded RNG, time compression with an
@@ -27,9 +27,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 12;
-/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11];
+export const SAVE_VERSION = 13;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5). */
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -228,6 +228,8 @@ export class Sim {
     s.detect ??= newDetect();
     s.rng.spot ??= (s.seed ^ 0x51ed27f3) >>> 0 || 13;
     s.torp ??= newTorp();
+    s.torp.racks ??= { ...RACKS };
+    s.torp.reload ??= { queue: [], job: null, hands: GANG, stalled: null };
     s.rng.torp ??= (s.seed ^ 0x7f4a7c15) >>> 0 || 19;
     s.v = SAVE_VERSION;
     return new Sim(s);
@@ -380,6 +382,16 @@ export class Sim {
         if (r) this.host.later(0.9, [{ kind: 'voice', from: r[0], text: r[1] }]);
         // The control room acts on depth orders: the chief takes the boat.
         if (c.order === 'alarm') this.crashDive();
+        if (c.order === 'reload') {
+          // Every empty tube: steam while the racks hold it, then electric.
+          const T = this.s.torp;
+          const free = T.tubes.filter((tu) => !tu.type && T.reload.job?.tube !== tu.n && !T.reload.queue.some((q) => q.tube === tu.n)).map((tu) => tu.n);
+          const steam = Math.max(0, T.racks.S - T.reload.queue.filter((q) => q.type === 'S').length - (T.reload.job && !T.reload.job.drawn && T.reload.job.type === 'S' ? 1 : 0));
+          const s1 = free.slice(0, steam);
+          if (s1.length) reloads.order(T, this.torpHost, s1, 'S');
+          if (free.length > s1.length) reloads.order(T, this.torpHost, free.slice(s1.length), 'E');
+          if (!free.length) this.torpHost.say('TORPEDO MATE', 'NOTHING TO RELOAD, SIR. ALL TUBES LOADED OR ON THE LIST.', 0.9);
+        }
         if (c.order === 'periscope') boat.order(this.s.boat, this.silentHost, BOAT.periscopeDepth);
         if (c.order === 'surface') boat.order(this.s.boat, this.silentHost, 0);
         if (c.order === 'silent' && this.s.boat.set.telegraph < 2) boat.set(this.s.boat, this.boatHost, { telegraph: 2 });
@@ -472,13 +484,25 @@ export class Sim {
         break;
       }
       case 'tubeSet':
-        tubes.set(this.s.torp, this.torpHost, c.tube, c.set);
+        tubes.set(this.s.torp, this.torpHost, c.tube, c.set, c.hand);
+        break;
+      case 'tubeValve':
+        valve(this.s.torp, this.torpHost, c.tube, c.pos);
+        break;
+      case 'reload':
+        reloads.order(this.s.torp, this.torpHost, c.tube, c.torp);
+        break;
+      case 'reloadCancel':
+        reloads.cancel(this.s.torp, this.torpHost, c.tube);
+        break;
+      case 'reloadHands':
+        reloads.hands(this.s.torp, c.hands);
         break;
       case 'tubeFlood':
         tubes.flood(this.s.torp, this.torpHost, c.tube);
         break;
       case 'tubeDoor':
-        tubes.door(this.s.torp, this.torpHost, c.tube, c.open);
+        tubes.door(this.s.torp, this.torpHost, c.tube, c.open, c.hand);
         break;
       case 'gyroSet':
         setGyro(this.s.torp, c.deg);

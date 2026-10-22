@@ -19,6 +19,7 @@ export const ORDERS: { id: string; text: [string, string]; say: string; station:
   { id: 'alarm', text: ['ALARM', 'DIVE'], say: 'ALARM! DIVE!', station: 3 },
   { id: 'surface', text: ['SURFACE', 'THE BOAT'], say: 'SURFACE THE BOAT.', station: 3 },
   { id: 'gun', text: ['MAN THE', 'GUN'], say: 'MAN THE GUN.', station: 6 },
+  { id: 'reload', text: ['RELOAD', 'TUBES'], say: 'RELOAD THE TUBES.', station: 0 },
 ];
 
 const BW = 300;
@@ -26,7 +27,7 @@ const BH = 112;
 const BX = 90;
 const TAB_W = 40;
 const TAB_H = 16;
-const KEY_W = 92;
+const KEY_W = 68;
 const KEY_H = 36;
 
 function boardArt(): Pix {
@@ -109,7 +110,7 @@ export class VoicePipe {
       const c = createControl(
         {
           kind: 'key', id: `order-${o.id}`, style: 'paper', w: KEY_W, h: KEY_H, text: o.text,
-          x: 8 + (i % 3) * (KEY_W + 6), y: 24 + Math.floor(i / 3) * (KEY_H + 8),
+          x: 8 + (i % 4) * (KEY_W + 5), y: 24 + Math.floor(i / 4) * (KEY_H + 8),
         },
         ctx,
       );
