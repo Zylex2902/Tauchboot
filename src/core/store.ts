@@ -34,3 +34,13 @@ export function clearStore(key: string): void {
     /* nothing to clear */
   }
 }
+
+/** Clear and wait until it is gone (before a reload that must start clean). */
+export async function clearStoreNow(key: string): Promise<void> {
+  try {
+    if (native) await Preferences.remove({ key });
+    else localStorage.removeItem(key);
+  } catch {
+    /* nothing to clear */
+  }
+}

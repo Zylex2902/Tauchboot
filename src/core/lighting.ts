@@ -174,7 +174,9 @@ export class Lighting {
       padding: 0,
       antialias: 'off',
     });
-    host.filters = [this.filter];
+    // Test pages may leave the lamp off (?test&nolight): software rendering is fill-bound.
+    const q = new URLSearchParams(location.search);
+    if (!(q.has('test') && q.has('nolight'))) host.filters = [this.filter];
     ticker.add((tk) => this.step(Math.min(100, tk.deltaMS) / 1000));
   }
 

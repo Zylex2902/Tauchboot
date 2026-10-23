@@ -187,6 +187,10 @@ export interface ConvoyPlan {
   slow: boolean;
   code: string;
   kind: 'convoy' | 'independent';
+  /** Chunk 3.6: the merchants' types by slot (the engagement's fixed convoy), instead of drawn. */
+  hulls?: HullKey[];
+  /** Chunk 3.6: the escorts' screening stations by index into the list (default: in order of priority). */
+  escortSlots?: number[];
 }
 
 /** Distance along the route at which the guide is now. */
@@ -309,6 +313,7 @@ export function makeGroup(r: Rng, id: number, plan: ConvoyPlan, now: number, nex
     const x = r.next();
     let hull: HullKey = plan.kind === 'independent' ? (x < 0.6 ? 'freighter' : 'tanker') : inner && x < 0.55 ? 'tanker' : plan.slow && !inner && x < 0.4 ? 'coaster' : 'freighter';
     hull = variant(hull, v.next(), plan.kind === 'independent');
+    if (plan.hulls?.[k]) hull = plan.hulls[k];
     const s = newShip(r, nextShipId++, hull, plan.kind === 'independent' ? 'independent' : 'merchant', id, k);
     // Independents are often neutrals, sailing alone with their colours painted on.
     if (plan.kind === 'independent' && v.next() < 0.4) s.flag = NEUTRAL_KEYS[Math.floor(v.next() * NEUTRAL_KEYS.length)];
@@ -317,7 +322,7 @@ export function makeGroup(r: Rng, id: number, plan: ConvoyPlan, now: number, nex
   for (let k = 0; k < plan.escorts; k++) {
     let hull: HullKey = k === 0 && plan.escorts >= 4 ? 'destroyer' : k % 3 === 2 ? 'sloop' : 'corvette';
     if (hull === 'corvette' && plan.slow && v.next() < 0.4) hull = 'trawler';
-    ships.push(newShip(r, nextShipId++, hull, 'escort', id, k));
+    ships.push(newShip(r, nextShipId++, hull, 'escort', id, plan.escortSlots?.[k] ?? k));
   }
   for (const s of ships) {
     const [x, y] = slotPos(g, s, now);
@@ -384,7 +389,8 @@ export function stepGroup(g: GroupState, ships: Map<number, ShipState>, t: numbe
   const legCourse = norm(Math.atan2(g.route[2 * i] - g.route[2 * i - 2], g.route[2 * i + 1] - g.route[2 * i - 1]) / D2R);
   const toWp = last ? legCourse : norm(Math.atan2(g.route[2 * i] - g.gx, g.route[2 * i + 1] - g.gy) / D2R);
   // Zigzag by day, straight at night.
-  const plan = ZIGZAG[g.zigzag];
+  // A plan of -1 (the engagement's convoy, chunk 3.6) keeps a straight course.
+  const plan = ZIGZAG[g.zigzag] ?? [[0, 60]];
   if (g.zzOn !== daylight) {
     g.zzOn = daylight;
     g.zzStep = 0;

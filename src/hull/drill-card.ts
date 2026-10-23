@@ -9,7 +9,7 @@ import { SFX } from '../core/sfx';
 import { TypedText, wrap, type TypedLine } from '../core/typed';
 import { ease, type Tweens } from '../core/tween';
 import { createControl, type AnyControl, type KitContext } from '../controls';
-import { BOAT, DIVE_DRILL, obs, send, SHIP_CLASSES, type AirResult, type DiveResult, type DrillKind, type DrillObs, type DrillResult, type ScopeResult } from '../obs';
+import { BOAT, DIVE_DRILL, obs, send, SHIP_CLASSES, type AirResult, type AttackResult, type DiveResult, type DrillKind, type DrillObs, type DrillResult, type ScopeResult } from '../obs';
 
 const CARD = { x: 84, y: 22, w: 312, h: 196 };
 const TEXT_W = CARD.w - 24;
@@ -64,6 +64,51 @@ function airOrders(): TypedLine[] {
   return L;
 }
 
+function attackOrders(): TypedLine[] {
+  const { L, para, gap } = paras();
+  para('CONVOY WN 37, FOUR MERCHANTS AND ONE ESCORT, IS STEAMING EAST ACROSS OUR BOW. WE LIE AT PERISCOPE DEPTH, MOTORS STOPPED. FORENOON, CALM SEA, GOOD LIGHT.');
+  gap();
+  para('YOUR ORDERS: SINK ONE OF THEM.', C.ink1);
+  gap();
+  para('THE FIRST OFFICER TALKS YOU THROUGH IT ON THE SLIP AT THE TOP. SKIP IT TO GO YOUR OWN WAY.');
+  gap();
+  para('SHORT LOOKS. IF THEY SEE THE SCOPE, THE CONVOY TURNS AWAY.', C.red0);
+  return L;
+}
+
+const wallClock = (s: number) => `${Math.floor(s / 60)} MIN ${String(Math.round(s) % 60).padStart(2, '0')} S`;
+
+function attackReport(r: AttackResult): TypedLine[] {
+  const L: TypedLine[] = [];
+  const head: Record<AttackResult['outcome'], string> = {
+    sunk: r.sunk.length > 1 ? `${r.sunk.length} SHIPS SUNK.` : 'SHIP SUNK. SHE IS GOING DOWN.',
+    damaged: 'HIT, BUT STILL AFLOAT. THE CONVOY IS PAST.',
+    escaped: 'THE CONVOY GOT PAST UNHARMED.',
+    crushed: 'THE HULL GAVE WAY.',
+  };
+  L.push({ text: head[r.outcome], color: r.outcome === 'sunk' ? C.ink1 : C.red0 });
+  L.push({ text: '', color: C.ink0 });
+  const tons = r.sunk.reduce((a, q) => a + q.tons, 0);
+  for (const q of r.sunk.slice(0, 2)) row(L, 'SUNK', `${SHIP_CLASSES[q.cls].name}, ${q.tons} GRT`);
+  if (r.sunk.length > 2) row(L, '', `AND ${r.sunk.length - 2} MORE, ${tons} GRT IN ALL`);
+  if (r.hurt) row(L, 'DAMAGED', `${r.hurt} SHIP${r.hurt > 1 ? 'S' : ''} STILL AFLOAT`, C.red0);
+  row(L, 'FIRED', r.fired ? `${r.fired}: ${r.hits} HIT${r.hits === 1 ? '' : 'S'}${r.duds ? `, ${r.duds} DUD${r.duds > 1 ? 'S' : ''}` : ''}${r.faults ? `, ${r.faults} RAN BAD` : ''}` : 'NOTHING');
+  row(L, 'SCOPE UP', `${r.scopeUp} S${r.seen ? '  (SEEN)' : ''}`, r.seen ? C.red0 : C.ink0);
+  row(L, 'SEA TIME', clock(r.seconds));
+  row(L, 'CLOCKED', r.firstSunkWall !== null ? `${wallClock(r.firstSunkWall)} TO THE FIRST SINKING` : wallClock(r.wall));
+  L.push({ text: '', color: C.ink0 });
+  const v =
+    r.outcome === 'crushed' ? 'VERDICT: LOST WITH ALL HANDS.'
+    : r.outcome === 'sunk' && !r.seen && r.fired > 0 && r.hits >= r.fired - 1 ? 'VERDICT: GOOD. CLEAN, QUIET AND HOME.'
+    : r.outcome === 'sunk' ? 'VERDICT: A SINKING. THE NEXT ONE CLEANER.'
+    : r.seen ? 'VERDICT: THEY SAW US. SHORTER LOOKS.'
+    : r.fired === 0 ? 'VERDICT: NOTHING FIRED. GET THE TUBES READY SOONER.'
+    : r.hits === 0 ? 'VERDICT: ALL MISSED. CHECK THE RANGE AND HER ANGLE.'
+    : 'VERDICT: FINISH A STOPPED SHIP WITH ANOTHER FISH.';
+  L.push({ text: v, color: C.ink1 });
+  return L;
+}
+
 function airReport(r: AirResult): TypedLine[] {
   const L: TypedLine[] = [];
   const head: Record<AirResult['outcome'], string> = {
@@ -95,7 +140,7 @@ function airReport(r: AirResult): TypedLine[] {
 const row = (L: TypedLine[], k: string, v: string, c: ColorIndex = C.ink0) => L.push({ text: `${k.padEnd(9, ' ')}${v}`, color: c });
 
 function report(r: DrillResult): TypedLine[] {
-  return r.kind === 'dive' ? diveReport(r) : r.kind === 'air' ? airReport(r) : scopeReport(r);
+  return r.kind === 'dive' ? diveReport(r) : r.kind === 'air' ? airReport(r) : r.kind === 'attack' ? attackReport(r) : scopeReport(r);
 }
 
 function scopeReport(r: ScopeResult): TypedLine[] {
@@ -178,10 +223,13 @@ function diveVerdict(r: DiveResult): string {
   return 'VERDICT: GOOD. THE CHIEF WOULD SIGN FOR THAT.';
 }
 
-const DRILL_NAME: Record<DrillKind, string> = { scope: 'PERISCOPE', dive: 'DIVE', air: 'AIR' };
+const DRILL_NAME: Record<DrillKind, string> = { attack: 'ATTACK', scope: 'PERISCOPE', dive: 'DIVE', air: 'AIR' };
 /** The card's second key offers the next drill in turn. */
-const NEXT: Record<DrillKind, DrillKind> = { scope: 'dive', dive: 'air', air: 'scope' };
-const ORDERS_FOR: Record<DrillKind, () => TypedLine[]> = { scope: scopeOrders, dive: diveOrders, air: airOrders };
+const NEXT: Record<DrillKind, DrillKind> = { attack: 'scope', scope: 'dive', dive: 'air', air: 'attack' };
+const ORDERS_FOR: Record<DrillKind, () => TypedLine[]> = { attack: attackOrders, scope: scopeOrders, dive: diveOrders, air: airOrders };
+/** The other key's label: the engagement, or a drill. */
+const OTHER: Record<DrillKind, string> = { attack: 'CONVOY ATTACK', scope: 'PERISCOPE DRILL', dive: 'DIVE DRILL', air: 'AIR DRILL' };
+const TITLE = (k: DrillKind, over: boolean) => (k === 'attack' ? (over ? 'CONVOY WN 37: ATTACK REPORT' : 'CONVOY WN 37: ATTACK ORDERS') : `${DRILL_NAME[k]} DRILL ${over ? 'REPORT' : 'ORDERS'}`);
 
 /**
  * Drill orders before, drill report after: a typed sheet on a clipboard that drops in
@@ -198,6 +246,8 @@ export class DrillCard {
   private kind: DrillKind = 'scope';
   private token = 0;
   private keyMode: 'begin' | 'again' = 'begin';
+  /** A new engagement starts the whole boat afresh (set by the app: a clean patrol). */
+  restart: (() => void) | null = null;
   /** Extra drop on a tall canvas, so the card hangs in the middle. */
   private dropY = 0;
 
@@ -231,7 +281,7 @@ export class DrillCard {
     this.key.onChange(() => this.press());
     this.card.addChild(this.key.root);
     // The other drill: swaps the orders (and sets the boat up for it).
-    this.other = this.makeOther('DIVE DRILL', ctx);
+    this.other = this.makeOther(OTHER.dive, ctx);
     this.card.position.set(CARD.x, -CARD.h - 6);
     this.card.visible = false;
     this.root.addChild(this.catcher, this.card);
@@ -250,21 +300,21 @@ export class DrillCard {
 
   private press(): void {
     if (this.keyMode === 'begin') send({ type: 'drillBegin' });
+    else if (this.kind === 'attack' && this.restart) this.restart();
     else send({ type: 'drillNew' });
   }
 
   private makeOther(text: string, ctx: KitContext): AnyControl {
     const k = createControl({ kind: 'key', id: 'drill-other', style: 'paper', w: 84, h: 20, text, x: 10, y: CARD.h - 29 }, ctx);
-    k.onChange(() => send({ type: 'drillNew', kind: NEXT[this.kind] }));
+    k.onChange(() => (NEXT[this.kind] === 'attack' && this.restart ? this.restart() : send({ type: 'drillNew', kind: NEXT[this.kind] })));
     this.card.addChild(k.root);
     return k;
   }
 
   private sync(d: DrillObs): void {
     this.kind = d.kind;
-    const name = DRILL_NAME[d.kind];
-    if (d.phase === 'brief') this.open(`${d.kind}:brief`, `${name} DRILL ORDERS`, ORDERS_FOR[d.kind](), 'BEGIN');
-    else if (d.phase === 'over' && d.result) this.open(`${d.kind}:over`, `${name} DRILL REPORT`, report(d.result), 'AGAIN');
+    if (d.phase === 'brief') this.open(`${d.kind}:brief`, TITLE(d.kind, false), ORDERS_FOR[d.kind](), 'BEGIN');
+    else if (d.phase === 'over' && d.result) this.open(`${d.kind}:over`, TITLE(d.kind, true), report(d.result), 'AGAIN');
     else this.close();
   }
 
@@ -284,7 +334,7 @@ export class DrillCard {
       this.setKeyText(keyText);
       const ctxKey = (this.other as unknown as { ctx: KitContext }).ctx;
       this.other.destroy();
-      this.other = this.makeOther(`${DRILL_NAME[NEXT[this.kind]]} DRILL`, ctxKey);
+      this.other = this.makeOther(OTHER[NEXT[this.kind]], ctxKey);
       this.card.visible = true;
       this.card.y = -CARD.h - 6;
       mixer.play(SFX.pickup, 'ui', { gain: 0.7 });

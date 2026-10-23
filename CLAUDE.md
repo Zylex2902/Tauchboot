@@ -3,7 +3,7 @@
 Landscape-only pixel-art WW2-style submarine station sim. iOS + Android (Capacitor), PWA for testing. Fictional 1940s regime; never real Nazi symbols. 9 hand-operated stations, 44-man crew runs the rest. Single-player, offline, free + one unlock.
 
 GDD + build plan: https://claude.ai/code/artifact/1bff9637-acf4-4053-9c8a-9a09e4b62e39
-Status: chunks 0.1-0.5, 1.1-1.5, 2.1-2.6, 3.1-3.5 done (phases 1-2 complete; 3.1 recognition manual, 3.2 periscope at sea + exposure, 3.3 attack table, 3.4 torpedoes + firing panel, 3.5 bow torpedo room + reloads); Gate 1 (five cold testers) still open; next 3.6 (slice polish). Gate 2 follows 3.6. Work one chunk at a time, then stop and report.
+Status: chunks 0.1-0.5, 1.1-1.5, 2.1-2.6, 3.1-3.6 done (phases 1-3 complete: the vertical slice; 3.6 = the engagement with the first officer's prompts, final art for 5 stations, audio pass); Gate 1 (five cold testers) and Gate 2 (ten external testers on the slice) are Matthew's; next 4.1 (detection model). Work one chunk at a time, then stop and report.
 
 ## Standing rules
 - Everything that changes on screen animates (tween); nothing snaps.
@@ -16,7 +16,7 @@ Status: chunks 0.1-0.5, 1.1-1.5, 2.1-2.6, 3.1-3.5 done (phases 1-2 complete; 3.1
 - Warn Matthew whenever new work could breach a patent, copyright or trademark.
 
 ## Project rules
-- Landscape only; full screen: integer scaling (largest that fits 464x270 in the safe area), nearest-neighbour; the canvas then fills the safe area (Layout.artW/artH). Stations are framed instrument boards (stations/boards.ts: flex LayoutNode tree, min sizes fit a 456x215 panel; items pinned by anchor+offset; related parts built as one `group`; roomy boards spread offsets and grow handwheels up to 1.5x). Boards have a skin: 'iron' (sound room, tower), 'paint' (control and engine rooms, art test: green paint, paintedWall + pipeRun header) or 'wood' (captain's desk). Placeholders still use the old cut-line layout. Hull chrome anchors to canvas edges/centre; strip, cards and pause are drawn for 480x270.
+- Landscape only; full screen: integer scaling (largest that fits 464x270 in the safe area), nearest-neighbour; the canvas then fills the safe area (Layout.artW/artH). Stations are framed instrument boards (stations/boards.ts: flex LayoutNode tree, min sizes fit a 456x215 panel; items pinned by anchor+offset; related parts built as one `group`; roomy boards spread offsets and grow handwheels up to 1.5x). Boards have a skin: 'paint' (green enamel: bow, control, engine rooms), 'grey' (grey enamel: sound room, chart table, tower and its sides), 'wood' (captain's desk) or 'iron' (bridge, placeholders); painted rooms get paintedWall(seed, tone) + pipeRun(kind) and condensation drips. Placeholders still use the old cut-line layout. Hull chrome anchors to canvas edges/centre; strip, cards and pause are drawn for 480x270.
 - UI reads only the observation layer, never the world sim; scripts/check-fog.mjs fails the build otherwise (only main.ts and src/debug may touch src/sim; obs fields carrying truth must be marked debrief). Controls are data-driven.
 - Offline single-player; no accounts, no tracking.
 - Fictional names everywhere; nothing from UBOAT, IRON NEST, Silent Hunter or Das Boot.

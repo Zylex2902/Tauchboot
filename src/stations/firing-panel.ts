@@ -127,7 +127,7 @@ export class FiringPanel {
   ) {
     const walk = (n: LayoutNode) => {
       if ('board' in n) {
-        const b = new Board(n.board, n.title ?? n.board.toUpperCase(), n.min[0], n.min[1], 'iron');
+        const b = new Board(n.board, n.title ?? n.board.toUpperCase(), n.min[0], n.min[1], 'grey');
         this.boards.set(n.board, b);
         this.root.addChild(b.root);
       } else n.kids.forEach(walk);

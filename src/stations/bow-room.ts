@@ -117,7 +117,7 @@ export class BowRoom extends StationScene {
   constructor(index: number, ctx: KitContext) {
     super(index, 'BOW TORPEDO ROOM', ctx);
     this.useBoards(LAYOUT, 'paint');
-    this.paintWall(paintedWall(19).toTexture(), pipeRun().toTexture());
+    this.paintWall(paintedWall(19).toTexture(), pipeRun('bow').toTexture());
     const tk = ctx.ticker;
     this.addControls(BOW_ROOM);
 

@@ -9,6 +9,7 @@ import { obs, send, type AlarmLevel } from '../obs';
 import { createStation, STATIONS, type StationScene } from '../stations';
 import { PANEL_H } from '../stations/panel-art';
 import { Pause } from './pause';
+import { Coach } from './coach';
 import { DrillCard } from './drill-card';
 import { stepScale, TimePlate } from './time-plate';
 import { ReportSlips } from './report';
@@ -22,6 +23,8 @@ export interface UiState {
   station: number;
   controls: Record<string, unknown>;
   extra: Record<string, unknown>;
+  /** Chunk 3.6: the first officer's prompt reached. */
+  coach?: number;
 }
 /** Strip travel takes about 0.4 s for a neighbour and never more than this. */
 export const MAX_TRAVEL_MS = 430;
@@ -78,6 +81,7 @@ export class Hull {
   private pause: Pause;
   private slips: ReportSlips;
   private card: DrillCard;
+  private coach: Coach;
   private plateHolder = new Container();
   /** Panel size in art px: the canvas less the strip. */
   private W = 480;
@@ -100,7 +104,15 @@ export class Hull {
     this.card = new DrillCard(tw, ctx);
     const plate = new TimePlate(tw);
     this.plateHolder.addChild(plate.root);
-    this.root.addChild(this.viewport, this.plateHolder, this.voice.root, this.slips.root, this.strip.root, this.card.root, this.pause.root);
+    this.coach = new Coach(tw, ctx, {
+      station: () => this.current,
+      travelling: () => !!this.travel,
+      scene: (i) => this.scene(i),
+      blocked: () => this.pause.isPaused || this.card.isOpen || this.voice.isOpen,
+      stripRect: (i) => this.strip.compRect(i),
+    });
+    // The prompts sit under the subtitles (the crew's words stay readable) and over the strip.
+    this.root.addChild(this.viewport, this.plateHolder, this.strip.root, this.coach.root, this.voice.root, this.slips.root, this.card.root, this.pause.root);
 
     this.strip.onTap = (i) => this.goTo(i);
     this.strip.onLongPress = (i) => {
@@ -145,7 +157,7 @@ export class Hull {
       const x = sc.saveExtra();
       if (x !== undefined) extra[i] = x;
     });
-    return { station: this.travel?.to ?? this.current, controls, extra };
+    return { station: this.travel?.to ?? this.current, controls, extra, coach: this.coach.step };
   }
 
   /** Back where the save left you: the station on screen and every control as it was. */
@@ -157,6 +169,7 @@ export class Hull {
       if (c && c.persistent && !this.scenes[i]!.noSave.has(id)) (c.restore as (v: unknown) => void)(v);
     }
     for (const [i, x] of Object.entries(u.extra ?? {})) this.scenes[Number(i)]?.restoreExtra(x);
+    if (typeof u.coach === 'number') this.coach.restore(u.coach);
     const st = Math.max(0, Math.min(8, Math.round(u.station ?? 3)));
     if (st !== this.current) {
       const from = this.scene(this.current);
@@ -167,6 +180,11 @@ export class Hull {
       this.strip.setCursor(st, st, 0);
     }
     this.scene(st).enter();
+  }
+
+  /** How a new engagement is started: the app boots a clean patrol. */
+  set onRestart(fn: () => void) {
+    this.card.restart = fn;
   }
 
   get station(): number {
@@ -185,6 +203,7 @@ export class Hull {
     this.strip.setFrame(W, H);
     this.slips.root.position.set(Math.min(ox, W - 480), l.artH - 270);
     this.voice.setFrame(W, H);
+    this.coach.setFrame(W, H);
     this.card.setFrame(W, l.artH);
     this.pause.setFrame(l.artW, l.artH);
     this.plateHolder.x = W - 480;

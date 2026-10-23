@@ -125,7 +125,7 @@ export class ControlRoom extends StationScene {
   constructor(index: number, ctx: KitContext) {
     super(index, 'CONTROL ROOM', ctx);
     this.useBoards(LAYOUT, 'paint');
-    this.paintWall(paintedWall().toTexture(), pipeRun().toTexture());
+    this.paintWall(paintedWall().toTexture(), pipeRun('control').toTexture());
     const tk = ctx.ticker;
     ctx.ticker.add(() => {
       for (const [c, s] of this.overlayFor) {

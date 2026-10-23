@@ -13,7 +13,7 @@ import type { NeedleMeter } from '../controls/meter';
 import { roundDial } from './gauges';
 import { BearingTape } from '../controls/tape';
 import { obs, SCOPE_SURFACE, send, SHIP_CLASSES } from '../obs';
-import { plate } from './panel-art';
+import { paintedWall, pipeRun, plate } from './panel-art';
 import { PPD_HIGH, PPD_LOW, ScopeView, VIEW_D } from './scope-view';
 import { manual, onCardClass } from './manual';
 import { ATTACK_TABLE, AttackTable } from './attack-table';
@@ -142,7 +142,8 @@ export class ConningTower extends StationScene {
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'CONNING TOWER', ctx);
-    this.useBoards(LAYOUT);
+    this.useBoards(LAYOUT, 'grey');
+    this.paintWall(paintedWall(53, 'grey').toTexture(), pipeRun('tower').toTexture());
     const tk = ctx.ticker;
     this.addControls(CONNING_TOWER);
 

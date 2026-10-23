@@ -177,24 +177,35 @@ export function paintRivet(p: Pix, x: number, y: number): void {
   p.set(x + 2, y + 2, C.black);
 }
 
+/** A bulkhead's paint: green (bow, control and engine rooms) or grey (sound room, chart table, tower). */
+export type Tone = 'green' | 'grey';
+const TONE: Record<Tone, { base: number; shade: number; fleck: number; rib: number; ribLit: number; ribWeb: number }> = {
+  green: { base: C.bilge1, shade: C.bilge0, fleck: C.bilge2, rib: C.iron2, ribLit: C.iron4, ribWeb: C.iron3 },
+  grey: { base: C.iron3, shade: C.iron2, fleck: C.iron4, rib: C.iron1, ribLit: C.iron3, ribWeb: C.iron2 },
+};
+
 /**
- * Control-room bulkhead (art test): bilge-green paint over steel, a fine diagonal grain,
- * paint chips and rust weeping from the rivets, and a dark frame (rib) down one side.
- * Tiles seamlessly at 160 x 120.
+ * A compartment's bulkhead (final art, chunk 3.6): paint over steel with a fine diagonal grain,
+ * flecks, a dark frame (rib) down one side with its rivet row and rust weeping from some
+ * rivets, a horizontal plate seam, and a stencilled frame number on the rib. Tiles at 160 x 120.
  */
-export function paintedWall(seed = 31): Pix {
+export function paintedWall(seed = 31, tone: Tone = 'green'): Pix {
   const W = 160;
   const H = 120;
+  const t = TONE[tone];
   const r = rng(seed);
-  const p = new Pix(W, H, C.bilge1);
-  p.ditherFn((x, y) => (((x + y) & 3) === 0 ? 7 : ((x - y) & 7) === 0 ? 3 : 1), C.bilge1, C.bilge0);
-  for (let k = 0; k < 40; k++) p.set(Math.floor(r() * W), Math.floor(r() * H), r() < 0.7 ? C.bilge2 : C.iron7);
+  const p = new Pix(W, H, t.base);
+  p.ditherFn((x, y) => (((x + y) & 3) === 0 ? 7 : ((x - y) & 7) === 0 ? 3 : 1), t.base, t.shade);
+  for (let k = 0; k < 40; k++) p.set(Math.floor(r() * W), Math.floor(r() * H), r() < 0.7 ? t.fleck : C.iron7);
+  // A welded seam across the plating, a little proud of it.
+  p.rect(0, 58, 132, 1, t.shade);
+  p.rect(0, 59, 132, 1, t.fleck);
   // The rib: a T-section frame with a rivet row, rust weeping down from some rivets.
   const rx = 132;
-  p.rect(rx, 0, 12, H, C.iron2);
-  p.rect(rx, 0, 1, H, C.iron4);
+  p.rect(rx, 0, 12, H, t.rib);
+  p.rect(rx, 0, 1, H, t.ribLit);
   p.rect(rx + 11, 0, 1, H, C.black);
-  p.rect(rx + 3, 0, 6, H, C.iron3);
+  p.rect(rx + 3, 0, 6, H, t.ribWeb);
   for (let y = 5; y < H; y += 15) {
     p.set(rx + 5, y, C.iron6);
     p.set(rx + 6, y, C.iron5);
@@ -202,30 +213,97 @@ export function paintedWall(seed = 31): Pix {
     p.set(rx + 6, y + 1, C.iron1);
     if (r() < 0.45) for (let k = 2; k < 4 + r() * 9; k++) p.set(rx + 5 + (k > 5 ? 1 : 0), y + k, k < 4 ? C.rust1 : C.rust0);
   }
+  // Damp: a few beads of condensation standing on the paint.
+  for (let k = 0; k < 14; k++) {
+    const x = Math.floor(r() * 128);
+    const y = 2 + Math.floor(r() * (H - 4));
+    p.set(x, y, C.iron6);
+    p.set(x, y + 1, t.shade);
+  }
   return p;
 }
 
+/** What runs along the deckhead of each room. */
+export type PipeKind = 'control' | 'bow' | 'sound' | 'chart' | 'tower';
+
 /**
- * Pipe runs along the deckhead (art test): a grey service main, a brass air line and a
- * red line, clamped to the frames. 21 px tall, tiles across at 96 px.
+ * Pipe and cable runs along the deckhead (final art, chunk 3.6), 21 px tall, tiling across:
+ * each room has its own. Control: the service main, a brass air line and a red line. Bow: the
+ * main, the air line and the torpedo loading rail (an I-beam). Sound room: cables in a tray,
+ * clipped. Chart table: a ventilation trunk with its bands, a brass speaking tube. Tower:
+ * hydraulic lines for the scope hoist and a cable.
  */
-export function pipeRun(): Pix {
-  const W = 96;
+export function pipeRun(kind: PipeKind = 'control'): Pix {
+  const W = kind === 'chart' ? 128 : 96;
   const p = new Pix(W, 21);
   const pipe = (y: number, rows: number[], shadow = true) => {
     rows.forEach((c, i) => p.rect(0, y + i, W, 1, c));
     if (shadow) p.rect(0, y + rows.length, W, 1, C.black);
   };
-  pipe(2, [C.iron4, C.iron7, C.iron6, C.iron5, C.iron3]);
-  pipe(10, [C.brass1, C.brass2, C.brass0]);
-  pipe(15, [C.red0, C.red1, C.rust0]);
-  // Clamps and a flange.
-  for (const x of [14, 62]) {
-    p.rect(x, 1, 3, 7, C.iron2);
-    p.rect(x, 1, 1, 7, C.iron5);
+  const clamp = (x: number, y: number, h: number) => {
+    p.rect(x, y, 3, h, C.iron2);
+    p.rect(x, y, 1, h, C.iron5);
+  };
+  if (kind === 'control') {
+    pipe(2, [C.iron4, C.iron7, C.iron6, C.iron5, C.iron3]);
+    pipe(10, [C.brass1, C.brass2, C.brass0]);
+    pipe(15, [C.red0, C.red1, C.rust0]);
+    for (const x of [14, 62]) clamp(x, 1, 7);
+    p.rect(40, 9, 2, 5, C.brass0);
+    p.rect(40, 9, 1, 5, C.brass2);
+    p.rect(84, 14, 3, 5, C.rust1);
+  } else if (kind === 'bow') {
+    pipe(1, [C.iron4, C.iron7, C.iron6, C.iron5, C.iron3]);
+    pipe(8, [C.brass1, C.brass2, C.brass0]);
+    // The loading rail: an I-beam the torpedo trolley runs along.
+    p.rect(0, 13, W, 1, C.iron6);
+    p.rect(0, 14, W, 1, C.iron4);
+    p.rect(0, 15, W, 3, C.iron2);
+    p.rect(0, 18, W, 1, C.iron5);
+    p.rect(0, 19, W, 1, C.iron3);
+    p.rect(0, 20, W, 1, C.black);
+    for (const x of [20, 68]) {
+      clamp(x, 0, 7);
+      p.rect(x + 1, 15, 2, 3, C.iron6); // the rail's bolts
+    }
+  } else if (kind === 'sound') {
+    // A cable tray, and the cables lying in it, clipped down.
+    p.rect(0, 15, W, 1, C.iron5);
+    p.rect(0, 16, W, 3, C.iron2);
+    p.rect(0, 19, W, 1, C.black);
+    const cable = (y: number, c: number, hi: number) => {
+      p.rect(0, y, W, 1, hi);
+      p.rect(0, y + 1, W, 2, c);
+      p.rect(0, y + 3, W, 1, C.black);
+    };
+    cable(2, C.ink0, C.ink1);
+    cable(6, C.iron1, C.iron4);
+    cable(10, C.iron1, C.iron4);
+    p.rect(0, 13, W, 1, C.red0);
+    for (const x of [10, 58]) {
+      p.rect(x, 1, 2, 13, C.brass0);
+      p.rect(x, 1, 1, 13, C.brass2);
+    }
+  } else if (kind === 'chart') {
+    // The ventilation trunk: a round duct, lit along its top, banded.
+    const duct = [C.iron6, C.iron5, C.iron4, C.iron4, C.iron3, C.iron3, C.iron2, C.iron2, C.iron1, C.iron0];
+    duct.forEach((c, i) => p.rect(0, 2 + i, W, 1, c));
+    p.rect(0, 12, W, 1, C.black);
+    for (const x of [30, 94]) {
+      p.rect(x, 1, 3, 12, C.iron2);
+      p.rect(x, 1, 1, 12, C.iron7);
+      p.set(x + 1, 6, C.iron0);
+    }
+    pipe(15, [C.brass1, C.brass2, C.brass0]);
+  } else {
+    // Hydraulics for the scope hoist, two thin brass lines and the main, and a cable.
+    pipe(2, [C.brass2, C.brass0]);
+    pipe(6, [C.brass2, C.brass0]);
+    pipe(10, [C.iron4, C.iron7, C.iron6, C.iron4, C.iron2]);
+    pipe(17, [C.ink1, C.ink0]);
+    for (const x of [18, 66]) clamp(x, 1, 16);
+    p.rect(44, 9, 3, 7, C.brass0);
+    p.rect(44, 9, 1, 7, C.brass2);
   }
-  p.rect(40, 9, 2, 5, C.brass0);
-  p.rect(40, 9, 1, 5, C.brass2);
-  p.rect(84, 14, 3, 5, C.rust1);
   return p;
 }

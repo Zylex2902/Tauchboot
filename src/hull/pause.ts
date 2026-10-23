@@ -68,6 +68,7 @@ function cardArt(): Pix {
   drawIcon(p, 'zoom', 150, 132, C.iron7, C.iron4);
   cap('DECODING', 198, 136);
   cap('ATTACK TABLE', 70, 188);
+  cap('PROMPTS', 194, 28);
   cap('TORPEDO FAILURES', 194, 188);
   drawText(p, 'THE PATROL IS SAVED AS YOU PLAY.', 12, h - 12, C.iron6);
   return p;
@@ -99,7 +100,7 @@ export class Pause {
     this.card.addChild(new Sprite(cardArt().toTexture()));
     this.card.position.set(CARD.x, -CARD.h - 4);
     this.card.visible = false;
-    const resume = createControl({ kind: 'key', id: 'resume', style: 'brass', w: 120, h: 26, text: 'RESUME', x: 70, y: 32 }, ctx);
+    const resume = createControl({ kind: 'key', id: 'resume', style: 'brass', w: 112, h: 26, text: 'RESUME', x: 14, y: 30 }, ctx);
     resume.onChange(() => this.set(false));
     const hap = createControl(
       {
@@ -149,7 +150,13 @@ export class Pause {
       ctx,
     );
     torp.onChange((i) => updateSettings({ torpFailures: i === 1 }));
-    this.card.addChild(resume.root, hap.root, vol.root, plot.root, dec.root, tab.root, torp.root);
+    // Chunk 3.6: the first officer's prompt slips through the engagement.
+    const coach = createControl(
+      { kind: 'lever', id: 'set-prompts', x: 162, y: 46, axis: 'x', length: 64, detents: ['OFF', 'ON'], initial: settings().prompts ? 1 : 0, weight: 40 },
+      ctx,
+    );
+    coach.onChange((i) => updateSettings({ prompts: i === 1 }));
+    this.card.addChild(resume.root, hap.root, vol.root, plot.root, dec.root, tab.root, torp.root, coach.root);
 
     this.tab.position.set(TAB.x, TAB.y);
     this.tab.addChild(new Sprite(tabArt().toTexture()));

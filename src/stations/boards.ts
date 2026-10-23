@@ -69,33 +69,90 @@ export function minOf(n: LayoutNode): [number, number] {
 
 const frameCache = new Map<string, Texture>();
 
-/** How a station's boards are finished: bare steel trays, or painted plates (art test). */
-export type Skin = 'iron' | 'paint' | 'wood';
+/**
+ * How a station's boards are finished: bare steel trays (bridge, placeholders), green enamel
+ * (bow room, control room, engine room), grey enamel (sound room, chart table, conning tower:
+ * chunk 3.6) or varnished wood (captain's desk).
+ */
+export type Skin = 'iron' | 'paint' | 'grey' | 'wood';
+
+/** An enamel's colours: the paint, its shade, its lit edge, the deep shadow, specks of dirt. */
+interface Enamel {
+  base: ColorIndex;
+  shade: ColorIndex;
+  lit: ColorIndex;
+  deep: ColorIndex;
+  speck: ColorIndex;
+  rivet: (p: Pix, x: number, y: number) => void;
+}
+
+const ENAMEL: Record<'paint' | 'grey', Enamel> = {
+  paint: { base: C.bilge2, shade: C.bilge1, lit: C.bilge3, deep: C.bilge0, speck: C.iron7, rivet: paintRivet },
+  grey: { base: C.iron4, shade: C.iron3, lit: C.iron5, deep: C.iron2, speck: C.iron6, rivet: greyRivet },
+};
+
+/** A rivet head painted over in grey. */
+function greyRivet(p: Pix, x: number, y: number): void {
+  p.set(x, y, C.iron6);
+  p.set(x + 1, y, C.iron5);
+  p.set(x, y + 1, C.iron5);
+  p.set(x + 1, y + 1, C.iron4);
+  p.set(x + 2, y + 1, C.black);
+  p.set(x + 1, y + 2, C.black);
+  p.set(x + 2, y + 2, C.black);
+}
 
 /**
- * A painted instrument plate: lighter bilge green, a fine grain heavier toward the edges,
- * a lit top edge and a shadowed bottom, painted-over rivets, a few paint chips.
+ * A painted instrument plate (final art, chunk 3.6): enamel with a fine grain heavier toward
+ * the edges, a lit top edge and a shadowed bottom, painted-over rivets with rust weeping from
+ * the lower ones, chips knocked out of the paint along the edges (bare steel, a spot of red
+ * primer), grime gathered along the bottom, and a brass title plate screwed on at both ends.
  */
-function paintTexture(w: number, h: number, title: string): Texture {
-  const p = new Pix(w, h, C.bilge2);
-  const r = rng(w * 131 + h * 17 + title.length);
+function enamelTexture(w: number, h: number, title: string, e: Enamel): Texture {
+  const p = new Pix(w, h, e.base);
+  const r = rng(w * 131 + h * 17 + title.length * 7);
   p.ditherFn((x, y) => {
-    const e = Math.min(x, y, w - 1 - x, h - 1 - y);
-    return Math.min(14, (((x + 2 * y) & 3) === 0 ? 4 : 1) + (e < 7 ? (7 - e) * 1.4 : 0));
-  }, C.bilge2, C.bilge1);
-  for (let k = 0; k < (w * h) / 220; k++) p.set(3 + Math.floor(r() * (w - 6)), 3 + Math.floor(r() * (h - 6)), r() < 0.6 ? C.bilge3 : C.iron7);
+    const d = Math.min(x, y, w - 1 - x, h - 1 - y);
+    // Grime: the bottom of the plate, where hands and the damp collect.
+    const g = y > h - 12 ? (y - (h - 12)) * 0.7 : 0;
+    return Math.min(14, (((x + 2 * y) & 3) === 0 ? 4 : 1) + (d < 7 ? (7 - d) * 1.4 : 0) + g);
+  }, e.base, e.shade);
+  for (let k = 0; k < (w * h) / 220; k++) p.set(3 + Math.floor(r() * (w - 6)), 3 + Math.floor(r() * (h - 6)), r() < 0.6 ? e.lit : e.speck);
+  // Chips: mostly along the edges, where things knock it.
+  const chips = Math.max(3, Math.floor((w + h) / 26));
+  for (let k = 0; k < chips; k++) {
+    const edge = r();
+    const along = r();
+    const inset = 3 + Math.floor(r() * r() * 10);
+    const x = edge < 0.25 ? inset : edge < 0.5 ? w - 1 - inset : 6 + Math.floor(along * (w - 12));
+    const y = edge < 0.5 ? 14 + Math.floor(along * (h - 20)) : edge < 0.75 ? 13 + inset : h - 1 - inset;
+    const cw = 1 + Math.floor(r() * 3);
+    const ch = 1 + Math.floor(r() * 2);
+    p.rect(x, y, cw, ch, C.iron6);
+    if (r() < 0.5) p.set(x + Math.floor(cw / 2), y, C.rust1);
+    p.rect(x + 1, y + ch, cw, 1, e.deep); // the paint's broken edge throws a hairline shadow
+    p.rect(x + cw, y + 1, 1, ch, e.deep);
+  }
   p.frame(0, 0, w, h, C.black);
-  p.rect(1, 1, w - 2, 1, C.bilge3);
-  p.rect(1, 1, 1, h - 2, C.bilge3);
-  p.rect(1, h - 2, w - 2, 1, C.bilge0);
-  p.rect(w - 2, 1, 1, h - 2, C.bilge0);
-  for (const [x, y] of [[3, 3], [w - 6, 3], [3, h - 6], [w - 6, h - 6]]) paintRivet(p, x, y);
+  p.rect(1, 1, w - 2, 1, e.lit);
+  p.rect(1, 1, 1, h - 2, e.lit);
+  p.rect(1, h - 2, w - 2, 1, e.deep);
+  p.rect(w - 2, 1, 1, h - 2, e.deep);
+  for (const [x, y] of [[3, 3], [w - 6, 3], [3, h - 6], [w - 6, h - 6]]) e.rivet(p, x, y);
+  // Rust weeping from the lower rivets, now and then.
+  for (const x of [4, w - 5]) if (r() < 0.6) for (let j = 0; j < 2 + Math.floor(r() * 4); j++) p.set(x, h - 3 + j, j < 1 ? C.rust1 : C.rust0);
   if (title) {
-    const tw = measure(title) + 8;
-    p.rect(8, 2, tw + 1, 10, C.black);
-    p.rect(8, 2, tw, 9, C.brass1);
-    p.rect(8, 2, tw, 1, C.brass2);
-    p.rect(8, 10, tw, 1, C.brass0);
+    const tw = measure(title) + 12;
+    p.rect(6, 2, tw + 1, 10, C.black);
+    p.rect(6, 2, tw, 9, C.brass1);
+    p.rect(6, 2, tw, 1, C.brass2);
+    p.rect(6, 10, tw, 1, C.brass0);
+    // Screwed on at both ends.
+    for (const sx of [8, 6 + tw - 3]) {
+      p.set(sx, 6, C.brass0);
+      p.set(sx, 5, C.ink0);
+      p.set(sx, 7, C.ink0);
+    }
     drawText(p, title, 12, 4, C.ink0, C.brass2);
   }
   return p.toTexture();
@@ -155,8 +212,8 @@ export function boardTexture(w: number, h: number, title: string, skin: Skin = '
   const key = `${w}x${h}:${title}:${skin}`;
   const hit = frameCache.get(key);
   if (hit) return hit;
-  if (skin === 'paint' || skin === 'wood') {
-    const t = skin === 'paint' ? paintTexture(w, h, title) : woodTexture(w, h, title);
+  if (skin !== 'iron') {
+    const t = skin === 'wood' ? woodTexture(w, h, title) : enamelTexture(w, h, title, ENAMEL[skin]);
     frameCache.set(key, t);
     return t;
   }

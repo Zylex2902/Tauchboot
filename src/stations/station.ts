@@ -7,6 +7,7 @@ import { createControl, Crank, type AnyControl, type ControlSpec, type KitContex
 import { panelArt, PANEL_H, plate } from './panel-art';
 import { Board, GAP, layout, type LayoutNode, type PinOpts, type Rect, type Skin } from './boards';
 import { ART_W } from '../core/display';
+import { Drips } from './room-life';
 
 /**
  * Where a station may be pulled apart to fill a bigger screen: authored x (and y) lines,
@@ -60,6 +61,8 @@ export abstract class StationScene {
   private header: Sprite | null = null;
   /** Pipe runs along the deckhead, behind the header (stations that have them). */
   private pipes: TilingSprite | null = null;
+  /** Condensation running down the bulkhead between the boards (painted rooms). */
+  private drips: Drips | null = null;
   readonly controls = new Map<string, AnyControl>();
   /** Controls whose position mirrors the sim (restored from the sim, not from the UI save). */
   readonly noSave = new Set<string>();
@@ -117,6 +120,9 @@ export abstract class StationScene {
   /** Finish the bare bulkhead: a wall texture for the plating, and pipe runs in the header strip. */
   protected paintWall(wall: Texture, pipes?: Texture): void {
     this.bg.texture = wall;
+    this.drips = new Drips(this.index + 1, () => this.root.parent !== null);
+    this.root.addChildAt(this.drips.root, 1);
+    this.ctx.ticker.add((t) => this.drips?.step(t.deltaMS));
     if (pipes) {
       this.pipes = new TilingSprite({ texture: pipes, width: this.w, height: pipes.height });
       this.pipes.eventMode = 'none';
@@ -163,6 +169,7 @@ export abstract class StationScene {
       const rects = new Map<string, Rect>();
       layout(this.tree, { x: GAP, y: HEADER_H, w: w - GAP * 2, h: h - HEADER_H - GAP }, rects);
       for (const [id, r] of rects) this.boards.get(id)!.place(r);
+      this.drips?.setBoards([...rects.values()]);
       return;
     }
     const ex = this.elastic;

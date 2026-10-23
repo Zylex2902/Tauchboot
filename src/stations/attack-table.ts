@@ -89,6 +89,8 @@ export class AttackTable {
   readonly boards = new Map<string, Board>();
   track: Track | null = null;
   src: Sources = { range: 'none', aob: 'none', kn: 'none' };
+  /** The best pair of MARKs so far (chunk 3.6): her course and speed, and how far to trust them. */
+  private best: { course: number; kn: number; knSigma: number; aobSigma: number } | null = null;
   /** Recent MARKs with a range: where they put her (for speed from two). */
   private marks: { t: number; x: number; y: number; rel: number; r: number; cls: string | null }[] = [];
   private rangeDrum: Odometer;
@@ -122,7 +124,7 @@ export class AttackTable {
   ) {
     const walk = (n: LayoutNode) => {
       if ('board' in n) {
-        const b = new Board(n.board, n.title ?? n.board.toUpperCase(), n.min[0], n.min[1], 'iron');
+        const b = new Board(n.board, n.title ?? n.board.toUpperCase(), n.min[0], n.min[1], 'grey');
         this.boards.set(n.board, b);
         this.root.addChild(b.root);
       } else n.kids.forEach(walk);
@@ -301,28 +303,39 @@ export class AttackTable {
     if (ranged) {
       const at = markedAt(m.trained, m.range, own);
       // The same ship: the same type on the card, inside eight minutes, and no faster than a ship goes.
-      const prev = [...this.marks].reverse().find((p) => p.cls === m.cls && at.t - p.t <= 480 && Math.hypot(at.x - p.x, at.y - p.y) < (at.t - p.t) * 25 * 0.5144 + 300);
+      // The longest baseline that still fits (chunk 3.6): two MARKs seconds apart say nothing of her speed.
+      const prev = this.marks.find((p) => p.cls === m.cls && at.t - p.t >= 45 && at.t - p.t <= 480 && Math.hypot(at.x - p.x, at.y - p.y) < (at.t - p.t) * 25 * 0.5144 + 300);
       if (prev) two = twoMarks(prev, { ...at, r: m.range });
       this.marks.push({ ...at, rel: m.trained, r: m.range, cls: m.cls });
       if (this.marks.length > 6) this.marks.shift();
     }
-    if (two) line2 = `TWO MARKS: SHE MAKES ${two.kn.toFixed(1)} KN, GOOD TO ${two.knSigma.toFixed(1)}`;
+    // The first officer keeps the better of two speeds: a short pair does not undo a long one.
+    const better = !!two && (!this.best || two.knSigma <= this.best.knSigma);
+    if (two && better) this.best = two;
+    if (two) line2 = better ? `TWO MARKS: SHE MAKES ${two.kn.toFixed(1)} KN, GOOD TO ${two.knSigma.toFixed(1)}` : `KEEPING ${this.best!.kn.toFixed(1)} KN FROM THE LONGER PAIR`;
     this.writeSlip(`MARK ${m.n}  BRG ${String(m.trained).padStart(3, '0')}  ${ranged ? `${m.range} M` : 'NO RANGE'}  ${m.aob === null ? 'AOB ?' : `AOB ${side(m.aob)}`}`, line2);
     if (!settings().tableAssist) return;
     // The first officer sets the table: what the MARK gives, the rest as it stands.
     const s = this.track ? keep(this.track, own) : this.setting();
     s.rel = m.trained;
     if (ranged) s.range = m.range;
-    if (m.aob !== null) s.aob = m.aob;
-    else if (two && ranged) s.aob = wrap(((m.trained + own.heading) % 360) + 180 - two.course);
-    if (two) s.kn = two.kn;
+    const b = ranged ? this.best : null;
+    const fromMarks = b ? wrap(((m.trained + own.heading) % 360) + 180 - b.course) : null;
+    // Her angle: the eye's (good to some 8 degrees) and the pair's course, each by how far it is trusted.
+    if (m.aob !== null && fromMarks !== null) {
+      const we = 1 / 8 ** 2;
+      const wm = 1 / b!.aobSigma ** 2;
+      s.aob = wrap(m.aob + wrap(fromMarks - m.aob) * (wm / (we + wm)));
+    } else if (m.aob !== null) s.aob = m.aob;
+    else if (fromMarks !== null) s.aob = fromMarks;
+    if (this.best && two) s.kn = this.best.kn;
     this.track = trackFrom(s, own);
     if (ranged) this.setSource('range', 'mark');
     if (m.aob !== null) this.setSource('aob', 'mark');
     else if (two) this.setSource('aob', 'marks');
-    if (two) {
+    if (this.best && two) {
       this.setSource('kn', 'marks');
-      this.src = { ...this.src, knSigma: two.knSigma, aobSigma: two.aobSigma };
+      this.src = { ...this.src, knSigma: this.best.knSigma, aobSigma: this.best.aobSigma };
     }
     if (this.src.kn === 'none') this.setSource('kn', 'hand');
   }
@@ -377,6 +390,7 @@ export class AttackTable {
     const len = SHIP_CLASSES[manual.cls].length;
     this.sol = this.track ? band(this.track, this.src, own, len, firing.kn, firing.range) : null;
     firing.time = this.sol?.shot.time ?? null;
+    firing.est = this.track ? { range: s.range, inRange: !!this.sol?.shot.inRange } : null;
     // The gyro goes down to the tubes (the follow-up motors set it on the fish as it changes).
     const send1 = this.sol ? Math.round(this.sol.gyro * 10) / 10 : 0;
     if (send1 !== this.sentGyro) {
@@ -484,14 +498,15 @@ export class AttackTable {
   }
 
   saveExtra(): unknown {
-    return { track: this.track, src: this.src, marks: this.marks };
+    return { track: this.track, src: this.src, marks: this.marks, best: this.best };
   }
 
   restoreExtra(x: unknown): void {
-    const v = x as { track?: Track | null; src?: Sources; marks?: AttackTable['marks'] } | undefined;
+    const v = x as { track?: Track | null; src?: Sources; marks?: AttackTable['marks']; best?: AttackTable['best'] } | undefined;
     if (!v) return;
     this.track = v.track ?? null;
     if (v.src) this.src = v.src;
     if (v.marks) this.marks = v.marks;
+    this.best = v.best ?? null;
   }
 }

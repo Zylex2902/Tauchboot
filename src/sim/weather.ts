@@ -145,6 +145,13 @@ export function newWeather(r: Rng, month: number, now: number, kind?: SystemKind
   return w;
 }
 
+/** No fog, now or coming (the engagement's clear forenoon, chunk 3.6). */
+export function clearWeather(w: WeatherState): void {
+  w.fog = 0;
+  w.target = { ...w.target, fog: false };
+  w.vis = visibility(w);
+}
+
 function visibility(w: WeatherState): number {
   let v = SYSTEMS[w.kind].vis;
   if (w.precip === 'drizzle') v *= 0.5;

@@ -13,10 +13,12 @@ export interface Settings {
   tableAssist: boolean;
   /** Chunk 3.4: torpedoes fail as their era's did (depth keepers, pistols, gyros), or never. */
   torpFailures: boolean;
+  /** Chunk 3.6: the first officer's prompt slips through the engagement. */
+  prompts: boolean;
 }
 
 const KEY = 'tiefgang.settings.v1';
-const defaults: Settings = { haptics: 'full', volume: 0.9, plotAssist: true, decodeAssist: false, tableAssist: true, torpFailures: true };
+const defaults: Settings = { haptics: 'full', volume: 0.9, plotAssist: true, decodeAssist: false, tableAssist: true, torpFailures: true, prompts: true };
 let current: Settings = { ...defaults };
 
 /** Load persisted settings. Preferences uses native storage on iOS/Android, localStorage on web. */

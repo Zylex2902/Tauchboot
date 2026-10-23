@@ -15,6 +15,7 @@ import { dist, norm, segDist, solveTrack, unit, type Bearing, type Pt } from '..
 import { art, group, PAD as BPAD, TOP as BTOP, type LayoutNode } from './boards';
 import { ChartView, RAY, RULER, SCALES, type Instruments, type Stroke } from './chart-view';
 import { StationScene } from './station';
+import { paintedWall, pipeRun } from './panel-art';
 
 const RAIL = 26;
 const SLIP = { w: 140, h: 48 };
@@ -129,7 +130,8 @@ export class ChartTable extends StationScene {
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'CHART TABLE', ctx);
-    this.useBoards(LAYOUT);
+    this.useBoards(LAYOUT, 'grey');
+    this.paintWall(paintedWall(37, 'grey').toTexture(), pipeRun('chart').toTexture());
     this.addControls(CHART_TABLE);
     this.view = new ChartView(260, 190);
 

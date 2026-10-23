@@ -18,6 +18,10 @@ export class BoatSound {
   private lastPitch = 0;
   private diesels: DieselState = 'stop';
   private bedGain = 0.3;
+  /** The compartment you stand in (chunk 3.6): each has a sound of its own under the boat's. */
+  room = 3;
+  private roomLoops = new Map<string, LoopHandle>();
+  private clockT = 0;
 
   constructor(ticker: Ticker) {
     mixer.whenRunning(() => {
@@ -50,6 +54,8 @@ export class BoatSound {
     if (obs.paused) {
       for (const [, h] of this.loops) h.stop(200);
       this.loops.clear();
+      for (const [, h] of this.roomLoops) h.stop(200);
+      this.roomLoops.clear();
       return;
     }
     const b = obs.boat;
@@ -58,7 +64,8 @@ export class BoatSound {
     const pw = b.power;
     const kn = Math.abs(b.speed);
     // Fans, gyro and mains: they die with the battery, and the boat goes eerily quiet.
-    const bed = pw.drive === 'none' && pw.diesels !== 'run' && pw.charge <= 0 ? 0.07 : 0.3;
+    // The sound room is padded and hushed: the boat comes through softer there.
+    const bed = (pw.drive === 'none' && pw.diesels !== 'run' && pw.charge <= 0 ? 0.07 : 0.3) * (this.room === 2 ? 0.65 : 1);
     if (bed !== this.bedGain) {
       this.bedGain = bed;
       this.bed?.setGain(bed, 2500);
@@ -82,6 +89,7 @@ export class BoatSound {
     this.loop(SFX.flood, f.flood * 0.5, 0.8 + f.flood * 0.3);
     const pumps = Math.max(f.pump, f.trim * 0.8, f.bilge * 0.6);
     this.loop(SFX.pump, pumps * 0.45, f.pump ? 1 : 0.9);
+    this.roomTone(dt);
     // Creaks: the deeper she is and the faster depth or angle changes, the more the hull talks.
     const dPitch = Math.abs(b.pitch - this.lastPitch) / Math.max(dt, 1e-3);
     this.lastPitch = b.pitch;
@@ -91,6 +99,38 @@ export class BoatSound {
       const gap = 14 / (0.3 + stress * 2 + busy * 2);
       this.nextCreak = this.t + gap * (0.5 + Math.random());
       if (this.t > 2) this.creak(Math.min(1, 0.25 + stress * 0.5 + busy * 0.3), 1.1 - Math.min(0.5, stress * 0.3));
+    }
+  }
+
+  /**
+   * Room tone (chunk 3.6): the bow room's water gurgling in the tube drains, the tower's sea
+   * slapping on the bridge casing just above (louder near the surface), the chart table's
+   * watch clock ticking. Cross-faded as you walk through the boat.
+   */
+  private roomTone(dt: number): void {
+    const near = Math.max(0, Math.min(1, (30 - obs.boat.depth) / 20));
+    const want: Record<string, [gain: number, rate: number]> = {
+      [SFX.bubbles]: [this.room === 0 ? 0.08 : 0, 0.55],
+      [SFX.sea]: [this.room === 5 ? 0.05 + 0.1 * near : 0, 0.9],
+    };
+    for (const [name, [g, rate]] of Object.entries(want)) {
+      let h = this.roomLoops.get(name);
+      if (g > 0.005 && !h) {
+        h = mixer.loop(name, 'bed', { gain: 0, rate, fadeMs: 1 });
+        this.roomLoops.set(name, h);
+      }
+      if (!h) continue;
+      if (g <= 0.005) {
+        h.stop(600);
+        this.roomLoops.delete(name);
+      } else h.setGain(g, 500);
+    }
+    if (this.room === 4) {
+      this.clockT += dt;
+      if (this.clockT >= 1) {
+        this.clockT -= 1;
+        mixer.play(SFX.tick, 'bed', { gain: 0.22, rate: this.t % 2 < 1 ? 1 : 0.93 });
+      }
     }
   }
 
@@ -155,6 +195,11 @@ export class BoatSound {
         break;
       case 'breakup':
         mixer.play(SFX.breakup, 'machinery', { gain: 0.75 });
+        break;
+      case 'battle':
+        // Battle stations: the gong struck three times through the boat.
+        for (let k = 0; k < 3; k++) setTimeout(() => mixer.play(SFX.bell, 'machinery', { gain: 0.55, rate: 0.82 }), k * 520);
+        haptic('impact');
         break;
     }
   }

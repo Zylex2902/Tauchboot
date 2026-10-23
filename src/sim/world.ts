@@ -1,6 +1,6 @@
 import type { Landmark } from '../obs';
 import { newAirWorld, type AirWorld } from './air';
-import { HULLS, logTrack, makeGroup, progress, stepGroup, stepShip, TRACK_EVERY, type ConvoyPlan, type GroupState, type ShipState } from './fleet';
+import { HULLS, type HullKey, logTrack, makeGroup, progress, stepGroup, stepShip, TRACK_EVERY, type ConvoyPlan, type GroupState, type ShipState } from './fleet';
 import { newOcean, stepOcean, type OceanState } from './ocean';
 import { Rng } from './rng';
 import { sky, type SkyNow } from './sky';
@@ -33,6 +33,10 @@ export interface ConvoyOpts {
   zigzag?: number;
   /** Course alteration at the route's turning point, degrees. */
   bend?: number;
+  /** The merchants' types by slot (chunk 3.6), instead of drawn. */
+  hulls?: HullKey[];
+  escortSlots?: number[];
+  code?: string;
 }
 
 export interface WorldOpts {
@@ -148,7 +152,9 @@ export function newWorld(r: Rng, opts: WorldOpts = {}): WorldState {
       slow,
       zigzag: c.zigzag ?? Math.floor(r.next() * 3),
       bend: c.bend ?? (r.next() - 0.5) * 30,
-      code: `${home ? 'VK' : 'WN'} ${10 + Math.floor(r.next() * 80)}`,
+      code: c.code ?? `${home ? 'VK' : 'WN'} ${10 + Math.floor(r.next() * 80)}`,
+      hulls: c.hulls ?? [],
+      escortSlots: c.escortSlots ?? [],
     });
   }
   const k = opts.independents ?? Math.floor(r.next() * 3);
@@ -163,6 +169,8 @@ export function newWorld(r: Rng, opts: WorldOpts = {}): WorldState {
       zigzag: 0,
       bend: 0,
       code: `IND ${i + 1}`,
+      hulls: [],
+      escortSlots: [],
       independent: true,
     });
   }
@@ -176,7 +184,7 @@ export function newWorld(r: Rng, opts: WorldOpts = {}): WorldState {
  * point 40 km short of the centre, then 260 km on the new course, the leg that crosses
  * the box.
  */
-function addConvoy(w: WorldState, r: Rng, c: Required<ConvoyOpts> & { code: string; independent?: boolean }): GroupState {
+function addConvoy(w: WorldState, r: Rng, c: Required<Omit<ConvoyOpts, 'code'>> & { code: string; independent?: boolean }): GroupState {
   const soa = c.independent ? 9 + r.next() : c.slow ? 7 : 8.5;
   const approach = Math.max(140000, c.arrive * soa * KN - 40000 + 20000);
   const [ux, uy] = unit(c.course);
@@ -202,6 +210,8 @@ function addConvoy(w: WorldState, r: Rng, c: Required<ConvoyOpts> & { code: stri
     slow: c.slow,
     code: c.code,
     kind: c.independent ? 'independent' : 'convoy',
+    ...(c.hulls.length ? { hulls: c.hulls } : {}),
+    ...(c.escortSlots.length ? { escortSlots: c.escortSlots } : {}),
   };
   const { group, ships } = makeGroup(r, w.groups.length + 1, plan, 0, w.nextShip);
   w.nextShip += ships.length;

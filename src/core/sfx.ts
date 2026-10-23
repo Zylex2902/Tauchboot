@@ -250,6 +250,7 @@ export const SFX = {
   clang: 'clang',
   breakup: 'breakup',
   watch: 'watch',
+  drip: 'drip',
 } as const;
 
 /**
@@ -339,6 +340,7 @@ export const SFX_NOTES: Record<string, string> = {
   clang: 'a dud striking a hull: a dull metallic knock far off',
   breakup: 'a ship going down: bulkheads bursting, boilers, steel tearing, long',
   watch: 'the stopwatch crown pressed: a hard click and the escapement starting',
+  drip: 'a bead of condensation dropping onto the deck plates',
   'screw-torpedo4-0': 'our own torpedo running: fast contra-rotating screws, a thin high whine, loops',
   'screw-torpedo4-1': 'our own torpedo, second voice, loops',
   'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
@@ -504,7 +506,7 @@ export function defineSounds(): void {
     const body = strike(sr, 0.32, 6, 21, 0.55, [...cluster(22, 170, 900, 12, 0.05), ...cluster(23, 1200, 4200, 8, 0.012, 0.35)]);
     add(body, contact(sr, 0.32, 24, 2500, 6500, 0.005), 0.5, 0.008, sr);
     return grit(body, 1.8);
-  });
+  }, 0.6);
 
   d(SFX.release, (sr) => {
     const out = contact(sr, 0.12, 31, 1600, 5200, 0.007);
@@ -516,7 +518,7 @@ export function defineSounds(): void {
     const out = contact(sr, 0.14, 41, 1900, 6200, 0.008);
     add(out, strike(sr, 0.14, 8, 42, 0.6, cluster(43, 180, 700, 8, 0.035)), 0.75, 0.004, sr);
     return grit(out, 1.5);
-  });
+  }, 0.5);
 
   d(SFX.slide, (sr) => {
     const dur = 0.42;
@@ -554,7 +556,7 @@ export function defineSounds(): void {
   d(SFX.endStop, (sr) => {
     const out = strike(sr, 0.5, 11, 121, 0.75, [...cluster(122, 48, 300, 12, 0.12), ...cluster(123, 400, 1500, 8, 0.04, 0.4)]);
     return grit(out, 2.6);
-  });
+  }, 0.6);
 
   d(SFX.hiss, (sr) => {
     const dur = 1.5;
@@ -592,12 +594,12 @@ export function defineSounds(): void {
     const out = strike(sr, 0.32, 5, 171, 0.3, cluster(172, 280, 1900, 14, 0.05));
     [0.03, 0.05].forEach((t, k) => add(out, contact(sr, 0.32, 173 + k, 900, 3800, 0.012), 0.25 / (k + 1), t, sr));
     return grit(out, 1.8);
-  });
+  }, 0.45);
 
   d(SFX.pickup, (sr) => {
     const crackle = scrape(sr, 0.18, 2200, 181, (p) => Math.sin(Math.PI * Math.min(1, p * 1.3)));
     return highpass(lowpass(crackle, 7000, sr), 1600, sr);
-  }, 0.4);
+  }, 0.7);
 
   d(SFX.drop, (sr) => add(strike(sr, 0.12, 3, 191, 0.4, cluster(192, 240, 1200, 7, 0.016)), contact(sr, 0.12, 193, 2200, 4500, 0.004), 0.4), 0.7);
 
@@ -608,7 +610,7 @@ export function defineSounds(): void {
     const rattle = scrape(sr, 0.28, 260, 213, (p) => (p < 0.18 ? 1 - p / 0.18 : 0));
     add(out, resonate(sr, rattle, cluster(214, 420, 2600, 12, 0.02)), 0.4, 0.004, sr);
     return grit(out, 2);
-  }, 0.85);
+  }, 0.6);
 
   d(SFX.bell, (sr) => {
     const dur = 1.25;
@@ -849,7 +851,7 @@ export function defineSounds(): void {
     return loopable(lowpass(highpass(out, 400, sr), 7000, sr), sr, 0.08);
   }, 0.35, true);
 
-  d(SFX.tick, (sr) => add(contact(sr, 0.05, 691, 3000, 9000, 0.003), strike(sr, 0.05, 1, 692, 0.2, [[2900, 0.006, 1], [4700, 0.004, 0.5]]), 0.5), 0.35);
+  d(SFX.tick, (sr) => add(contact(sr, 0.05, 691, 3000, 9000, 0.003), strike(sr, 0.05, 1, 692, 0.2, [[2900, 0.006, 1], [4700, 0.004, 0.5]]), 0.5), 0.7);
 
   d(SFX.static, (sr) => {
     // Atmospherics: a rushing hiss that swells and fades, and crashes of distant lightning.
@@ -946,7 +948,7 @@ export function defineSounds(): void {
     add(out, strike(sr, 0.4, 7, 343, 0.55, [...cluster(344, 150, 700, 10, 0.07), ...cluster(345, 900, 3000, 6, 0.02, 0.4)]), 1, 0.13, sr);
     add(out, contact(sr, 0.4, 346, 3800, 9000, 0.004), 0.3, 0.135, sr); // the glass in its cell
     return grit(out, 1.7);
-  }, 0.8);
+  }, 0.6);
 
   d(SFX.hull, (sr) => {
     // Seamless 8 s: every tone completes whole cycles (multiples of 1/8 Hz).
@@ -1270,5 +1272,13 @@ export function defineSounds(): void {
     add(out, contact(sr, dur, 1002, 3000, 8000, 0.006, 0.05), 0.5);
     for (let k = 1; k < 4; k++) add(out, contact(sr, dur, 1003 + k, 3500, 9000, 0.004, 0.05 + k * 0.125), 0.18);
     return highpass(out, 600, sr);
-  }, 0.5);
+  }, 0.9);
+
+  d(SFX.drip, (sr) => {
+    // A bead of condensation landing on a deck plate: a wet tick and a little ring of steel.
+    const dur = 0.25;
+    const out = strike(sr, dur, 0.8, 1011, 0.35, cluster(1012, 2600, 6800, 6, 0.006));
+    add(out, strike(sr, dur, 1.2, 1013, 0.6, cluster(1014, 900, 1900, 5, 0.018, 0.6)), 0.35, 0.003, sr);
+    return highpass(out, 500, sr);
+  }, 0.45);
 }

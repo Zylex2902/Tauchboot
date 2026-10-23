@@ -8,4 +8,6 @@ export const firing = {
   range: 7500,
   /** The table's last solution: run time to her (s), or null with no target laid. */
   time: null as number | null,
+  /** Chunk 3.6: the table's present range to her (kept from the reckoning), with a target laid; for the prompts. */
+  est: null as { range: number; inRange: boolean } | null,
 };

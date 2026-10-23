@@ -7,11 +7,13 @@ import { dive, newDiveState, type DiveState } from './dive';
 import { awashAt, drill, lensAbove, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
 import { newDetect, stepDetect, type DetectHost, type DetectState } from './detect';
 import { Rng } from './rng';
+import { clearWeather } from './weather';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
 import { beam, newNav, newSense, orderFix, scopeWorld, stepSense, type SenseHost, type SenseState } from './sense';
 import { BAND, newRadio, stepRadio, type RadioState } from './radio';
 import { newAirWorld } from './air';
 import { defaultLandmarks, newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
+import { engage, ENGAGE_PREROLL, ENGAGE_WORLD, newEngage, type EngageState } from './engage';
 import { fire, GANG, newTorp, RACKS, reloads, valve, runningFish, scopeTorps, setFailures, setGyro, stepTorp, tubes, type TorpHost, type TorpWorld } from './torpedo';
 
 /**
@@ -27,9 +29,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 13;
-/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12];
+export const SAVE_VERSION = 14;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6). */
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -94,6 +96,8 @@ export interface SimState {
   scopeMarks?: number;
   /** The bow tubes, the fish running, what became of them (chunk 3.4). */
   torp: TorpWorld;
+  /** The engagement (chunk 3.6): the vertical slice's one complete attack. */
+  engage: EngageState;
 }
 
 export interface Snapshot {
@@ -164,7 +168,12 @@ export class Sim {
     this.keepPrev();
   }
 
-  static fresh(seed: number, world?: WorldOpts): Sim {
+  /** The engagement (chunk 3.6): the slice's fixed convoy, its orders on the card. */
+  static engagement(seed: number): Sim {
+    return Sim.fresh(seed, ENGAGE_WORLD, 'attack');
+  }
+
+  static fresh(seed: number, world?: WorldOpts, kind: DrillKind = 'scope'): Sim {
     const drillRng = new Rng(seed ^ 0x9e3779b9);
     const boatRng = new Rng((seed ^ 0x85ebca6b) >>> 0 || 3);
     const worldRng = new Rng((seed ^ 0xc2b2ae35) >>> 0 || 5);
@@ -180,7 +189,7 @@ export class Sim {
       alarms: Array.from({ length: 9 }, () => ({ level: 0 as AlarmLevel, report: QUIET })),
       nextTest: 0,
       hydro: { trained: 0, marks: 0, hand: false, op: newOperator() },
-      kind: 'scope',
+      kind,
       drill: newDrillState(drillRng),
       dive: newDiveState(),
       air: newAirDrill(),
@@ -190,7 +199,13 @@ export class Sim {
       radio: newRadio(seed),
       detect: newDetect(),
       torp: newTorp(),
+      engage: newEngage(),
     };
+    // The engagement's convoy has been on its course a while: it comes on steady, not still forming up.
+    if (kind === 'attack') {
+      clearWeather(s.world.weather);
+      for (let i = 0; i < ENGAGE_PREROLL / TICK_S; i++) stepWorld(s.world, worldRng, TICK_S, 0);
+    }
     s.sense = newSense(senseRng, s.world);
     s.rng.sense = senseRng.s;
     s.rng.drill = drillRng.s;
@@ -231,6 +246,7 @@ export class Sim {
     s.torp.racks ??= { ...RACKS };
     s.torp.reload ??= { queue: [], job: null, hands: GANG, stalled: null };
     s.rng.torp ??= (s.seed ^ 0x7f4a7c15) >>> 0 || 19;
+    s.engage ??= newEngage();
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -250,7 +266,7 @@ export class Sim {
   }
 
   private get drillObs() {
-    return this.s.kind === 'dive' ? this.s.dive.obs : this.s.kind === 'air' ? this.s.air.obs : this.s.drill.obs;
+    return this.s.kind === 'dive' ? this.s.dive.obs : this.s.kind === 'air' ? this.s.air.obs : this.s.kind === 'attack' ? this.s.engage.obs : this.s.drill.obs;
   }
 
   private present(a: number): void {
@@ -290,6 +306,7 @@ export class Sim {
   /** Advance by one display frame of real time. */
   frame(dtMs: number): void {
     if (this.s.paused) return;
+    if (this.s.kind === 'attack') engage.wall(this.s.engage, Math.min(MAX_FRAME_MS, dtMs) / 1000);
     this.acc += Math.min(MAX_FRAME_MS, dtMs) * this.s.scale;
     let n = Math.floor(this.acc / TICK_MS);
     if (n > MAX_TICKS_PER_FRAME) {
@@ -315,6 +332,7 @@ export class Sim {
       drill.lose(this.s.drill);
       dive.lose(this.s.dive, b);
       airDrill.lose(this.s.air);
+      engage.lose(this.s.engage, this.s.torp, this.s.world, this.s.detect);
       for (let i = 0; i < 9; i++) this.effect({ kind: 'alarm', station: i, level: 2, report: 'THE HULL HAS GIVEN WAY.' });
     }
     if (this.s.kind === 'dive') {
@@ -345,6 +363,7 @@ export class Sim {
     scopeTorps(this.s.torp, this.s.world, out);
     const drillLive = this.s.kind === 'scope' && (d.obs.phase === 'listen' || d.obs.phase === 'scope');
     stepDetect(this.s.detect, this.detectHost, this.s.world, b, { lens: out ? lens : -1, up }, TICK_S, drillLive);
+    if (this.s.kind === 'attack') engage.step(this.s.engage, this.host, TICK_S, this.s.torp, this.s.world, this.s.detect, up, (o) => obs.publish({ type: 'drill', drill: o }));
     if (this.s.world.n % 10 === 0) {
       const h = this.s.hydro;
       const drillKey = this.s.kind === 'scope' ? (this.s.sense.src.drill?.key ?? null) : null;
@@ -452,6 +471,7 @@ export class Sim {
         // A drill sets the boat up for itself: trimmed at periscope depth, or on the surface.
         const kind = c.kind ?? this.s.kind;
         this.s.kind = kind;
+        if (kind === 'attack') this.newEngagement();
         this.s.drill = newDrillState(this.rngDrill, d.clock, d);
         this.s.dive = newDiveState();
         this.s.air = newAirDrill();
@@ -467,6 +487,13 @@ export class Sim {
       case 'drillBegin':
         if (this.s.kind === 'dive') dive.begin(this.s.dive, this.s.boat, this.host);
         else if (this.s.kind === 'air') airDrill.begin(this.s.air, this.s.world.air, this.s.world, this.rngAir, this.host, TICK_S);
+        else if (this.s.kind === 'attack') {
+          if (this.s.engage.obs.phase === 'brief') {
+            obs.publish({ type: 'hull', kind: 'battle' });
+            this.host.later(0.8, [{ kind: 'voice', from: 'CONTROL ROOM', text: 'BATTLE STATIONS. ALL HANDS AT THEIR STATIONS, CAPTAIN.' }]);
+          }
+          engage.begin(this.s.engage, this.host, this.s.torp, (o) => obs.publish({ type: 'drill', drill: o }));
+        }
         else drill.begin(d, this.host);
         break;
       case 'scopeSet':
@@ -542,6 +569,24 @@ export class Sim {
       b.set.telegraph = keep;
       this.effect({ kind: 'voice', from: 'ENGINE ROOM', text: `ENGINE CREW HAS THE ENGINES. KEEPING ${TELEGRAPH[keep]}.` });
     }
+  }
+
+  /**
+   * A new engagement inside a running patrol: the slice's convoy in a fresh world, a fresh
+   * sound room, nothing seen yet, the tubes loaded and the racks full (the failures switch kept).
+   */
+  private newEngagement(): void {
+    const s = this.s;
+    s.world = newWorld(this.rngWorld, ENGAGE_WORLD);
+    clearWeather(s.world.weather);
+    for (let i = 0; i < ENGAGE_PREROLL / TICK_S; i++) stepWorld(s.world, this.rngWorld, TICK_S, 0);
+    s.sense = newSense(this.rngSense, s.world);
+    s.detect = newDetect();
+    const failures = s.torp.failures;
+    s.torp = newTorp();
+    s.torp.failures = failures;
+    s.hydro.op = newOperator();
+    s.engage = newEngage();
   }
 
   /** Has the helmsman reported steady on the ordered course (not saved: a turn in progress re-reports). */

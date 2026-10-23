@@ -187,10 +187,11 @@ export interface ScopeObs {
   blasts: Blast[];
 }
 
-export type DrillKind = 'scope' | 'dive' | 'air';
+/** Chunk 3.6: 'attack' is the engagement: a small convoy, a full attack from first sound to sinking. */
+export type DrillKind = 'attack' | 'scope' | 'dive' | 'air';
 
 /** Scope drill: listen, scope, over. Dive drill: dive, hold, surface, over. Air drill: watch, over. */
-export type DrillPhase = 'brief' | 'listen' | 'scope' | 'dive' | 'hold' | 'surface' | 'watch' | 'over';
+export type DrillPhase = 'brief' | 'listen' | 'scope' | 'dive' | 'hold' | 'surface' | 'watch' | 'attack' | 'over';
 
 export interface ScopeResult {
   kind: 'scope';
@@ -240,7 +241,31 @@ export interface AirResult {
   seconds: number;
 }
 
-export type DrillResult = ScopeResult | DiveResult | AirResult;
+/** The engagement (chunk 3.6): what became of the attack. */
+export interface AttackResult {
+  kind: 'attack';
+  /** sunk: at least one ship going down; damaged: hit, still afloat; escaped: no hits, out of reach; crushed: the boat lost. */
+  outcome: 'sunk' | 'damaged' | 'escaped' | 'crushed';
+  /** Ships sunk or going down: type and tonnage. */
+  sunk: { cls: ShipClassKey; tons: number }[]; // debrief
+  /** Ships hit and still afloat. */
+  hurt: number; // debrief
+  fired: number;
+  /** Fish that struck a ship and went off; that struck and did not; that ran under or went off early. */
+  hits: number; // debrief
+  duds: number; // debrief
+  faults: number; // debrief
+  /** Did the convoy see the scope (turned away or an escort ran in)? */
+  seen: boolean; // debrief
+  scopeUp: number;
+  /** Engagement seconds of sim time, and of real time with the clock running. */
+  seconds: number;
+  wall: number;
+  /** Real seconds from BEGIN to the first ship going down (the Gate 2 measure), or null. */
+  firstSunkWall: number | null;
+}
+
+export type DrillResult = ScopeResult | DiveResult | AirResult | AttackResult;
 
 export interface DrillObs {
   kind: DrillKind;
@@ -257,7 +282,8 @@ export interface DrillObs {
 /** Heard all over the boat. */
 /** alarm: the dive alarm bell, rung through the boat. bomb / bombFar: aircraft bombs close aboard or off. */
 /** launch: a torpedo leaving the tube. detonation(Far): a torpedo going off. clang: a dud striking. breakup: a ship going down. */
-export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup';
+/** battle: battle stations rung through the boat (the engagement begins, chunk 3.6). */
+export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle';
 
 export type ObsEvent =
   | { type: 'alarm'; station: number; obs: AlarmObs }

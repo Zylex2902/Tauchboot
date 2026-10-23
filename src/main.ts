@@ -19,7 +19,7 @@ import { runSim, Sim, type Snapshot } from './sim/core';
 import { BoatSound } from './hull/boat-sound';
 import { Lighting } from './core/lighting';
 import { newSeed } from './sim/rng';
-import { readStore, writeStore } from './core/store';
+import { clearStoreNow, readStore, writeStore } from './core/store';
 import type { UiState } from './hull/hull';
 
 async function lockLandscape(): Promise<void> {
@@ -55,8 +55,11 @@ async function loadPatrol(): Promise<PatrolSave | null> {
   }
 }
 
+/** Set while a new engagement reloads the app: nothing more is saved over the cleared patrol. */
+let restarting = false;
+
 function savePatrol(sim: Sim, hull: Hull): void {
-  if ((window as { __noSave?: boolean }).__noSave) return; // test hook: compare runs without writing
+  if (restarting || (window as { __noSave?: boolean }).__noSave) return; // test hook: compare runs without writing
   const save: PatrolSave = { sim: sim.snapshot(), ui: hull.uiState(), savedAt: Date.now() };
   writeStore(PATROL_KEY, JSON.stringify(save));
 }
@@ -116,15 +119,24 @@ async function boot(): Promise<void> {
   // The patrol: resume the save if there is one, else a fresh seed. The sim is up (and has
   // published the boat's state) before the UI is built, so the UI starts from it.
   const params = new URLSearchParams(location.search);
-  const saved = params.has('fresh') ? null : await loadPatrol();
+  // A patrol saved before the engagement existed (chunk 3.6, save v14) starts on the engagement instead.
+  const kept = params.has('fresh') ? null : await loadPatrol();
+  const saved = kept && (kept.sim?.v ?? 0) < 14 && !params.has('test') ? null : kept;
   const restored = saved ? Sim.load(saved.sim) : null;
-  const sim = restored ?? Sim.fresh(newSeed());
+  // A new boat starts on the engagement (chunk 3.6); test pages keep the old open sea unless asked.
+  const engage = !params.has('test') || params.has('engage');
+  const sim = restored ?? (engage ? Sim.engagement(newSeed()) : Sim.fresh(newSeed()));
   runSim(sim, app.ticker);
-  new BoatSound(app.ticker);
+  const boatSound = new BoatSound(app.ticker);
   const hull = new Hull(tweens, { tw: tweens, ticker: app.ticker });
+  app.ticker.add(() => (boatSound.room = hull.station));
   if (restored && saved?.ui) hull.restoreUi(saved.ui);
   world.addChild(hull.root);
   startAutosave(sim, hull);
+  hull.onRestart = () => {
+    restarting = true;
+    void clearStoreNow(PATROL_KEY).then(() => location.reload());
+  };
   if (params.has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer, __sim: sim, __obs: obs, __save: () => savePatrol(sim, hull) });
   // Truth overlay for development: what the boat senses laid over what is there. Loaded on
   // ?debug, or (where the URL cannot be changed, as in the playtest) by a four-finger tap or

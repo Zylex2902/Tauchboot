@@ -100,6 +100,11 @@ export class StationStrip {
     ctx.ticker.add((t) => this.blink(t.deltaMS));
   }
 
+  /** A compartment's rect in the strip's parent's coordinates (for the prompts' bracket). */
+  compRect(i: number): { x: number; y: number; w: number; h: number } {
+    return { x: this.root.x + COMP_X[i] + 2, y: this.root.y + 2, w: COMP_X[i + 1] - COMP_X[i] - 4, h: STRIP_H - 4 };
+  }
+
   cursorX(i: number): number {
     return compMid(i) - 23;
   }

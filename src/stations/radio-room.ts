@@ -12,7 +12,7 @@ import { Odometer } from '../controls/odometer';
 import { BearingTape } from '../controls/tape';
 import { BLIND, obs, send, sigKey, type HydroVoice } from '../obs';
 import { BeatRecorder } from './beat-recorder';
-import { plate } from './panel-art';
+import { paintedWall, pipeRun, plate } from './panel-art';
 import { art, GAP, group, label, type LayoutNode } from './boards';
 import { RADIO_DESK, RadioDesk } from './radio-desk';
 import { HEADER_H, StationScene } from './station';
@@ -49,7 +49,7 @@ const LAYOUT: LayoutNode = {
       grow: 1,
       kids: [
         { board: 'log', title: 'LOG', min: [148, 124], grow: 1.3 },
-        { board: 'test', title: 'GREY-BOX TEST', min: [148, 87], grow: 0.4 },
+        { board: 'test', title: 'LISTENING', min: [148, 87], grow: 0.4 },
       ],
     },
   ],
@@ -112,7 +112,8 @@ export class RadioRoom extends StationScene {
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'RADIO AND SOUND ROOM', ctx);
-    this.useBoards(LAYOUT);
+    this.useBoards(LAYOUT, 'grey');
+    this.paintWall(paintedWall(23, 'grey').toTexture(), pipeRun('sound').toTexture());
     const tk = ctx.ticker;
     this.addControls(RADIO_ROOM);
 
@@ -203,7 +204,7 @@ export class RadioRoom extends StationScene {
     pad.addChild(this.log);
     this.pin('log', pad, 0.5, 0, -PAD.w / 2, 0, { spread: false });
 
-    // GREY-BOX TEST: clearly not part of the boat.
+    // LISTENING: phones and meter switches (the 2.3 test plate, kept: some ears want the meter off), MARK, the radio desk.
     this.pinControl('test', 'phones', 0, 0.5, 12, -6);
     this.pinControl('test', 'meterOn', 0, 0.5, 58, -6);
     this.pinControl('test', 'mark', 1, 0, -52, 2);
