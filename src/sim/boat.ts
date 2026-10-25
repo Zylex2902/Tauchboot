@@ -85,6 +85,8 @@ export interface BoatState {
   /** The engine room's answer on the telegraph (what the shafts are doing), and how long the order has waited. */
   answered: number;
   ansT: number;
+  /** Chunk 4.1: rigged for silent running: fans, pumps and reloads stopped, the crew still. */
+  silent: boolean;
 }
 
 export interface BoatHost {
@@ -153,6 +155,7 @@ function blank(r: Rng): BoatState {
     power: newPower(),
     answered: TELEGRAPH_STOP,
     ansT: 0,
+    silent: false,
   };
 }
 
@@ -216,6 +219,16 @@ export const boat = {
     }
   },
 
+  /** Rig for silent running, or secure from it (chunk 4.1). Motors to SLOW if faster; heard all over the boat. */
+  silent(b: BoatState, h: BoatHost, on: boolean): boolean {
+    if (b.lost || b.silent === on) return false;
+    b.silent = on;
+    delete b.said.quietPump; // the chief tells you once each time the pumps are stopped
+    if (on && b.set.telegraph < 2) boat.set(b, h, { telegraph: 2 });
+    h.hull(on ? 'quiet' : 'unquiet');
+    return true;
+  },
+
   /** Crew orders by voice pipe: they take the boat and keep the new depth. */
   order(b: BoatState, h: BoatHost, depth: number): void {
     boat.set(b, h, { ordered: depth });
@@ -244,9 +257,15 @@ export const boat = {
       }
     } else b.ansT = 0;
     // Speed: diesels on the surface, motors on the battery; a heavy hull is slow to change.
-    const pin = { surfaced, diving: s.ventF || s.ventA, telegraph: b.answered, depth: b.depth, lost: false, flow };
+    const pin = { surfaced, diving: s.ventF || s.ventA, telegraph: b.answered, depth: b.depth, lost: false, flow, quiet: b.silent };
     const kn = power.drive(b.power, pin);
-    const live = power.pumpsLive(b.power);
+    // Silent running stops the pumps: the regulating, trim and bilge pumps are the loudest things aboard.
+    // Dead slow, the planes hold little; a heavy boat going deep past her depth makes the chief pump
+    // anyway, in short spells, and say so: a boat badly trimmed for silent running is a noisy one.
+    const sinking = !s.hand && b.depth - s.ordered > 8 && b.rate > -0.02;
+    const live = power.pumpsLive(b.power) && (!b.silent || sinking);
+    if (b.silent && sinking && s.reg === -1) sayOnce(b, h, 'quietBreak', 'SHE IS HEAVY AND GOING DOWN, CAPTAIN. I HAVE TO PUMP.', 180);
+    else if (b.silent && (s.reg === -1 || s.trim !== 0)) sayOnce(b, h, 'quietPump', s.hand ? 'PUMPS ARE STOPPED, CAPTAIN. SILENT RUNNING.' : 'PUMPS ARE STOPPED FOR SILENT RUNNING. I AM HOLDING HER ON THE PLANES.', 1e9);
     b.speed += ((kn * KN - b.speed) * dt) / (surfaced ? 15 : 25);
     const v = b.speed;
 
@@ -356,6 +375,7 @@ export const boat = {
     o.bilge = b.bilge;
     o.lost = b.lost;
     o.flow = { ...b.flow };
+    o.silent = b.silent;
     power.present(b.power, o.power, b.answered);
   },
 };

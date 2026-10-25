@@ -404,8 +404,15 @@ export const reloads = {
 };
 
 /** One tick of the torpedo gang. */
-function stepReload(tw: TorpWorld, h: TorpHost, dt: number): void {
+function stepReload(tw: TorpWorld, h: TorpHost, dt: number, silent: boolean): void {
   const R = tw.reload;
+  // Silent running (chunk 4.1): the gang stands still where they are; the work waits.
+  if (silent && (R.job || R.queue.length)) {
+    if (R.stalled !== 'silent') h.say('TORPEDO MATE', R.job ? `RELOAD OF TUBE ${WORD[R.job.tube]} STOPPED FOR SILENT RUNNING.` : 'RELOADS WAIT FOR SILENT RUNNING TO END, SIR.', 0.6);
+    R.stalled = 'silent';
+    return;
+  }
+  if (R.stalled === 'silent') R.stalled = null;
   if (!R.job) {
     const next = R.queue.shift();
     if (!next) return;
@@ -769,7 +776,7 @@ export function stepTorp(tw: TorpWorld, h: TorpHost, w: WorldState, b: BoatState
     tu.busy = null;
     if (!job.hand) finished.add(job.batch);
   }
-  stepReload(tw, h, dt);
+  stepReload(tw, h, dt, b.silent);
   // The bow room reports an order when the last tube of it is done.
   for (const batch of finished) {
     const f = tw.batches[batch];

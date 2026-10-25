@@ -1,5 +1,6 @@
 import { obs } from '../obs';
 import type { Sim } from '../sim/core';
+import { FIRM, radiated } from '../sim/enemy-sense';
 import { HULLS } from '../sim/fleet';
 import { layerAt, layerLoss, waterTemp } from '../sim/ocean';
 import { keyOwner, sightRanges } from '../sim/sense';
@@ -189,6 +190,20 @@ export function mountTruth(sim: Sim): void {
       g.fillStyle = '#7d8fc0';
       g.fillText(`SIG ${sg.n} (${((t - sg.about) / 3600).toFixed(1)} H OLD)`, px + 7, py + 3);
     }
+    // Chunk 4.1: where each escort thinks the boat is (a ring; filled when she holds firm contact).
+    for (const [id, e] of Object.entries(s.detect.esc ?? {})) {
+      if (!e.datum) continue;
+      const [x, y] = P(e.datum.x, e.datum.y);
+      g.strokeStyle = COL.escort;
+      g.globalAlpha = e.firm ? 1 : 0.45;
+      g.beginPath();
+      g.arc(x, y, 5, 0, Math.PI * 2);
+      g.stroke();
+      if (e.firm) g.fillRect(x - 2, y - 2, 4, 4);
+      g.globalAlpha = 1;
+      g.fillStyle = COL.escort;
+      g.fillText(`${id} ${e.datum.by.toUpperCase()}`, x + 7, y + 3);
+    }
     // Own boat, true and dead-reckoned.
     const [dx, dy] = P(se.dr.x, se.dr.y);
     g.strokeStyle = COL.heard;
@@ -238,6 +253,17 @@ export function mountTruth(sim: Sim): void {
     const err = Math.hypot(se.dr.x - own.x, se.dr.y - own.y);
     L(`OWN BOAT       TRUE ${(own.x / 1000).toFixed(2)}, ${(own.y / 1000).toFixed(2)} KM   DR ${(se.dr.x / 1000).toFixed(2)}, ${(se.dr.y / 1000).toFixed(2)} KM   DR OFF ${err.toFixed(0)} M`, COL.dim);
     L(`  CURRENT ${w.current.kn.toFixed(2)} KN SETTING ${pad3(w.current.set)}   FIX ${(se.fixAge / 3600).toFixed(1)} H OLD   NOISE ${b.power.noise.toFixed(0)} DB${obs.sound.deaf ? '  DEAF' : ''}`);
+    // Chunk 4.1: being found. Own radiated noise and what makes it; each escort's margins (dB, 0 = even odds a roll comes good).
+    const rad = radiated(b, s.torp);
+    L(`BEING FOUND    NOISE ${rad.db.toFixed(0)} DB${b.silent ? ' (SILENT RUNNING)' : ''}: ${Object.entries(rad.parts).map(([k, v]) => `${k.toUpperCase()} ${Math.round(v!)}`).join(' ')}   SCOPE EXPOSURE ${s.detect.e.toFixed(2)}   CONTACTS ${s.detect.contacts ?? 0}`, COL.dim);
+    for (const sh of w.ships) {
+      const e = s.detect.esc?.[sh.id];
+      if (!e) continue;
+      const r = Math.hypot(sh.x - own.x, sh.y - own.y);
+      const off = e.datum ? Math.hypot(e.datum.x - own.x, e.datum.y - own.y) : NaN;
+      const m = (v: number) => (v < -90 ? '  --' : (v >= 0 ? '+' : '') + v.toFixed(0)).padStart(4);
+      L(`  ${String(sh.id).padStart(3)} ${sh.hull.toUpperCase().padEnd(9)} ${(r / 1000).toFixed(1)}KM ${sh.kn.toFixed(0).padStart(2)}KN  ASDIC${m(e.m.asdic)} EARS${m(e.m.ears)} RADAR${m(e.m.radar)}  EV ${e.ev.toFixed(1)}/${FIRM}${e.firm ? ' FIRM' : ''}${e.datum ? `  DATUM ${Math.round(off)} M OFF` : ''}${sh.hunt ? '  HUNTING' : ''}`, e.firm ? COL.escort : undefined);
+    }
     L('');
     L('SOUNDS  KEY    HEARD  TRUE   ERR   LEVEL  RPM HEARD/TRUE  SHIP', COL.dim);
     const srcs = [...obs.sound.sources].sort((a, c) => c.level - a.level).slice(0, 14);

@@ -32,6 +32,11 @@ const PUMP_KW = { pump: 12, trim: 6, bilge: 8 };
 /** Speeds by telegraph detent, knots. */
 export const DIVED_KN = [7.5, 4.5, 2, 0, -2];
 export const SURFACED_KN = [16, 10, 6, 0, -3];
+/** Silent running (chunk 4.1): SLOW and BACK become one shaft turning dead slow, knots. */
+export const SILENT_KN = 1.5;
+/** Motor noise saved by turning one shaft instead of two, dB. */
+const ONE_SHAFT_DB = 3;
+const creeping = (i: PowerInput) => !!i.quiet && Math.abs(DIVED_KN[i.telegraph] ?? 0) <= 2 && i.telegraph !== 3;
 
 export interface PowerState {
   /** Battery charge, 0..1 of rated capacity. */
@@ -89,6 +94,8 @@ export interface PowerInput {
   depth: number;
   lost: boolean;
   flow: { vent: number; blow: number; flood: number; pump: number; trim: number; bilge: number };
+  /** Silent running (chunk 4.1): the fans are stopped. */
+  quiet?: boolean;
 }
 
 export interface PowerHost {
@@ -145,7 +152,7 @@ export const power = {
     else if (!p.flat) p.drive = 'motor';
     else p.drive = 'none';
     if (p.drive === 'diesel') return SURFACED_KN[t] ?? 0;
-    if (p.drive === 'motor') return DIVED_KN[t] ?? 0;
+    if (p.drive === 'motor') return creeping(i) ? Math.sign(DIVED_KN[t]) * SILENT_KN : (DIVED_KN[t] ?? 0);
     return 0;
   },
 
@@ -187,7 +194,7 @@ export const power = {
 
     // Loads: hotel and pumps always; the shafts take what the telegraph asks of the drive.
     const pumps = PUMP_KW.pump * i.flow.pump + PUMP_KW.trim * i.flow.trim + PUMP_KW.bilge * i.flow.bilge;
-    const kn = p.drive === 'diesel' ? (SURFACED_KN[i.telegraph] ?? 0) : p.drive === 'motor' ? (DIVED_KN[i.telegraph] ?? 0) : 0;
+    const kn = p.drive === 'diesel' ? (SURFACED_KN[i.telegraph] ?? 0) : p.drive === 'motor' ? power.drive(p, i) : 0;
     const load = HOTEL_KW + pumps;
     // Motors driving with the diesel clutches still in turn the dead diesels over too.
     const drag = hand && p.set.clutch && p.diesel !== 'run' && p.drive === 'motor' && kn !== 0;
@@ -270,12 +277,12 @@ export const power = {
 /** Radiated noise, dB, summed by power from everything running. */
 function noise(p: PowerState, i: PowerInput, kn: number): number {
   const parts: number[] = [];
-  parts.push(p.flat && p.diesel !== 'run' ? 90 : 100); // fans, gyro, mains (or almost nothing)
+  parts.push(p.flat && p.diesel !== 'run' ? 90 : i.quiet ? 93 : 100); // fans, gyro, mains (fans off for silent running; almost nothing on a flat battery)
   if (p.drive === 'motor' && kn !== 0) {
     const s = Math.abs(kn);
     // Cavitation sets in sooner near the surface: deeper water keeps the blade tips quiet.
     const cav = 4 + i.depth / 12;
-    parts.push(112 + 25 * Math.log10(s / 2) + 8 * Math.max(0, Math.min(1, (s - cav) / 1.5)));
+    parts.push(112 + 25 * Math.log10(s / 2) + 8 * Math.max(0, Math.min(1, (s - cav) / 1.5)) - (creeping(i) ? ONE_SHAFT_DB : 0));
   }
   if (p.diesel === 'run' || p.diesel === 'start') parts.push(140 + 3 * Math.min(1, p.dieselKw / DIESEL_MAX));
   if (i.flow.pump) parts.push(116);

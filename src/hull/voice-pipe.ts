@@ -8,10 +8,14 @@ import { SFX } from '../core/sfx';
 import { TypedText, wrap } from '../core/typed';
 import { ease, type Tweens } from '../core/tween';
 import { createControl, hitPolicy, type KitContext } from '../controls';
-import type { VoiceLine } from '../obs';
+import { obs, type VoiceLine } from '../obs';
+import type { Key } from '../controls/key';
 import { plate } from '../stations/panel-art';
 
-/** Standard orders on the voice-pipe board (stub: the sim answers with canned replies). */
+/**
+ * Standard orders on the voice-pipe board. SILENT RUNNING stays down in its well while the
+ * boat is rigged for it (chunk 4.1); pressed again, it secures from silent running.
+ */
 export const ORDERS: { id: string; text: [string, string]; say: string; station: number }[] = [
   { id: 'periscope', text: ['PERISCOPE', 'DEPTH'], say: 'PERISCOPE DEPTH.', station: 3 },
   { id: 'silent', text: ['SILENT', 'RUNNING'], say: 'SILENT RUNNING.', station: 7 },
@@ -69,6 +73,7 @@ export class VoicePipe {
   private queue: VoiceLine[] = [];
   private speaking = false;
   onOrder: (o: (typeof ORDERS)[number]) => void = () => {};
+  private silentKey: Key | null = null;
 
   constructor(private tw: Tweens, ctx: KitContext) {
     this.scrim.hitArea = new Rectangle(0, 0, 480, 240);
@@ -115,6 +120,7 @@ export class VoicePipe {
         ctx,
       );
       c.onChange(() => this.order(o));
+      if (o.id === 'silent') this.silentKey = c as unknown as Key;
       return c.root;
     });
     return this.keyControls;
@@ -159,8 +165,15 @@ export class VoicePipe {
 
   private order(o: (typeof ORDERS)[number]): void {
     this.close();
-    this.say({ from: 'CAPTAIN', text: o.say });
-    this.onOrder(o);
+    // The silent-running key is down while she is rigged: pressing it secures.
+    const p = o.id === 'silent' && obs.boat.silent ? { ...o, id: 'secure', say: 'SECURE FROM SILENT RUNNING.' } : o;
+    this.say({ from: 'CAPTAIN', text: p.say });
+    this.onOrder(p);
+  }
+
+  /** Each frame: keys that show the boat's state. */
+  update(): void {
+    this.silentKey?.latch(obs.boat.silent);
   }
 
   private bindHandle(h: Container): void {

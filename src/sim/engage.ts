@@ -82,7 +82,7 @@ function tally(e: EngageState, tw: TorpWorld, w: WorldState, ds: DetectState, ou
     hits: log.filter((l) => l.outcome === 'hit' || l.outcome === 'keel').length,
     duds: log.filter((l) => l.outcome === 'dud' || l.outcome === 'unarmed').length,
     faults: log.filter((l) => l.outcome === 'premature' || l.outcome === 'under').length,
-    seen: Object.keys(ds.seen).length > 0,
+    seen: Object.keys(ds.seen).length > 0 || (ds.contacts ?? 0) > 0,
     scopeUp: Math.round(e.scopeUp),
     seconds: Math.round(e.t),
     wall: Math.round(e.wall),

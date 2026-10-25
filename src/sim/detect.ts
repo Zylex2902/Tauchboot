@@ -1,4 +1,6 @@
 import type { BoatState } from './boat';
+import type { Ear } from './enemy-sense';
+import type { ShipState } from './fleet';
 import type { Rng } from './rng';
 import { seaStateOf, waveHeight } from './weather';
 import type { WorldState } from './world';
@@ -43,9 +45,18 @@ export interface DetectState {
   seen: Record<number, number>;
   /** When the sound room last called screws speeding up (one call covers a convoy's reaction). */
   said?: number;
+  /** Chunk 4.1: each escort's picture of the boat (enemy-sense.ts), by ship id. */
+  esc?: Record<number, Ear>;
+  /** The boat's radiated noise now, dB. */
+  noise?: number;
+  /** Firm contacts the escorts have made, and the world second of the first. */
+  contacts?: number;
+  firstContact?: number;
+  /** When the first officer last said we were loud with an escort near. */
+  loudSaid?: number;
 }
 
-export const newDetect = (): DetectState => ({ e: 0, v: 0, warned: 0, seen: {} });
+export const newDetect = (): DetectState => ({ e: 0, v: 0, warned: 0, seen: {}, esc: {}, noise: 0, contacts: 0 });
 
 /** What shows above the water, from the scope's hoist and the boat. */
 export interface Showing {
@@ -124,12 +135,15 @@ function sighted(ds: DetectState, w: WorldState, h: DetectHost, id: number, t: n
       if (!hunter || Math.hypot(q.x - w.own.x, q.y - w.own.y) < Math.hypot(hunter.x - w.own.x, hunter.y - w.own.y)) hunter = q;
     }
   if (hunter) hunter.hunt = { x: w.own.x, y: w.own.y, until: t + 900 };
-  // What the boat can know of it: screws speeding up, if the sound room has them.
-  const loud = hunter && h.heard(hunter.id) ? hunter : h.heard(s.id) ? s : null;
-  if (loud && t - (ds.said ?? -1e9) > 90) {
-    ds.said = t;
-    const brg = Math.round(norm(Math.atan2(loud.x - w.own.x, loud.y - w.own.y) / D2R - w.own.course) / 5) * 5 % 360;
-    const what = loud.role === 'escort' ? 'AN ESCORT, CLOSING' : 'SHE IS RUNNING';
-    h.say('SOUND ROOM', `SCREWS SPEEDING UP, BEARING ${String(brg).padStart(3, '0')}. ${what}.`, 4 + h.rng.next() * 3);
-  }
+  if (hunter && h.heard(hunter.id)) escortClosing(ds, w, h, hunter, t);
+  else if (h.heard(s.id)) escortClosing(ds, w, h, s, t);
+}
+
+/** What the boat can know of her turning on us: screws speeding up, if the sound room has her. */
+export function escortClosing(ds: DetectState, w: WorldState, h: DetectHost, s: ShipState, t: number): void {
+  if (!h.heard(s.id) || t - (ds.said ?? -1e9) <= 90) return;
+  ds.said = t;
+  const brg = Math.round(norm(Math.atan2(s.x - w.own.x, s.y - w.own.y) / D2R - w.own.course) / 5) * 5 % 360;
+  const what = s.role === 'escort' ? 'AN ESCORT, CLOSING' : 'SHE IS RUNNING';
+  h.say('SOUND ROOM', `SCREWS SPEEDING UP, BEARING ${String(brg).padStart(3, '0')}. ${what}.`, 4 + h.rng.next() * 3);
 }

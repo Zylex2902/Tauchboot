@@ -385,14 +385,14 @@ export class BowRoom extends StationScene {
   private showReload(dt: number, visible: boolean): void {
     const R = obs.tubes.reload;
     const j = R.job;
-    const working = !!j && R.hands > 0;
+    const working = !!j && R.hands > 0 && !R.stalled;
     this.frameAcc += dt;
     if (this.frameAcc > 320) {
       this.frameAcc = 0;
       if (working) this.frame ^= 1;
     }
     this.drawRoom();
-    const line1 = j ? `${j.tube} ${j.type === 'S' ? 'STEAM' : 'ELEC'}: ${R.stalled === 'hands' ? 'STOPPED, NO HANDS ON IT' : j.name}` : 'NO RELOAD UNDER WAY';
+    const line1 = j ? `${j.tube} ${j.type === 'S' ? 'STEAM' : 'ELEC'}: ${R.stalled === 'hands' ? 'STOPPED, NO HANDS ON IT' : R.stalled === 'silent' ? 'STOPPED, SILENT RUNNING' : j.name}` : 'NO RELOAD UNDER WAY';
     const line2 = R.queue.length ? `NEXT: ${R.queue.map((q) => `${q.tube} ${q.type === 'S' ? 'STEAM' : 'ELEC'}`).join(', ')}` : '';
     this.slip(this.jobSlip, line1, 'jobText', R.stalled ? C.red1 : C.ink0, visible);
     this.slip(this.nextSlip, line2, 'nextText', C.ink1, visible);

@@ -134,6 +134,7 @@ export class Hull {
     this.bindKeys();
     ctx.ticker.add((t) => {
       if (this.travel) this.travel.tickMs += t.deltaMS;
+      this.voice.update();
     });
     obs.alarms.forEach((a, i) => this.onAlarm(i, a.level, true));
     obs.on((e) => {

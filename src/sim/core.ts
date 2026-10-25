@@ -6,6 +6,7 @@ import { airDrill, airDrillBoat, newAirDrill, type AirDrillState } from './airdr
 import { dive, newDiveState, type DiveState } from './dive';
 import { awashAt, drill, lensAbove, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
 import { newDetect, stepDetect, type DetectHost, type DetectState } from './detect';
+import { stepHunt, type HuntHost } from './enemy-sense';
 import { Rng } from './rng';
 import { clearWeather } from './weather';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
@@ -29,9 +30,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 14;
-/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+export const SAVE_VERSION = 15;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1). */
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -44,7 +45,8 @@ const CRASH_DEPTH = 40;
 
 const REPLIES: Record<string, [station: string, text: string]> = {
   periscope: ['CONTROL ROOM', 'PERISCOPE DEPTH, AYE. ONE THREE METRES.'],
-  silent: ['ENGINE ROOM', 'SILENT RUNNING, AYE. MOTORS SLOW.'],
+  silent: ['CONTROL ROOM', 'SILENT RUNNING, AYE. FANS AND PUMPS STOPPED. ONE SHAFT, DEAD SLOW.'],
+  secure: ['CONTROL ROOM', 'SECURE FROM SILENT RUNNING, AYE. FANS AND PUMPS ON.'],
   battle: ['CONTROL ROOM', 'BATTLE STATIONS, AYE.'],
   surface: ['CONTROL ROOM', 'SURFACING, AYE. BLOWING MAIN BALLAST.'],
   gun: ['BRIDGE', 'GUN CREW TO THE BRIDGE, AYE.'],
@@ -71,7 +73,7 @@ export interface SimState {
   tick: number;
   scale: number;
   paused: boolean;
-  rng: { drill: number; hydro: number; boat: number; world: number; sense: number; air: number; spot: number; torp: number };
+  rng: { drill: number; hydro: number; boat: number; world: number; sense: number; air: number; spot: number; torp: number; hunt: number };
   sched: Scheduled[];
   alarms: AlarmObs[];
   nextTest: number;
@@ -115,6 +117,8 @@ export class Sim {
   private rngAir: Rng;
   private rngSpot: Rng;
   private rngTorp: Rng;
+  private rngHunt: Rng;
+  private huntHost: HuntHost;
   private torpHost: TorpHost;
   private detectHost: DetectHost;
   private senseHost: SenseHost;
@@ -138,6 +142,7 @@ export class Sim {
     this.rngAir = new Rng(s.rng.air);
     this.rngSpot = new Rng(s.rng.spot);
     this.rngTorp = new Rng(s.rng.torp);
+    this.rngHunt = new Rng(s.rng.hunt);
     this.torpHost = {
       rng: this.rngTorp,
       say: (from, text, delay) => (delay > 0 ? this.s.sched.push({ at: this.s.tick + Math.round(delay / TICK_S), fx: [{ kind: 'voice', from, text }] }) : this.effect({ kind: 'voice', from, text })),
@@ -150,6 +155,7 @@ export class Sim {
         return !!tr && this.s.world.n * TICK_S - tr.last < 5;
       },
     };
+    this.huntHost = { ...this.detectHost, rng: this.rngHunt };
     this.senseHost = { rng: this.rngSense, effect: (f) => this.effect(f) };
     this.opHost = { rng: this.rngHydro, effect: (f) => this.effect(f), publish: (call) => obs.publish({ type: 'hydroCall', call }) };
     this.host = {
@@ -184,7 +190,7 @@ export class Sim {
       tick: 0,
       scale: 1,
       paused: false,
-      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0, sense: 0, air: (seed ^ 0x165667b1) >>> 0 || 11, spot: (seed ^ 0x51ed27f3) >>> 0 || 13, torp: (seed ^ 0x7f4a7c15) >>> 0 || 19 },
+      rng: { drill: 0, hydro: (seed * 2654435761) >>> 0 || 7, boat: 0, world: 0, sense: 0, air: (seed ^ 0x165667b1) >>> 0 || 11, spot: (seed ^ 0x51ed27f3) >>> 0 || 13, torp: (seed ^ 0x7f4a7c15) >>> 0 || 19, hunt: (seed ^ 0x3c6ef372) >>> 0 || 23 },
       sched: [],
       alarms: Array.from({ length: 9 }, () => ({ level: 0 as AlarmLevel, report: QUIET })),
       nextTest: 0,
@@ -247,6 +253,11 @@ export class Sim {
     s.torp.reload ??= { queue: [], job: null, hands: GANG, stalled: null };
     s.rng.torp ??= (s.seed ^ 0x7f4a7c15) >>> 0 || 19;
     s.engage ??= newEngage();
+    s.boat.silent ??= false;
+    s.detect.esc ??= {};
+    s.detect.noise ??= 0;
+    s.detect.contacts ??= 0;
+    s.rng.hunt ??= (s.seed ^ 0x3c6ef372) >>> 0 || 23;
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -283,6 +294,7 @@ export class Sim {
     this.s.rng.air = this.rngAir.s;
     this.s.rng.spot = this.rngSpot.s;
     this.s.rng.torp = this.rngTorp.s;
+    this.s.rng.hunt = this.rngHunt.s;
     return { v: SAVE_VERSION, sim: structuredClone(this.s) };
   }
 
@@ -363,6 +375,8 @@ export class Sim {
     scopeTorps(this.s.torp, this.s.world, out);
     const drillLive = this.s.kind === 'scope' && (d.obs.phase === 'listen' || d.obs.phase === 'scope');
     stepDetect(this.s.detect, this.detectHost, this.s.world, b, { lens: out ? lens : -1, up }, TICK_S, drillLive);
+    // The escorts' asdic, hydrophones and radar (chunk 4.1).
+    stepHunt(this.s.detect, this.huntHost, this.s.world, b, this.s.torp, up ? lens : -1, TICK_S);
     if (this.s.kind === 'attack') engage.step(this.s.engage, this.host, TICK_S, this.s.torp, this.s.world, this.s.detect, up, (o) => obs.publish({ type: 'drill', drill: o }));
     if (this.s.world.n % 10 === 0) {
       const h = this.s.hydro;
@@ -386,6 +400,7 @@ export class Sim {
     this.s.rng.air = this.rngAir.s;
     this.s.rng.spot = this.rngSpot.s;
     this.s.rng.torp = this.rngTorp.s;
+    this.s.rng.hunt = this.rngHunt.s;
   }
 
   private keepPrev(): void {
@@ -397,7 +412,10 @@ export class Sim {
     const d = this.s.drill;
     switch (c.type) {
       case 'order': {
-        const r = REPLIES[c.order];
+        const b = this.s.boat;
+        // Silent running (chunk 4.1): rigged, or secured; the control room says if it already is.
+        const same = (c.order === 'silent' && b.silent) || (c.order === 'secure' && !b.silent);
+        const r: [string, string] | undefined = same ? ['CONTROL ROOM', b.silent ? 'WE ARE RIGGED FOR SILENT RUNNING, CAPTAIN.' : 'WE ARE NOT RIGGED FOR SILENT RUNNING, CAPTAIN.'] : REPLIES[c.order];
         if (r) this.host.later(0.9, [{ kind: 'voice', from: r[0], text: r[1] }]);
         // The control room acts on depth orders: the chief takes the boat.
         if (c.order === 'alarm') this.crashDive();
@@ -413,7 +431,7 @@ export class Sim {
         }
         if (c.order === 'periscope') boat.order(this.s.boat, this.silentHost, BOAT.periscopeDepth);
         if (c.order === 'surface') boat.order(this.s.boat, this.silentHost, 0);
-        if (c.order === 'silent' && this.s.boat.set.telegraph < 2) boat.set(this.s.boat, this.boatHost, { telegraph: 2 });
+        if (c.order === 'silent' || c.order === 'secure') boat.silent(b, this.silentHost, c.order === 'silent');
         break;
       }
       case 'boatSet':

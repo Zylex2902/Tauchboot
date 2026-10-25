@@ -87,6 +87,8 @@ export interface BoatObs {
   /** For sound: 0..1 rates of what is moving air and water right now. */
   flow: { vent: number; blow: number; spill: number; flood: number; pump: number; trim: number; bilge: number };
   power: PowerObs;
+  /** Chunk 4.1: rigged for silent running. */
+  silent: boolean;
 }
 
 export function freshBoatObs(): BoatObs {
@@ -110,5 +112,6 @@ export function freshBoatObs(): BoatObs {
     lost: null,
     flow: { vent: 0, blow: 0, spill: 0, flood: 0, pump: 0, trim: 0, bilge: 0 },
     power: freshPowerObs(),
+    silent: false,
   };
 }

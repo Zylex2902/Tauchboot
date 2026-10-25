@@ -283,7 +283,7 @@ export interface DrillObs {
 /** alarm: the dive alarm bell, rung through the boat. bomb / bombFar: aircraft bombs close aboard or off. */
 /** launch: a torpedo leaving the tube. detonation(Far): a torpedo going off. clang: a dud striking. breakup: a ship going down. */
 /** battle: battle stations rung through the boat (the engagement begins, chunk 3.6). */
-export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle';
+export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle' | 'quiet' | 'unquiet';
 
 export type ObsEvent =
   | { type: 'alarm'; station: number; obs: AlarmObs }

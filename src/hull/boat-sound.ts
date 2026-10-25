@@ -22,6 +22,8 @@ export class BoatSound {
   room = 3;
   private roomLoops = new Map<string, LoopHandle>();
   private clockT = 0;
+  /** Fans running down or up (silent running, chunk 4.1): a loop swept in rate and gain, then stopped. */
+  private spins: { h: LoopHandle; t: number; ms: number; r: [number, number]; g: [number, number] }[] = [];
 
   constructor(ticker: Ticker) {
     mixer.whenRunning(() => {
@@ -56,6 +58,8 @@ export class BoatSound {
       this.loops.clear();
       for (const [, h] of this.roomLoops) h.stop(200);
       this.roomLoops.clear();
+      for (const sp of this.spins) sp.h.stop(200);
+      this.spins = [];
       return;
     }
     const b = obs.boat;
@@ -65,7 +69,8 @@ export class BoatSound {
     const kn = Math.abs(b.speed);
     // Fans, gyro and mains: they die with the battery, and the boat goes eerily quiet.
     // The sound room is padded and hushed: the boat comes through softer there.
-    const bed = (pw.drive === 'none' && pw.diesels !== 'run' && pw.charge <= 0 ? 0.07 : 0.3) * (this.room === 2 ? 0.65 : 1);
+    // Silent running stops the fans: what is left is mains hum and the motors (chunk 4.1).
+    const bed = (pw.drive === 'none' && pw.diesels !== 'run' && pw.charge <= 0 ? 0.07 : b.silent ? 0.13 : 0.3) * (this.room === 2 ? 0.65 : 1);
     if (bed !== this.bedGain) {
       this.bedGain = bed;
       this.bed?.setGain(bed, 2500);
@@ -90,6 +95,7 @@ export class BoatSound {
     const pumps = Math.max(f.pump, f.trim * 0.8, f.bilge * 0.6);
     this.loop(SFX.pump, pumps * 0.45, f.pump ? 1 : 0.9);
     this.roomTone(dt);
+    this.spinFans(dt);
     // Creaks: the deeper she is and the faster depth or angle changes, the more the hull talks.
     const dPitch = Math.abs(b.pitch - this.lastPitch) / Math.max(dt, 1e-3);
     this.lastPitch = b.pitch;
@@ -132,6 +138,23 @@ export class BoatSound {
         mixer.play(SFX.tick, 'bed', { gain: 0.22, rate: this.t % 2 < 1 ? 1 : 0.93 });
       }
     }
+  }
+
+  private spin(r: [number, number], g: [number, number], ms: number): void {
+    const h = mixer.loop(SFX.motor, 'machinery', { gain: g[0], rate: r[0], fadeMs: 60 });
+    this.spins.push({ h, t: 0, ms, r, g });
+  }
+
+  private spinFans(dt: number): void {
+    for (const sp of this.spins) {
+      sp.t += dt * 1000;
+      const k = Math.min(1, sp.t / sp.ms);
+      const e = 1 - (1 - k) * (1 - k);
+      sp.h.setRate(sp.r[0] + (sp.r[1] - sp.r[0]) * e);
+      sp.h.setGain(sp.g[0] + (sp.g[1] - sp.g[0]) * k, 120);
+      if (k >= 1) sp.h.stop(500);
+    }
+    this.spins = this.spins.filter((sp) => sp.t < sp.ms);
   }
 
   private creak(gain: number, rate: number): void {
@@ -195,6 +218,20 @@ export class BoatSound {
         break;
       case 'breakup':
         mixer.play(SFX.breakup, 'machinery', { gain: 0.75 });
+        break;
+      case 'quiet':
+        // Silent running: the fan breakers drop out one after another and the fans run down.
+        mixer.play(SFX.lampOff, 'machinery', { gain: 0.6, rate: 0.8 });
+        setTimeout(() => mixer.play(SFX.lampOff, 'machinery', { gain: 0.45, rate: 0.7 }), 220);
+        this.spin([1.15, 0.3], [0.22, 0], 2800);
+        haptic('tick');
+        break;
+      case 'unquiet':
+        // Secured: breakers in, the fans spin up and settle into the boat's hum.
+        mixer.play(SFX.lampOn, 'machinery', { gain: 0.55, rate: 0.8 });
+        setTimeout(() => mixer.play(SFX.lampOn, 'machinery', { gain: 0.45, rate: 0.75 }), 200);
+        this.spin([0.3, 1.15], [0.05, 0.2], 2200);
+        haptic('tick');
         break;
       case 'battle':
         // Battle stations: the gong struck three times through the boat.
