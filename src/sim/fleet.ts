@@ -1,4 +1,5 @@
 import { NEUTRAL_KEYS, type NeutralKey, type ShipClassKey, type Signature } from '../obs';
+import type { EscortAI } from './escort';
 import { Rng } from './rng';
 
 /**
@@ -109,6 +110,8 @@ export interface ShipState {
   flag?: NeutralKey;
   /** Chunk 3.2: an escort sent to where a periscope was seen: run there at full speed, then search round it. */
   hunt?: { x: number; y: number; until: number };
+  /** Chunk 4.2: an escort hunting the boat (escort.ts steers her). */
+  ai?: EscortAI;
   /** Chunk 3.4: she saw a torpedo's track: hard over to comb it, full speed, until then. */
   evade?: { course: number; until: number };
   /** Chunk 3.4: torpedoed. */
@@ -442,6 +445,9 @@ export function stepShip(s: ShipState, g: GroupState, t: number, dt: number, wav
   } else if (steer && s.evade) {
     s.wantCourse = s.evade.course;
     s.wantKn = top;
+  } else if (steer && s.ai) {
+    s.wantCourse = s.ai.course;
+    s.wantKn = Math.min(s.ai.kn, top);
   } else if (steer && s.hunt) {
     // Run in on the spot at full speed; there, search in a wide circle.
     const dx = s.hunt.x - s.x;

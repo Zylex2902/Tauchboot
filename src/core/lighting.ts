@@ -157,6 +157,8 @@ export class Lighting {
   private nextDip = 6;
   /** Extra lamp offset from outside (boat angle), art px. */
   lean = 0;
+  /** A charge's jolt set the lamp swinging hard on its cord (chunk 4.2): px, decaying. */
+  private kick = 0;
 
   constructor(
     private host: Container,
@@ -203,6 +205,16 @@ export class Lighting {
     this.set({ dim, flicker: dim < 1 ? 0.25 + (1 - dim) * 1.6 : 0.25 }, ms);
   }
 
+  /**
+   * A depth charge close by (chunk 4.2): the filament stutters, the lamp jumps on its cord
+   * and swings hard, settling over a few seconds. k: 0 far .. 1 against the hull.
+   */
+  jolt(k: number): void {
+    if (k < 0.15) return;
+    this.dip = Math.max(this.dip, Math.min(1, k * 1.3));
+    this.kick = Math.max(this.kick, 16 * k);
+  }
+
   /** Move the light to a new state over ms (default a slow 600 ms). */
   set(p: Partial<LightState>, ms = 600): void {
     Object.assign(this.target, p);
@@ -217,8 +229,9 @@ export class Lighting {
     const n = this.now;
     // The lamp on its cord: a slow swing with a little ellipse to it.
     const ph = (this.t / n.period) * Math.PI * 2;
-    const x = n.x + Math.sin(ph) * n.swing + this.lean;
-    const y = n.y + Math.cos(ph * 2) * n.swing * 0.25;
+    this.kick = Math.max(0, this.kick - dt * this.kick * 0.9);
+    const x = n.x + Math.sin(ph) * n.swing + this.lean + Math.sin(this.t * 4.6) * this.kick;
+    const y = n.y + Math.cos(ph * 2) * n.swing * 0.25 + Math.abs(Math.cos(this.t * 4.6)) * this.kick * 0.3;
     // Filament: now and then it stutters dim for a moment, with a buzz.
     if (n.flicker > 0 && this.t > this.nextDip) {
       this.dip = 1;

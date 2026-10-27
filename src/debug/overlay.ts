@@ -204,6 +204,25 @@ export function mountTruth(sim: Sim): void {
       g.fillStyle = COL.escort;
       g.fillText(`${id} ${e.datum.by.toUpperCase()}`, x + 7, y + 3);
     }
+    // Chunk 4.2: charges sinking (crosses) and the last two minutes' explosions (rings).
+    g.strokeStyle = COL.escort;
+    for (const c of s.esc.charges) {
+      const [x, y] = P(c.x, c.y);
+      g.beginPath();
+      g.moveTo(x - 3, y - 3);
+      g.lineTo(x + 3, y + 3);
+      g.moveTo(x + 3, y - 3);
+      g.lineTo(x - 3, y + 3);
+      g.stroke();
+    }
+    for (const x0 of s.esc.booms) {
+      const [x, y] = P(x0.x, x0.y);
+      g.globalAlpha = Math.max(0.15, 1 - (t - x0.t) / 120);
+      g.beginPath();
+      g.arc(x, y, 4 + (t - x0.t) / 10, 0, Math.PI * 2);
+      g.stroke();
+      g.globalAlpha = 1;
+    }
     // Own boat, true and dead-reckoned.
     const [dx, dy] = P(se.dr.x, se.dr.y);
     g.strokeStyle = COL.heard;
@@ -262,7 +281,7 @@ export function mountTruth(sim: Sim): void {
       const r = Math.hypot(sh.x - own.x, sh.y - own.y);
       const off = e.datum ? Math.hypot(e.datum.x - own.x, e.datum.y - own.y) : NaN;
       const m = (v: number) => (v < -90 ? '  --' : (v >= 0 ? '+' : '') + v.toFixed(0)).padStart(4);
-      L(`  ${String(sh.id).padStart(3)} ${sh.hull.toUpperCase().padEnd(9)} ${(r / 1000).toFixed(1)}KM ${sh.kn.toFixed(0).padStart(2)}KN  ASDIC${m(e.m.asdic)} EARS${m(e.m.ears)} RADAR${m(e.m.radar)}  EV ${e.ev.toFixed(1)}/${FIRM}${e.firm ? ' FIRM' : ''}${e.datum ? `  DATUM ${Math.round(off)} M OFF` : ''}${sh.hunt ? '  HUNTING' : ''}`, e.firm ? COL.escort : undefined);
+      L(`  ${String(sh.id).padStart(3)} ${sh.hull.toUpperCase().padEnd(9)} ${(r / 1000).toFixed(1)}KM ${sh.kn.toFixed(0).padStart(2)}KN  ASDIC${m(e.m.asdic)} EARS${m(e.m.ears)} RADAR${m(e.m.radar)}  EV ${e.ev.toFixed(1)}/${FIRM}${e.firm ? ' FIRM' : ''}${e.datum ? `  DATUM ${Math.round(off)} M OFF` : ''}${sh.ai ? `  ${sh.ai.mode.toUpperCase()}${sh.ai.mode === 'attack' ? ` SET ${Math.round(sh.ai.set)} M` : ''} RUNS ${sh.ai.attacks}` : sh.hunt ? '  SENT' : ''}  DC ${s.esc.racks[sh.id] ?? '-'}`, e.firm ? COL.escort : undefined);
     }
     L('');
     L('SOUNDS  KEY    HEARD  TRUE   ERR   LEVEL  RPM HEARD/TRUE  SHIP', COL.dim);

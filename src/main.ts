@@ -173,6 +173,20 @@ async function boot(): Promise<void> {
     light.power(obs.boat.power.charge, obs.boat.power.diesels === 'run');
   });
   if (params.has('test')) Object.assign(window, { __light: light });
+  // Depth charges close aboard (chunk 4.2): the lamp jumps and the whole boat shakes, whole art pixels at a time.
+  let shake = 0;
+  let home = { x: 0, y: 0, s: 1 };
+  obs.on((e) => {
+    if (e.type !== 'blast') return;
+    light.jolt(e.k);
+    if (e.k > 0.35) shake = Math.max(shake, 4 * e.k);
+  });
+  app.ticker.add((tk) => {
+    if (shake <= 0) return;
+    shake = Math.max(0, shake - (tk.deltaMS / 1000) * 6);
+    const a = Math.round(shake);
+    world.position.set(home.x + Math.round((Math.random() * 2 - 1) * a) * home.s, home.y + Math.round((Math.random() * 2 - 1) * a) * home.s);
+  });
 
   watchSize(host, (w, h) => {
     app.renderer.resize(w, h);
@@ -182,6 +196,7 @@ async function boot(): Promise<void> {
     world.visible = !l.portrait;
     world.scale.set(l.scale);
     world.position.set(l.frameX, l.frameY);
+    home = { x: l.frameX, y: l.frameY, s: l.scale };
     hull.setLayout(l);
     light.setLayout(l, w, h);
     const grid = prompt.apply(l) ?? { scale: l.scale, x: l.frameX, y: l.frameY };

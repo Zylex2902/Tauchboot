@@ -7,6 +7,7 @@ import { dive, newDiveState, type DiveState } from './dive';
 import { awashAt, drill, lensAbove, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
 import { newDetect, stepDetect, type DetectHost, type DetectState } from './detect';
 import { stepHunt, type HuntHost } from './enemy-sense';
+import { churned, newEscortWorld, stepEscorts, type EscortHost, type EscortWorld } from './escort';
 import { Rng } from './rng';
 import { clearWeather } from './weather';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
@@ -30,9 +31,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 15;
-/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+export const SAVE_VERSION = 16;
+/** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1), the escorts' hunts and depth charges (4.2). */
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -100,6 +101,8 @@ export interface SimState {
   torp: TorpWorld;
   /** The engagement (chunk 3.6): the vertical slice's one complete attack. */
   engage: EngageState;
+  /** The escorts' hunts: charges in the water, recent explosions, charges left aboard (chunk 4.2). */
+  esc: EscortWorld;
 }
 
 export interface Snapshot {
@@ -119,6 +122,7 @@ export class Sim {
   private rngTorp: Rng;
   private rngHunt: Rng;
   private huntHost: HuntHost;
+  private escortHost: EscortHost;
   private torpHost: TorpHost;
   private detectHost: DetectHost;
   private senseHost: SenseHost;
@@ -156,6 +160,13 @@ export class Sim {
       },
     };
     this.huntHost = { ...this.detectHost, rng: this.rngHunt };
+    this.escortHost = {
+      ...this.huntHost,
+      ping: (bearing, level, on) => obs.publish({ type: 'ping', bearing, level, on }),
+      splash: () => obs.publish({ type: 'hull', kind: 'splash' }),
+      boom: (x, y, z) => this.charge(x, y, z),
+      overhead: (o) => (obs.overhead = o && { level: o.level, bearing: o.bearing, rpm: o.rpm }),
+    };
     this.senseHost = { rng: this.rngSense, effect: (f) => this.effect(f) };
     this.opHost = { rng: this.rngHydro, effect: (f) => this.effect(f), publish: (call) => obs.publish({ type: 'hydroCall', call }) };
     this.host = {
@@ -206,6 +217,7 @@ export class Sim {
       detect: newDetect(),
       torp: newTorp(),
       engage: newEngage(),
+      esc: newEscortWorld(),
     };
     // The engagement's convoy has been on its course a while: it comes on steady, not still forming up.
     if (kind === 'attack') {
@@ -258,6 +270,7 @@ export class Sim {
     s.detect.noise ??= 0;
     s.detect.contacts ??= 0;
     s.rng.hunt ??= (s.seed ^ 0x3c6ef372) >>> 0 || 23;
+    s.esc ??= newEscortWorld();
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -340,13 +353,7 @@ export class Sim {
     const phase = this.drillObs.phase;
     const wasLost = b.lost;
     boat.step(b, this.boatHost, TICK_S, sea(this.s.drill.clock));
-    if (b.lost && !wasLost) {
-      drill.lose(this.s.drill);
-      dive.lose(this.s.dive, b);
-      airDrill.lose(this.s.air);
-      engage.lose(this.s.engage, this.s.torp, this.s.world, this.s.detect);
-      for (let i = 0; i < 9; i++) this.effect({ kind: 'alarm', station: i, level: 2, report: 'THE HULL HAS GIVEN WAY.' });
-    }
+    if (b.lost && !wasLost) this.lost('THE HULL HAS GIVEN WAY.');
     if (this.s.kind === 'dive') {
       this.s.drill.clock += TICK_S;
       dive.step(this.s.dive, b, this.host, TICK_S);
@@ -376,7 +383,10 @@ export class Sim {
     const drillLive = this.s.kind === 'scope' && (d.obs.phase === 'listen' || d.obs.phase === 'scope');
     stepDetect(this.s.detect, this.detectHost, this.s.world, b, { lens: out ? lens : -1, up }, TICK_S, drillLive);
     // The escorts' asdic, hydrophones and radar (chunk 4.1).
-    stepHunt(this.s.detect, this.huntHost, this.s.world, b, this.s.torp, up ? lens : -1, TICK_S);
+    const t = this.s.world.n * TICK_S;
+    stepHunt(this.s.detect, this.huntHost, this.s.world, b, this.s.torp, up ? lens : -1, TICK_S, (sh) => churned(this.s.esc, sh, this.s.world, t));
+    // The escorts' hunts, pings and depth charges (chunk 4.2).
+    stepEscorts(this.s.esc, this.s.detect, this.escortHost, this.s.world, b, TICK_S);
     if (this.s.kind === 'attack') engage.step(this.s.engage, this.host, TICK_S, this.s.torp, this.s.world, this.s.detect, up, (o) => obs.publish({ type: 'drill', drill: o }));
     if (this.s.world.n % 10 === 0) {
       const h = this.s.hydro;
@@ -646,6 +656,59 @@ export class Sim {
   }
 
   /** Bombs from an aircraft: how close, and how deep she was when they fell. */
+  /** The boat is lost: every drill and the engagement end there. */
+  private lost(report: string): void {
+    const b = this.s.boat;
+    drill.lose(this.s.drill);
+    dive.lose(this.s.dive, b);
+    airDrill.lose(this.s.air);
+    engage.lose(this.s.engage, this.s.torp, this.s.world, this.s.detect);
+    for (let i = 0; i < 9; i++) this.effect({ kind: 'alarm', station: i, level: 2, report });
+  }
+
+  /**
+   * A depth charge going off (chunk 4.2), by its distance from the hull: within a few metres
+   * it splits her; close, rivets shear and the sea comes in; a near miss may start a gland; nearer than forty, glass and
+   * gauges; further, the boat rings and the lamps swing.
+   */
+  private charge(x: number, y: number, z: number): void {
+    const b = this.s.boat;
+    if (b.lost) return;
+    const w = this.s.world;
+    const d = Math.hypot(x - w.own.x, y - w.own.y, z - (b.depth - 3));
+    const k = Math.max(0, Math.min(1, 1 - Math.log10(Math.max(8, d) / 8) / Math.log10(4000 / 8)));
+    const rel = ((Math.atan2(x - w.own.x, y - w.own.y) * 180) / Math.PI - w.own.course) * (Math.PI / 180);
+    if (k > 0.02) obs.publish({ type: 'blast', k, pan: Math.max(-1, Math.min(1, Math.sin(rel))) });
+    const t = w.n * TICK_S;
+    const said = this.s.esc.said;
+    if (d < 6) {
+      b.lost = 'crushed';
+      this.boatHost.hull('crush');
+      this.lost('A CHARGE AGAINST THE HULL. SHE IS SPLIT OPEN.');
+    } else if (d < 18) {
+      b.rivets += 1 + Math.floor((18 - d) / 4);
+      this.boatHost.hull('rivet');
+      if (t - (said.hit ?? -1e9) > 20) {
+        said.hit = t;
+        this.effect({ kind: 'alarm', station: 3, level: 2, report: 'DEPTH CHARGES CLOSE ABOARD. WATER COMING IN. PUMPS NEEDED.' });
+        this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'WATER IN THE BOAT! RIVETS GONE!' });
+      }
+    } else if (d < 30 && this.rngHunt.next() < (30 - d) / 16) {
+      // A near miss: a gland weeping, a flange started. One small leak.
+      b.rivets += 1;
+      this.boatHost.hull('rivet');
+      if (t - (said.hit ?? -1e9) > 20) {
+        said.hit = t;
+        this.effect({ kind: 'alarm', station: 3, level: 1, report: 'NEAR MISS. A GLAND IS LEAKING. PUMPS ON IT.' });
+        this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'CLOSE! A LEAK AFT, CAPTAIN.' });
+      }
+    } else if (d < 40 && t - (said.shaken ?? -1e9) > 20) {
+      said.shaken = t;
+      this.effect({ kind: 'alarm', station: 3, level: 1, report: 'DEPTH CHARGES CLOSE. GLASS BROKEN, NO LEAKS.' });
+      this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'CLOSE! SHE HOLDS, CAPTAIN.' });
+    }
+  }
+
   private bombs(d: Drop): void {
     const b = this.s.boat;
     if (b.lost) return;

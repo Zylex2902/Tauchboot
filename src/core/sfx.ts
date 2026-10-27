@@ -251,6 +251,10 @@ export const SFX = {
   breakup: 'breakup',
   watch: 'watch',
   drip: 'drip',
+  /** The escorts (chunk 4.2): an asdic ping through the water; a ping finding us, ringing on the hull; depth charges going in. */
+  ping: 'ping',
+  pingHull: 'pingHull',
+  splash: 'splash',
 } as const;
 
 /**
@@ -341,6 +345,9 @@ export const SFX_NOTES: Record<string, string> = {
   breakup: 'a ship going down: bulkheads bursting, boilers, steel tearing, long',
   watch: 'the stopwatch crown pressed: a hard click and the escapement starting',
   drip: 'a bead of condensation dropping onto the deck plates',
+  ping: 'an escort\'s asdic ping coming through the water',
+  pingHull: 'a ping finding us: a hard ring on the pressure hull',
+  splash: 'depth charges going into the water overhead',
   'screw-torpedo4-0': 'our own torpedo running: fast contra-rotating screws, a thin high whine, loops',
   'screw-torpedo4-1': 'our own torpedo, second voice, loops',
   'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
@@ -1273,6 +1280,39 @@ export function defineSounds(): void {
     for (let k = 1; k < 4; k++) add(out, contact(sr, dur, 1003 + k, 3500, 9000, 0.004, 0.05 + k * 0.125), 0.18);
     return highpass(out, 600, sr);
   }, 0.9);
+
+  d(SFX.ping, (sr) => {
+    // The asdic's oscillator is a struck steel diaphragm in the escort's dome: a hard ring,
+    // smeared by the water between, its tail rolling off into reverberation.
+    const dur = 1.6;
+    const out = strike(sr, dur, 3, 1021, 0.2, cluster(1022, 1780, 1960, 6, 0.32, 1, 0.1));
+    add(out, strike(sr, dur, 6, 1023, 0.5, cluster(1024, 1700, 2100, 8, 0.6, 0.5, 0.1)), 0.35, 0.05, sr);
+    // The sea scattering it back: a soft hiss under the ring.
+    const tail = lowpass(scrape(sr, dur, 6000, 1025, (p) => Math.exp(-p * 5)), 2400, sr);
+    add(out, tail, 0.25, 0.02, sr);
+    for (let i = 0; i < out.length; i++) out[i] *= Math.min(1, (dur - i / sr) / 0.5);
+    return lowpass(out, 3200, sr);
+  }, 0.6);
+
+  d(SFX.pingHull, (sr) => {
+    // The ping arriving on our own plating: sharper, louder, the hull answering it in its own low ring.
+    const dur = 1.4;
+    const out = strike(sr, dur, 1.5, 1031, 0.05, cluster(1032, 1820, 2050, 7, 0.22, 1, 0.1));
+    add(out, strike(sr, dur, 10, 1033, 0.7, cluster(1034, 140, 520, 9, 0.35)), 0.45, 0.004, sr);
+    add(out, strike(sr, dur, 2, 1035, 0.3, cluster(1036, 2600, 5200, 6, 0.05)), 0.25, 0.002, sr);
+    return lowpass(out, 5200, sr);
+  }, 0.75);
+
+  d(SFX.splash, (sr) => {
+    // Charges rolling off the rails and from the throwers: heavy things hitting the water above, muffled through it.
+    const dur = 2.2;
+    const out = len(sr, dur);
+    for (const [at, g, seed] of [[0, 1, 1041], [0.45, 0.7, 1042], [0.6, 0.8, 1043], [0.95, 0.9, 1044], [1.4, 0.75, 1045]] as const) {
+      add(out, strike(sr, 0.7, 30, seed, 0.85, cluster(seed + 20, 60, 260, 7, 0.08)), g, at, sr);
+      add(out, lowpass(scrape(sr, 0.6, 2500, seed + 40, (p) => Math.exp(-p * 7)), 900, sr), g * 0.5, at + 0.01, sr);
+    }
+    return lowpass(out, 1100, sr);
+  }, 0.55);
 
   d(SFX.drip, (sr) => {
     // A bead of condensation landing on a deck plate: a wet tick and a little ring of steel.

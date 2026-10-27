@@ -1,7 +1,7 @@
 import type { Ticker } from 'pixi.js';
 import { mixer, type LoopHandle } from '../core/audio';
 import { haptic } from '../core/haptics';
-import { SFX } from '../core/sfx';
+import { SFX, SIG_RPM, sigSound } from '../core/sfx';
 import { BOAT, obs, type DieselState, type HullSound } from '../obs';
 
 /**
@@ -24,13 +24,19 @@ export class BoatSound {
   private clockT = 0;
   /** Fans running down or up (silent running, chunk 4.1): a loop swept in rate and gain, then stopped. */
   private spins: { h: LoopHandle; t: number; ms: number; r: [number, number]; g: [number, number] }[] = [];
+  /** Screws heard through the hull, a ship passing close (chunk 4.2). */
+  private over: LoopHandle | null = null;
 
   constructor(ticker: Ticker) {
     mixer.whenRunning(() => {
       // The boat is never silent: motors, mains hum and ventilation under everything.
       this.bed = mixer.loop(SFX.hull, 'bed', { gain: 0.3, fadeMs: 2500 });
     });
-    obs.on((e) => e.type === 'hull' && this.event(e.kind));
+    obs.on((e) => {
+      if (e.type === 'hull') this.event(e.kind);
+      if (e.type === 'ping') this.ping(e.bearing, e.level, e.on);
+      if (e.type === 'blast') this.blast(e.k, e.pan);
+    });
     ticker.add((tk) => this.update(Math.min(100, tk.deltaMS) / 1000));
   }
 
@@ -60,6 +66,8 @@ export class BoatSound {
       this.roomLoops.clear();
       for (const sp of this.spins) sp.h.stop(200);
       this.spins = [];
+      this.over?.stop(200);
+      this.over = null;
       return;
     }
     const b = obs.boat;
@@ -96,6 +104,7 @@ export class BoatSound {
     this.loop(SFX.pump, pumps * 0.45, f.pump ? 1 : 0.9);
     this.roomTone(dt);
     this.spinFans(dt);
+    this.overhead();
     // Creaks: the deeper she is and the faster depth or angle changes, the more the hull talks.
     const dPitch = Math.abs(b.pitch - this.lastPitch) / Math.max(dt, 1e-3);
     this.lastPitch = b.pitch;
@@ -138,6 +147,50 @@ export class BoatSound {
         mixer.play(SFX.tick, 'bed', { gain: 0.22, rate: this.t % 2 < 1 ? 1 : 0.93 });
       }
     }
+  }
+
+  /**
+   * Screws overhead (chunk 4.2): no phones needed. A ship passing close is heard through the
+   * steel, a churning beat swelling and fading, from her side.
+   */
+  private overhead(): void {
+    const o = obs.overhead;
+    const g = o ? o.level * 0.55 : 0;
+    if (g < 0.01) {
+      if (this.over) {
+        this.over.stop(900);
+        this.over = null;
+      }
+      return;
+    }
+    if (!this.over) {
+      this.over = mixer.loop(sigSound('steam3', 0), 'machinery', { gain: 0, fadeMs: 1 });
+      this.over.setTone(650, 1);
+    }
+    this.over.setGain(g, 400);
+    this.over.setRate(Math.max(0.3, Math.min(2.5, o!.rpm / SIG_RPM.steam3)));
+    this.over.setPan(Math.sin((o!.bearing * Math.PI) / 180) * 0.8);
+  }
+
+  /** An asdic ping (chunk 4.2): louder in the sound room; one that finds us rings on the hull everywhere. */
+  private ping(bearing: number, level: number, on: boolean): void {
+    const pan = Math.sin((bearing * Math.PI) / 180) * 0.8;
+    mixer.play(SFX.ping, 'sensors', { gain: level * (this.room === 2 ? 0.9 : 0.4), pan, rate: 0.98 + Math.random() * 0.04 });
+    if (on) {
+      mixer.play(SFX.pingHull, 'machinery', { gain: 0.45 + 0.4 * level, pan: pan * 0.5 });
+      haptic('tick');
+    }
+  }
+
+  /** A depth charge going off (chunk 4.2): the nearer, the harder, the deeper the hull answers. */
+  private blast(k: number, pan: number): void {
+    mixer.play(SFX.bomb, 'machinery', { gain: 0.2 + 0.8 * k, rate: 0.7 + 0.4 * k, pan: pan * 0.6 });
+    if (k > 0.45) this.creak(Math.min(1, k), 1.15);
+    if (k > 0.65) {
+      haptic('heavy');
+      setTimeout(() => haptic('heavy'), 140);
+    } else if (k > 0.4) haptic('impact');
+    else haptic('tick');
   }
 
   private spin(r: [number, number], g: [number, number], ms: number): void {
@@ -232,6 +285,10 @@ export class BoatSound {
         setTimeout(() => mixer.play(SFX.lampOn, 'machinery', { gain: 0.45, rate: 0.75 }), 200);
         this.spin([0.3, 1.15], [0.05, 0.2], 2200);
         haptic('tick');
+        break;
+      case 'splash':
+        // Charges going in overhead: heavy things hitting the water, then the long wait.
+        mixer.play(SFX.splash, 'machinery', { gain: 0.65 });
         break;
       case 'battle':
         // Battle stations: the gong struck three times through the boat.

@@ -42,8 +42,8 @@ const FAR = 9000;
 /** Evidence for a firm contact, the level it is lost below, the most it holds, and seconds a unit lasts. */
 export const FIRM = 2;
 const LOSE = 0.7;
-const EV_MAX = 4;
-const EBB = 60;
+const EV_MAX = 3;
+const EBB = 45;
 /** What one success is worth. */
 const WORTH = { asdic: 1, ears: 0.6, radar: 1.5 };
 /**
@@ -200,10 +200,10 @@ export function margins(w: WorldState, b: BoatState, s: ShipState, noiseDb: numb
  * Once a second: every escort rolls her sensors. `lens`: the scope's lens above the sea
  * (metres; negative when it is not up).
  */
-export function stepHunt(ds: DetectState, h: HuntHost, w: WorldState, b: BoatState, tw: TorpWorld, lens: number, dt: number): void {
+export function stepHunt(ds: DetectState, h: HuntHost, w: WorldState, b: BoatState, tw: TorpWorld, lens: number, dt: number, churn: (s: ShipState) => number = () => 0): void {
+  if (w.n % Math.round(1 / dt) !== 0) return;
   const noise = radiated(b, tw).db;
   ds.noise = noise;
-  if (w.n % Math.round(1 / dt) !== 0) return;
   const t = w.n * dt;
   const own = w.own;
   const esc = (ds.esc ??= {});
@@ -228,18 +228,23 @@ export function stepHunt(ds: DetectState, h: HuntHost, w: WorldState, b: BoatSta
     // The water path fades in and out over half a minute or so.
     e.fade += (-e.fade / 30) + Math.sqrt(2 / 30) * 3 * gauss(h.rng);
     const m = margins(w, b, s, noise, e.fade, lens);
+    // Water churned by charges: the echo is lost in it for a minute or two (chunk 4.2).
+    m.asdic -= churn(s);
     e.m = { asdic: m.asdic, ears: m.ears, radar: m.radar };
     e.worth = echoWorth(m.radial, m.ears);
     const brg = norm(Math.atan2(own.x - s.x, own.y - s.y) / D2R);
 
     // Where her asdic beam is looking: on the contact, round her datum, or ahead of her beams.
     let cover = 0;
-    const aim = e.datum ?? (s.hunt ? { x: s.hunt.x, y: s.hunt.y } : null);
+    const aim = e.datum ?? (s.ai ? { x: s.ai.datum.x, y: s.ai.datum.y } : s.hunt ? { x: s.hunt.x, y: s.hunt.y } : null);
+    const hunting = e.firm || !!s.hunt || !!s.ai;
     const aimOff = aim ? Math.abs(wrap(Math.atan2(aim.x - s.x, aim.y - s.y) / D2R - brg)) : 999;
     const aimFar = aim ? Math.hypot(aim.x - s.x, aim.y - s.y) : 0;
-    if (e.firm && aimOff <= BEAM * 0.8) cover = 1 / PING_S;
-    else if ((e.firm || s.hunt) && aimFar > 300 && aimOff <= HUNT_ARC) cover = BEAM / STEP / ((2 * HUNT_ARC) / STEP) / PING_S;
-    else if ((e.firm || s.hunt) && aimFar <= 300) cover = BEAM / STEP / (360 / STEP) / PING_S; // over the datum: all round
+    // Holding contact: the operator trains on each echo as it comes back, so the beam stays on her.
+    // Close in she shortens the range scale: pings come quicker (about every two seconds at a kilometre).
+    if (e.firm && ((e.datum && e.datum.by !== 'ears' && t - e.datum.t < 15) || aimOff <= BEAM * 0.8)) cover = 1 / Math.max(1.4, Math.min(PING_S, (2 * r0) / 1500 + 0.8));
+    else if (hunting && aimFar > 300 && aimOff <= HUNT_ARC) cover = BEAM / STEP / ((2 * HUNT_ARC) / STEP) / PING_S;
+    else if (hunting && aimFar <= 300) cover = BEAM / STEP / (360 / STEP) / PING_S; // over the datum: all round
     else if (Math.abs(m.rel) <= SEARCH_ARC) cover = BEAM / STEP / ((2 * SEARCH_ARC) / STEP) / PING_S;
 
     const roll = (lam: number) => lam > 0 && h.rng.next() < 1 - Math.exp(-lam);

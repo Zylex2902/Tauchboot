@@ -282,8 +282,8 @@ export interface DrillObs {
 /** Heard all over the boat. */
 /** alarm: the dive alarm bell, rung through the boat. bomb / bombFar: aircraft bombs close aboard or off. */
 /** launch: a torpedo leaving the tube. detonation(Far): a torpedo going off. clang: a dud striking. breakup: a ship going down. */
-/** battle: battle stations rung through the boat (the engagement begins, chunk 3.6). */
-export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle' | 'quiet' | 'unquiet';
+/** battle: battle stations rung through the boat (the engagement begins, chunk 3.6). quiet / unquiet: rigged for silent running, or secured (4.1). splash: depth charges going in near enough to hear (4.2). */
+export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle' | 'quiet' | 'unquiet' | 'splash';
 
 export type ObsEvent =
   | { type: 'alarm'; station: number; obs: AlarmObs }
@@ -298,7 +298,11 @@ export type ObsEvent =
   | { type: 'lookout'; report: LookoutReport }
   | { type: 'signal'; signal: Signal }
   /** Chunk 3.4: a fish has left its tube (the stopwatch starts on the first). */
-  | { type: 'torpedo'; kind: 'launch'; tube: number; at: number };
+  | { type: 'torpedo'; kind: 'launch'; tube: number; at: number }
+  /** Chunk 4.2: an escort's asdic ping reaching us (bearing off our bow, loudness 0..1); on: it found us and rings on the hull. */
+  | { type: 'ping'; bearing: number; level: number; on: boolean }
+  /** Chunk 4.2: a depth charge going off: how close (0 far .. 1 against the hull) and from which side (-1 port .. 1 starboard). */
+  | { type: 'blast'; k: number; pan: number };
 
 export type Command =
   | { type: 'pause'; on: boolean }
@@ -364,6 +368,8 @@ class Observation {
   timeScale = 1;
   /** The hydrophone's sound field (once a second). */
   sound: SoundObs = freshSound();
+  /** Chunk 4.2: screws heard through the hull without the phones, a ship passing close (once a second), or null. */
+  overhead: { level: number; bearing: number; rpm: number } | null = null;
   /** Navigator's dead reckoning, compass, log and watch clock (every tick). */
   readonly nav: NavObs = freshNav();
   /** Weather as last seen from the bridge or scope, and the hull thermometer. */
