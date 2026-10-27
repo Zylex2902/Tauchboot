@@ -10,6 +10,9 @@ import { BOAT, obs, type DieselState, type HullSound } from '../obs';
  * only by the observation layer (flows and hull events), so it plays the same whichever
  * station you stand at.
  */
+/** The engine room's station index (the decoy ejector is aft of it). */
+const ENGINE_ROOM = 7;
+
 export class BoatSound {
   private bed: LoopHandle | null = null;
   private loops = new Map<string, LoopHandle>();
@@ -289,6 +292,11 @@ export class BoatSound {
       case 'splash':
         // Charges going in overhead: heavy things hitting the water, then the long wait.
         mixer.play(SFX.splash, 'machinery', { gain: 0.65 });
+        break;
+      case 'eject':
+        // The decoy ejector aft (chunk 4.3): loudest in the engine room, where it is.
+        mixer.play(SFX.eject, 'machinery', { gain: this.room === ENGINE_ROOM ? 0.85 : 0.5 });
+        haptic('impact');
         break;
       case 'battle':
         // Battle stations: the gong struck three times through the boat.

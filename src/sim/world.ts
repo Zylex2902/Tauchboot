@@ -76,6 +76,8 @@ export interface WorldState {
   air: AirWorld;
   /** Charted landmarks (chunk 2.5): fixed, and printed on the chart. */
   landmarks: Landmark[];
+  /** Debug (truth overlay): the date the escorts' kit and doctrine are taken from, instead of the clock. */
+  war?: number;
 }
 
 const ROCKS = ['KALDSKAR', 'GRAUKLIPP', 'HUNDSTEIN', 'MOVENSKAR', 'SVARTBAAK', 'ODDSKER'];

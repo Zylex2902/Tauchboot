@@ -1,9 +1,11 @@
 import type { BoatState } from './boat';
 import type { DetectState } from './detect';
 import { escortClosing } from './detect';
+import { stepDecoys, type Decoy } from './decoy';
+import { doctrineAt, warMs, type Doctrine } from './doctrine';
 import { kitAt, type Ear } from './enemy-sense';
 import { HULLS, type HullKey, type ShipState } from './fleet';
-import { layerLoss } from './ocean';
+import { layerAt, layerLoss } from './ocean';
 import type { Rng } from './rng';
 import type { WorldState } from './world';
 
@@ -22,7 +24,10 @@ import type { WorldState } from './world';
  *   the range she lost contact at);
  * - open: straight on out, the water churned by the charges, then round for another run.
  * She calls another escort to the first contact (if the convoy can spare one), and gives up
- * after twenty minutes without contact, an hour and a quarter in all, or out of charges.
+ * after twenty minutes without contact, an hour and a quarter in all, or out of charges
+ * (hours, later in the war: doctrine.ts). Later in the war she also sets charges below a
+ * layer, searches tight over the datum, and leaves a decoy she has classed for a search
+ * round where it was let go (chunk 4.3).
  * Every escort pings, searching or screening: the interval shortens as she closes on a
  * contact, and a ping that finds us rings on the hull.
  */
@@ -84,9 +89,12 @@ export interface EscortWorld {
   racks: Record<number, number>;
   /** When the sound room last called: pings heard, pings on us, contact lost, splashes, an escort going back. */
   said: Record<string, number>;
+  /** Our decoy canisters in the water (chunk 4.3), and the last id given. */
+  decoys: Decoy[];
+  decoyN: number;
 }
 
-export const newEscortWorld = (): EscortWorld => ({ charges: [], booms: [], racks: {}, said: {} });
+export const newEscortWorld = (): EscortWorld => ({ charges: [], booms: [], racks: {}, said: {}, decoys: [], decoyN: 0 });
 
 export interface EscortHost {
   rng: Rng;
@@ -110,9 +118,6 @@ const ATTACK_KN: Partial<Record<HullKey, number>> = { trawler: 11, corvette: 14,
 /** Range she starts an attack run from, metres; the others hold contact outside this. */
 const RUN_IN = 1300;
 const HOLD_OFF = 1000;
-/** Giving up: seconds without contact, and in all. */
-const LOST_MAX = 1200;
-const HUNT_MAX = 4500;
 /** After a pattern: run on out to this range (or this long, seconds), then round for another. */
 const OPEN_R = 900;
 const OPEN_S = 150;
@@ -141,7 +146,7 @@ const era = (ms: number): keyof typeof FIRST_SET =>
   ms < Date.UTC(1940, 6, 1) ? 'early' : ms < Date.UTC(1942, 0, 1) ? 'peak' : ms < Date.UTC(1943, 0, 1) ? 'turning' : 'collapse';
 
 /** A pattern: when each charge goes, from where, and how deep it is set (half deep, half shallow in a big pattern). */
-function pattern(ms: number, set: number): { at: number; side: number; set: number }[] {
+function pattern(ms: number, set: number, maxSet: number): { at: number; side: number; set: number }[] {
   if (ms < Date.UTC(1942, 0, 1))
     return [
       { at: 0, side: 0, set },
@@ -151,7 +156,7 @@ function pattern(ms: number, set: number): { at: number; side: number; set: numb
       { at: 6, side: 0, set },
     ];
   const lo = Math.max(15, set - 20);
-  const hi = set + 20;
+  const hi = Math.min(maxSet, set + 20);
   return [0, 2, 4, 6, 8, 10].map((at, i) => ({ at, side: 0, set: i % 2 ? hi : lo })).concat([3, 7].flatMap((at) => [-1, 1].map((side) => ({ at, side, set: side < 0 ? lo : hi }))));
 }
 
@@ -214,7 +219,9 @@ function plot(a: EscortAI, x: number, y: number, t: number): void {
 /** One tick: charges sinking and going off; once a second, every hunting escort thinks; pings. */
 export function stepEscorts(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, b: BoatState, dt: number): void {
   const t = w.n * dt;
-  const ms = w.t0 + t * 1000;
+  const ms = warMs(w);
+  const doc = doctrineAt(ms);
+  ew.decoys = stepDecoys(ew.decoys, t, dt);
   // Charges on their way down.
   for (const c of ew.charges) {
     c.z += c.sink * dt;
@@ -235,7 +242,7 @@ export function stepEscorts(ew: EscortWorld, ds: DetectState, h: EscortHost, w: 
     }
     ew.racks[s.id] ??= RACKS[s.hull] ?? 30;
     const e = ds.esc?.[s.id];
-    if (second) think(ew, ds, h, w, b, s, e, t, ms);
+    if (second) think(ew, ds, h, w, b, s, e, t, ms, doc);
     const a = s.ai;
     // Pattern under way: each charge off the rails or a thrower at its time.
     if (a && a.drops.length) {
@@ -274,7 +281,7 @@ function pings(ew: EscortWorld, h: EscortHost, w: WorldState, b: BoatState, s: S
   const lay = layerLoss(w.ocean, t, XDCR, Math.max(1, b.depth));
   const level = clamp(1 - Math.log10(Math.max(250, r) / 250) / Math.log10(PING_HEARD / 250) - lay / 30, 0, 1);
   if (level < 0.04) return;
-  const on = !!e && e.firm && e.m.asdic > -2 && !!a && a.mode !== 'open';
+  const on = !!e && e.firm && e.m.asdic > -2 && e.datum?.of === undefined && !!a && a.mode !== 'open';
   const bearing = norm(Math.atan2(s.x - w.own.x, s.y - w.own.y) / D2R - w.own.course);
   h.ping(bearing, level, on);
   // The sound room: pings first heard, and pings on us.
@@ -301,11 +308,14 @@ function overhead(h: EscortHost, w: WorldState, b: BoatState): void {
   h.overhead(b.lost ? null : best);
 }
 
-function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _b: BoatState, s: ShipState, e: Ear | undefined, t: number, ms: number): void {
+function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _b: BoatState, s: ShipState, e: Ear | undefined, t: number, ms: number, doc: Doctrine): void {
   // Sent off her station (a sighting, a torpedo, a contact): the hunt begins, or its datum moves.
   if (s.hunt) {
-    if (!s.ai) s.ai = start(s, s.hunt.x, s.hunt.y, t, h.rng);
-    else if (!e?.firm && s.ai.mode !== 'attack') {
+    if (!s.ai) {
+      s.ai = start(s, s.hunt.x, s.hunt.y, t, h.rng);
+      // Later in the war they hunt in pairs from the start.
+      if (doc.pairs) (s.ai.called = true), call(h, w, s, t);
+    } else if (!e?.firm && s.ai.mode !== 'attack') {
       s.ai.datum = { x: s.hunt.x, y: s.hunt.y, t, vx: 0, vy: 0 };
       s.ai.hist = [t, s.hunt.x, s.hunt.y];
       s.ai.lastContact = t;
@@ -315,7 +325,25 @@ function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _
   }
   const a = s.ai;
   if (!a) return;
+  // She has classed the echo she held as our decoy: search round where it was let go.
+  if (e?.decoyed) {
+    a.datum = { x: e.decoyed.x, y: e.decoyed.y, t: e.decoyed.t, vx: 0, vy: 0 };
+    a.hist = [e.decoyed.t, e.decoyed.x, e.decoyed.y];
+    a.lastContact = t;
+    a.aim = null;
+    if (a.mode !== 'open') (a.mode = 'search'), (a.since = t);
+    delete e.decoyed;
+    if (h.heard(s.id) && t - (ew.said.left ?? -1e9) > 300) {
+      ew.said.left = t;
+      h.say('SOUND ROOM', 'PINGS SWEEPING AGAIN, CAPTAIN. SHE HAS LEFT THE CANISTER.', 2);
+    }
+  }
   const firm = !!e?.firm;
+  // Holding contact on the canister: the sound room hears her pinging at its hiss.
+  if (firm && e!.datum?.of !== undefined && h.heard(s.id) && t - (ew.said.can ?? -1e9) > 300) {
+    ew.said.can = t;
+    h.say('SOUND ROOM', 'SHE IS PINGING ON THE CANISTER, CAPTAIN.', 2);
+  }
   // A fresh echo in the last two pings or so: what an attack run steers by.
   const fresh = firm && !!e!.datum && e!.datum.by !== 'ears' && t - e!.datum.t < 9;
   // Her plot: every fresh fix from her asdic or radar goes on it; the others in the hunt share it.
@@ -335,7 +363,7 @@ function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _
   }
   a.had = firm;
   // Giving up: back to the convoy.
-  if ((t - a.lastContact > LOST_MAX || t - a.began > HUNT_MAX || ew.racks[s.id] <= 0) && a.mode !== 'attack' && !a.drops.length) {
+  if ((t - a.lastContact > doc.lostMax || t - a.began > doc.huntMax || ew.racks[s.id] <= 0) && a.mode !== 'attack' && !a.drops.length) {
     delete s.ai;
     if (h.heard(s.id) && t - (ew.said.away ?? -1e9) > 300) {
       ew.said.away = t;
@@ -348,6 +376,9 @@ function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _
   const P = plotted(a, t);
   const r = dist(s, P);
   const kit = kitAt(ms);
+  // Knowing there is a layer (later in the war), she works close, where her steep beam reaches under it:
+  // holds contact, runs in and opens out at a fraction of the usual ranges.
+  const k = doc.layerWise && w.ocean.layer ? 0.4 : 1;
   const mode = (m: HuntMode) => {
     if (a.mode !== m) (a.mode = m), (a.since = t);
   };
@@ -363,8 +394,10 @@ function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _
         mode('track');
         break;
       }
-      // Round the datum, the circle as wide as the boat could have gone since.
-      const R = clamp(400 + (t - a.datum.t) * 1.5, 500, 2500);
+      // Round the datum, the circle as wide as the boat could have gone since. Knowing there is a
+      // layer, later in the war, she searches tight over it, where her steep beam goes through.
+      const tight = doc.layerWise && w.ocean.layer;
+      const R = tight ? clamp(200 + (t - a.datum.t) * 1.0, 250, 1500) : clamp(400 + (t - a.datum.t) * 1.5, 500, 2500);
       const c = clamp(((r - R) / R) * 90, -60, 60);
       a.course = norm(brgTo(s, P) - a.turn * (90 - c));
       a.kn = Math.min(top, SEARCH_KN);
@@ -376,25 +409,30 @@ function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _
         break;
       }
       const busy = w.ships.some((q) => q !== s && q.group === s.group && q.ai && (q.ai.mode === 'attack' || t - q.ai.lastDrop < 45));
-      if (r < RUN_IN && r > TOO_CLOSE && !busy && t - a.lastDrop > 60 && ew.racks[s.id] > 0) {
+      if (r < RUN_IN * k && r > TOO_CLOSE * k && !busy && t - a.lastDrop > 60 && ew.racks[s.id] > 0) {
         mode('attack');
         a.aim = null;
         a.lostAt = null;
         a.echo = { t, r };
         // Depth: doctrine on the first run; after that, from the range she lost the echo at.
-        const guess = a.attacks === 0 ? FIRST_SET[era(ms)] : (a.set > 0 ? a.set : FIRST_SET[era(ms)]) * 1.3;
-        a.set = clamp(guess * (0.85 + 0.3 * h.rng.next()), 15, 180);
+        // With the layer drawn on her thermometer (later in the war), she sets the first below it.
+        const below = doc.layerWise && w.ocean.layer ? layerAt(w.ocean, t).top + layerAt(w.ocean, t).thick + 15 : 0;
+        const guess = a.attacks === 0 ? Math.max(FIRST_SET[era(ms)], below) : (a.set > 0 ? a.set : FIRST_SET[era(ms)]) * 1.3;
+        a.set = clamp(guess * (0.85 + 0.3 * h.rng.next()), 15, doc.maxSet);
         escortClosing(ds, w, h, s, t);
         break;
       }
       // Close in; another escort on her run: hold off and keep the contact. Too close to run in: open out.
-      if (r < TOO_CLOSE) a.course = norm(brgTo(s, P) + 180);
-      else if (busy && r < HOLD_OFF) a.course = norm(brgTo(s, P) + 90 * a.turn);
+      if (r < TOO_CLOSE * k) a.course = norm(brgTo(s, P) + 180);
+      else if (busy && r < HOLD_OFF * k) a.course = norm(brgTo(s, P) + 90 * a.turn);
       else a.course = brgTo(s, P);
       a.kn = Math.min(top, SEARCH_KN);
       break;
     }
     case 'attack': {
+      // Mid-1943 on, the steep beam gives her the boat's depth while she holds the echo.
+      const known = e?.depth && t - e.depth.t < 30 ? clamp(e.depth.z, 15, doc.maxSet) : null;
+      if (known !== null && !a.lostAt) a.set = known;
       const sinkT = a.set / SINK(ms);
       if (fresh && !a.lostAt) {
         // Lead the boat: where she will be when the charges get down to her.
@@ -409,7 +447,7 @@ function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _
         // Lost the echo: under the beam. The range it went at tells how deep she is.
         a.lostAt = Math.max(40, a.echo.r);
         const deep = a.lostAt * Math.tan((kit.beamDown + 3) * D2R);
-        a.set = clamp((a.set + deep) / 2 + 10, 15, 180);
+        a.set = known ?? clamp((a.set + deep) / 2 + 10, 15, doc.maxSet);
         if (!a.aim) a.aim = P;
       }
       const aim = a.aim ?? P;
@@ -417,10 +455,12 @@ function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _
       const off = Math.abs(wrap(brgTo(s, aim) - s.course));
       a.course = brgTo(s, aim);
       a.kn = atk;
-      if (ra < 50 || (ra < 250 && off > 90)) {
+      // The pattern is laid over the aim, not started at it: the first charge goes this far short.
+      const half = atk * KN * (ms < Date.UTC(1942, 0, 1) ? 3 : 5);
+      if (ra < half || (ra < 250 && off > 90)) {
         // Held the echo almost to the end: she is shallow.
-        if (!a.lostAt || a.lostAt < HELD_CLOSE) a.set = 15 + 10 * h.rng.next();
-        a.drops = pattern(ms, a.set);
+        if (known === null && (!a.lostAt || a.lostAt < HELD_CLOSE)) a.set = 15 + 10 * h.rng.next();
+        a.drops = pattern(ms, a.set, doc.maxSet);
         a.lastDrop = t;
         a.attacks++;
         mode('open');
@@ -431,7 +471,7 @@ function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _
     case 'open':
       // Straight on out through the churned water, then round for another run.
       a.kn = atk;
-      if ((r > OPEN_R && t - a.since > 30) || t - a.since > OPEN_S) mode(firm ? 'track' : 'search');
+      if ((r > OPEN_R * k && t - a.since > 30) || t - a.since > OPEN_S) mode(firm ? 'track' : 'search');
       break;
   }
 }

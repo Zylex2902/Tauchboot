@@ -15,8 +15,8 @@ export type Tone = 'heavy' | 'medium' | 'light';
  * What drives her screws, as it sounds: a merchant's slow reciprocating steam engine, a
  * coaster's diesel knock, an escort's geared turbines whining over fast thin blades.
  */
-/** 'torpedo': a running fish's contra-rotating screws (chunk 3.4: our own, in the sound field). */
-export type Engine = 'steam' | 'diesel' | 'turbine' | 'torpedo';
+/** 'torpedo': a running fish's contra-rotating screws (chunk 3.4: our own, in the sound field). 'canister': our decoy fizzing (chunk 4.3). */
+export type Engine = 'steam' | 'diesel' | 'turbine' | 'torpedo' | 'canister';
 
 /** A ship's sound signature: the engine, blades per screw and how many screws. */
 export interface Signature {

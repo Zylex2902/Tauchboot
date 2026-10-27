@@ -1,4 +1,4 @@
-import { Container, Rectangle, Sprite, type FederatedPointerEvent } from 'pixi.js';
+import { Container, Rectangle, Sprite, type FederatedPointerEvent, type Texture } from 'pixi.js';
 import { mixer } from '../core/audio';
 import { drawText, measure } from '../core/font';
 import { haptic } from '../core/haptics';
@@ -14,7 +14,8 @@ import { plate } from '../stations/panel-art';
 
 /**
  * Standard orders on the voice-pipe board. SILENT RUNNING stays down in its well while the
- * boat is rigged for it (chunk 4.1); pressed again, it secures from silent running.
+ * boat is rigged for it (chunk 4.1); pressed again, it secures from silent running. DECOY
+ * CANISTER lets one go from the ejector aft (chunk 4.3); its count is chalked beside it.
  */
 export const ORDERS: { id: string; text: [string, string]; say: string; station: number }[] = [
   { id: 'periscope', text: ['PERISCOPE', 'DEPTH'], say: 'PERISCOPE DEPTH.', station: 3 },
@@ -24,6 +25,7 @@ export const ORDERS: { id: string; text: [string, string]; say: string; station:
   { id: 'surface', text: ['SURFACE', 'THE BOAT'], say: 'SURFACE THE BOAT.', station: 3 },
   { id: 'gun', text: ['MAN THE', 'GUN'], say: 'MAN THE GUN.', station: 6 },
   { id: 'reload', text: ['RELOAD', 'TUBES'], say: 'RELOAD THE TUBES.', station: 0 },
+  { id: 'decoy', text: ['DECOY', 'CANISTER'], say: 'LET GO A CANISTER.', station: 7 },
 ];
 
 const BW = 300;
@@ -74,6 +76,10 @@ export class VoicePipe {
   private speaking = false;
   onOrder: (o: (typeof ORDERS)[number]) => void = () => {};
   private silentKey: Key | null = null;
+  /** The decoy key's tally: one brass stud per canister aboard, dulling as each goes (chunk 4.3). */
+  private pips: Sprite[] = [];
+  private pipShown = -1;
+  private pipTex: Texture[] = [];
 
   constructor(private tw: Tweens, ctx: KitContext) {
     this.scrim.hitArea = new Rectangle(0, 0, 480, 240);
@@ -121,6 +127,7 @@ export class VoicePipe {
       );
       c.onChange(() => this.order(o));
       if (o.id === 'silent') this.silentKey = c as unknown as Key;
+      if (o.id === 'decoy') this.tally(8 + (i % 4) * (KEY_W + 5), 24 + Math.floor(i / 4) * (KEY_H + 8) + KEY_H + 2);
       return c.root;
     });
     return this.keyControls;
@@ -171,9 +178,49 @@ export class VoicePipe {
     this.onOrder(p);
   }
 
+  /** Six stud sockets under the decoy key: lit, dulling (two dither steps), spent. */
+  private tally(x: number, y: number): void {
+    const stud = (k: number) => {
+      const p = new Pix(5, 4);
+      p.rect(0, 0, 5, 4, C.iron0);
+      const face = [C.brass2, C.brass1, C.brass0, C.iron2][k];
+      p.rect(1, 1, 3, 2, face);
+      if (k === 0) p.rect(1, 1, 1, 1, C.paper3);
+      if (k === 1) p.rect(3, 2, 1, 1, C.iron2);
+      if (k === 2) p.rect(1, 1, 1, 1, C.iron2);
+      return p.toTexture();
+    };
+    this.pipTex = [0, 1, 2, 3].map(stud);
+    for (let k = 0; k < 6; k++) {
+      const sp = new Sprite(this.pipTex[3]);
+      sp.position.set(x + 13 + k * 7, y);
+      this.pips.push(sp);
+      this.board.addChild(sp);
+    }
+  }
+
   /** Each frame: keys that show the boat's state. */
   update(): void {
     this.silentKey?.latch(obs.boat.silent);
+    const n = obs.boat.canisters;
+    if (n !== this.pipShown && this.pips.length) {
+      const was = this.pipShown;
+      this.pipShown = n;
+      this.pips.forEach((sp, k) => {
+        const lit = k < n;
+        if (was < 0) sp.texture = this.pipTex[lit ? 0 : 3];
+        else if (lit && k >= was) this.step(sp, [2, 1, 0]);
+        else if (!lit && k < was) {
+          this.step(sp, [1, 2, 3]);
+          if (this.openState) mixer.play(SFX.peg, 'ui', { gain: 0.4, rate: 0.7 });
+        }
+      });
+    }
+  }
+
+  /** A stud changing in dither steps rather than snapping. */
+  private step(sp: Sprite, frames: number[]): void {
+    frames.forEach((f, i) => setTimeout(() => !sp.destroyed && (sp.texture = this.pipTex[f]), 90 * (i + 1)));
   }
 
   private bindHandle(h: Container): void {

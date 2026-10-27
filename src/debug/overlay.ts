@@ -1,6 +1,8 @@
 import { obs } from '../obs';
 import type { Sim } from '../sim/core';
 import { FIRM, radiated } from '../sim/enemy-sense';
+import { decoyEcho } from '../sim/decoy';
+import { DECOYS_CARRIED, DECOYS_FROM, doctrineAt, warMs } from '../sim/doctrine';
 import { HULLS } from '../sim/fleet';
 import { layerAt, layerLoss, waterTemp } from '../sim/ocean';
 import { keyOwner, sightRanges } from '../sim/sense';
@@ -13,8 +15,18 @@ import { beaufortOf, seaStateOf, waveHeight } from '../sim/weather';
  * navigator's dead reckoning and command's reports; beside it, the weather as judged
  * against the weather as it is, the thermometer against the water, and each heard sound
  * against the ship that makes it. A dev tool: plain canvas, a plain monospace face.
- * Toggle with the TRUTH tab or the T key; tap the map to change its scale.
+ * Toggle with the TRUTH tab or the T key; tap the map to change its scale. The WAR tab (or Y)
+ * steps the date the escorts' kit and doctrine are taken from (chunk 4.3), to try the
+ * counters and the decoy canister (from 1942) in the slice's June 1941 engagement.
  */
+
+/** War dates the WAR tab steps through (null: the patrol's own clock). */
+const WARS: [string, number | null][] = [
+  ['AS PATROL', null],
+  ['1942', Date.UTC(1942, 5, 1)],
+  ['EARLY 1943', Date.UTC(1943, 2, 1)],
+  ['1944', Date.UTC(1944, 5, 1)],
+];
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
@@ -40,7 +52,7 @@ const COL = {
 export function mountTruth(sim: Sim): void {
   const tab = document.createElement('button');
   tab.textContent = 'TRUTH';
-  Object.assign(tab.style, {
+  const tabStyle = {
     position: 'fixed',
     left: 'calc(env(safe-area-inset-left) + 4px)',
     bottom: 'calc(env(safe-area-inset-bottom) + 4px)',
@@ -50,10 +62,32 @@ export function mountTruth(sim: Sim): void {
     color: '#e0a030',
     border: '1px solid #4a5058',
     padding: '4px 8px',
-  });
+  };
+  Object.assign(tab.style, tabStyle);
   const cv = document.createElement('canvas');
   Object.assign(cv.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', zIndex: '29', display: 'none', touchAction: 'none' });
-  document.body.append(cv, tab);
+  const war = document.createElement('button');
+  war.textContent = 'WAR: AS PATROL';
+  Object.assign(war.style, { ...tabStyle, left: 'calc(env(safe-area-inset-left) + 64px)' });
+  document.body.append(cv, tab, war);
+  let warK = 0;
+  const stepWar = () => {
+    warK = (warK + 1) % WARS.length;
+    const [name, ms] = WARS[warK];
+    const st = sim.state as { world: { war?: number; t0: number }; boat: { canisters: number } };
+    if (ms === null) delete st.world.war;
+    else st.world.war = ms;
+    // Into 1942 or later with none aboard (the slice is June 1941): the boat gets her canisters.
+    if ((ms ?? st.world.t0) >= DECOYS_FROM && st.boat.canisters === 0 && !used) (st.boat.canisters = DECOYS_CARRIED), (used = true);
+    war.textContent = `WAR: ${name}`;
+    if (on) draw();
+  };
+  let used = false;
+  war.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    stepWar();
+  });
+  window.addEventListener('keydown', (e) => e.key.toLowerCase() === 'y' && stepWar());
   let on = false;
   let scale = 1;
   const toggle = () => {
@@ -202,7 +236,7 @@ export function mountTruth(sim: Sim): void {
       if (e.firm) g.fillRect(x - 2, y - 2, 4, 4);
       g.globalAlpha = 1;
       g.fillStyle = COL.escort;
-      g.fillText(`${id} ${e.datum.by.toUpperCase()}`, x + 7, y + 3);
+      g.fillText(`${id} ${e.datum.by.toUpperCase()}${e.datum.of !== undefined ? ` ON C${e.datum.of}` : ''}`, x + 7, y + 3);
     }
     // Chunk 4.2: charges sinking (crosses) and the last two minutes' explosions (rings).
     g.strokeStyle = COL.escort;
@@ -214,6 +248,21 @@ export function mountTruth(sim: Sim): void {
       g.moveTo(x + 3, y - 3);
       g.lineTo(x - 3, y + 3);
       g.stroke();
+    }
+    // Chunk 4.3: decoy canisters (diamonds; dotted ring while its echo is strong).
+    for (const q of s.esc.decoys) {
+      const [x, y] = P(q.x, q.y);
+      g.strokeStyle = COL.heard;
+      g.beginPath();
+      g.moveTo(x, y - 5);
+      g.lineTo(x + 5, y);
+      g.lineTo(x, y + 5);
+      g.lineTo(x - 5, y);
+      g.closePath();
+      g.stroke();
+      g.fillStyle = COL.heard;
+      g.fillText(`C${q.id}${q.classed.length ? ' CLASSED' : ''}`, x + 7, y + 3);
+      g.strokeStyle = COL.escort;
     }
     for (const x0 of s.esc.booms) {
       const [x, y] = P(x0.x, x0.y);
@@ -275,6 +324,10 @@ export function mountTruth(sim: Sim): void {
     // Chunk 4.1: being found. Own radiated noise and what makes it; each escort's margins (dB, 0 = even odds a roll comes good).
     const rad = radiated(b, s.torp);
     L(`BEING FOUND    NOISE ${rad.db.toFixed(0)} DB${b.silent ? ' (SILENT RUNNING)' : ''}: ${Object.entries(rad.parts).map(([k, v]) => `${k.toUpperCase()} ${Math.round(v!)}`).join(' ')}   SCOPE EXPOSURE ${s.detect.e.toFixed(2)}   CONTACTS ${s.detect.contacts ?? 0}`, COL.dim);
+    const wm = warMs(w);
+    const doc = doctrineAt(wm);
+    L(`  WAR DATE ${new Date(wm).toISOString().slice(0, 7)}${w.war !== undefined ? ' (OVERRIDE, Y)' : ''}   DOCTRINE: CHARGES TO ${doc.maxSet} M, ECHO CLASSING ${doc.classK}, HOLD ${Math.round(doc.huntMax / 60)} MIN (${Math.round(doc.lostMax / 60)} LOST), ${doc.layerWise ? 'LAYER-WISE' : 'NO BT'}, DECOY CLASSED IN ${doc.decoyClass > 1e8 ? '-' : `${doc.decoyClass} S`}   CANISTERS ${b.canisters}`, COL.dim);
+    for (const q of s.esc.decoys) L(`  CANISTER C${q.id}  ${Math.round(t - q.t0)} S OLD, ${q.z.toFixed(0)} M, ECHO ${decoyEcho(t - q.t0).toFixed(0)} DB, ${Math.round(Math.hypot(q.x - own.x, q.y - own.y))} M FROM US${q.classed.length ? `, CLASSED BY ${q.classed.join(' ')}` : ''}  WATCHED ${Object.entries(q.watch).map(([k, v]) => `${k}:${v}`).join(' ')}`, COL.heard);
     for (const sh of w.ships) {
       const e = s.detect.esc?.[sh.id];
       if (!e) continue;

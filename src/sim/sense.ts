@@ -9,6 +9,7 @@ import { Rng } from './rng';
 import { beaufortOf, seaStateOf, waveHeight } from './weather';
 import type { WorldState } from './world';
 import { settled } from './torpedo';
+import { decoyHiss, type Decoy } from './decoy';
 
 /**
  * The observation layer's sim side (chunk 2.2): turns the true world into what the boat
@@ -229,6 +230,20 @@ const FISH_HULL: Record<'S' | 'E', Hull> = {
   S: { ...HULLS.destroyer, sl: 118, tone: 'light', rpmPerKn: 30, sig: { engine: 'torpedo', blades: 4, shafts: 1 } },
   E: { ...HULLS.destroyer, sl: 110, tone: 'light', rpmPerKn: 30, sig: { engine: 'torpedo', blades: 4, shafts: 1 } },
 };
+
+/** Our decoy canister fizzing: a hiss and bubbling, no screws (chunk 4.3). Its level is set through `sl` (kn 10: no speed term). */
+const CANISTER: Hull = { ...HULLS.destroyer, sl: 0, tone: 'light', rpmPerKn: 0, sig: { engine: 'canister', blades: 3, shafts: 1 } };
+
+function decoyEmitters(w: WorldState, decoys: readonly Decoy[], t: number): Emitter[] {
+  const oc = w.own.course;
+  return decoys.map((d) => {
+    const dx = d.x - w.own.x;
+    const dy = d.y - w.own.y;
+    const rel = norm(Math.atan2(dx, dy) * R2D - oc);
+    const range = Math.hypot(dx, dy);
+    return { id: `d${d.id}`, rel, range, relLate: rel, rangeLate: range, hull: { ...CANISTER, sl: decoyHiss(t - d.t0) }, kn: 10, rpm: 60, drill: false, own: true };
+  });
+}
 
 function fishEmitters(w: WorldState, fish: readonly RunningFish[], ownSpeed: number): Emitter[] {
   const oc = w.own.course;
@@ -561,7 +576,7 @@ function judgeWeather(se: SenseState, r: Rng, w: WorldState, b: BoatState, t: nu
  * One tick of the senses. The navigator and the instruments run every tick; the
  * hydrophone field, lookouts, signals and the weather once a second.
  */
-export function stepSense(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, drill: DrillState | null, dt: number, fish: readonly RunningFish[] = []): void {
+export function stepSense(se: SenseState, h: SenseHost, w: WorldState, b: BoatState, drill: DrillState | null, dt: number, fish: readonly RunningFish[] = [], decoys: readonly Decoy[] = []): void {
   const t = w.n * dt;
   const n = obs.nav;
   // Dead reckoning: gyro and log, both a little off, and no current.
@@ -589,7 +604,7 @@ export function stepSense(se: SenseState, h: SenseHost, w: WorldState, b: BoatSt
   const water = waterTemp(w.ocean, t, b.depth);
   se.thermo = se.thermo === 0 ? water : se.thermo + (water - se.thermo) / 45;
   const em = emitters(w, drill, b.speed);
-  hear(se, h.rng, w, b, fish.length ? [...em, ...fishEmitters(w, fish, b.speed)] : em, t);
+  hear(se, h.rng, w, b, fish.length || decoys.length ? [...em, ...fishEmitters(w, fish, b.speed), ...decoyEmitters(w, decoys, t)] : em, t);
   look(se, h, w, b, em, t);
   signals(se, h, w, b, t);
   judgeWeather(se, h.rng, w, b, t);

@@ -7,6 +7,8 @@ import { dive, newDiveState, type DiveState } from './dive';
 import { awashAt, drill, lensAbove, newDrillState, sea, type DrillHost, type DrillState, type Effect } from './drill';
 import { newDetect, stepDetect, type DetectHost, type DetectState } from './detect';
 import { stepHunt, type HuntHost } from './enemy-sense';
+import { EJECT_S, newDecoy } from './decoy';
+import { DECOYS_CARRIED, DECOYS_FROM, warMs } from './doctrine';
 import { churned, newEscortWorld, stepEscorts, type EscortHost, type EscortWorld } from './escort';
 import { Rng } from './rng';
 import { clearWeather } from './weather';
@@ -31,15 +33,17 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 16;
+export const SAVE_VERSION = 17;
 /** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1), the escorts' hunts and depth charges (4.2). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
 const pad3 = (n: number) => String(Math.round(norm(n)) % 360).padStart(3, '0');
 
 const QUIET = 'ALL QUIET.';
+/** The ejector's thump of air, heard by the escorts for a moment, dB (as NOISES in enemy-sense). */
+const EJECT_DB = 128;
 
 /** The chief takes her this deep on the dive alarm, metres. */
 const CRASH_DEPTH = 40;
@@ -226,6 +230,8 @@ export class Sim {
     }
     s.sense = newSense(senseRng, s.world);
     s.rng.sense = senseRng.s;
+    // Decoy canisters for the ejector aft, from 1942 (chunk 4.3).
+    s.boat.canisters = warMs(s.world) >= DECOYS_FROM ? DECOYS_CARRIED : 0;
     s.rng.drill = drillRng.s;
     s.rng.boat = boatRng.s;
     s.rng.world = worldRng.s;
@@ -271,6 +277,10 @@ export class Sim {
     s.detect.contacts ??= 0;
     s.rng.hunt ??= (s.seed ^ 0x3c6ef372) >>> 0 || 23;
     s.esc ??= newEscortWorld();
+    s.esc.decoys ??= [];
+    s.esc.decoyN ??= 0;
+    s.boat.canisters ??= s.world.t0 >= DECOYS_FROM ? DECOYS_CARRIED : 0;
+    s.boat.ejectAt ??= -1e9;
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -371,7 +381,7 @@ export class Sim {
     stepWorld(this.s.world, this.rngWorld, TICK_S, b.lost ? 0 : b.speed);
     stepAir(this.s.world.air, this.s.world, this.rngAir, TICK_S, { depth: b.depth, speedKn: b.speed / 0.5144 }, (d) => this.bombs(d));
     stepTorp(this.s.torp, this.torpHost, this.s.world, b, this.s.detect, TICK_S);
-    stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S, runningFish(this.s.torp));
+    stepSense(this.s.sense, this.senseHost, this.s.world, b, this.s.kind === 'scope' ? this.s.drill : null, TICK_S, runningFish(this.s.torp), this.s.esc.decoys);
     stepRadio(this.s.radio, this.s.sense, this.senseHost, this.s.world, b, TICK_S);
     // The attack periscope (chunk 3.2): what its lens sees, and what shows of us.
     const d = this.s.drill;
@@ -384,7 +394,7 @@ export class Sim {
     stepDetect(this.s.detect, this.detectHost, this.s.world, b, { lens: out ? lens : -1, up }, TICK_S, drillLive);
     // The escorts' asdic, hydrophones and radar (chunk 4.1).
     const t = this.s.world.n * TICK_S;
-    stepHunt(this.s.detect, this.huntHost, this.s.world, b, this.s.torp, up ? lens : -1, TICK_S, (sh) => churned(this.s.esc, sh, this.s.world, t));
+    stepHunt(this.s.detect, this.huntHost, this.s.world, b, this.s.torp, up ? lens : -1, TICK_S, (sh) => churned(this.s.esc, sh, this.s.world, t), this.s.esc.decoys, t - b.ejectAt < 2 ? EJECT_DB : 0);
     // The escorts' hunts, pings and depth charges (chunk 4.2).
     stepEscorts(this.s.esc, this.s.detect, this.escortHost, this.s.world, b, TICK_S);
     if (this.s.kind === 'attack') engage.step(this.s.engage, this.host, TICK_S, this.s.torp, this.s.world, this.s.detect, up, (o) => obs.publish({ type: 'drill', drill: o }));
@@ -442,6 +452,7 @@ export class Sim {
         if (c.order === 'periscope') boat.order(this.s.boat, this.silentHost, BOAT.periscopeDepth);
         if (c.order === 'surface') boat.order(this.s.boat, this.silentHost, 0);
         if (c.order === 'silent' || c.order === 'secure') boat.silent(b, this.silentHost, c.order === 'silent');
+        if (c.order === 'decoy') this.decoy();
         break;
       }
       case 'boatSet':
@@ -671,6 +682,25 @@ export class Sim {
    * it splits her; close, rivets shear and the sea comes in; a near miss may start a gland; nearer than forty, glass and
    * gauges; further, the boat rings and the lamps swing.
    */
+  /** The decoy ejector aft (chunk 4.3): a canister out with a thump of air, or the reason not. */
+  private decoy(): void {
+    const b = this.s.boat;
+    const w = this.s.world;
+    const t = w.n * TICK_S;
+    const say = (text: string) => this.host.later(1.2, [{ kind: 'voice', from: 'ENGINE ROOM', text }]);
+    if (b.lost) return;
+    if (b.canisters <= 0) return say(warMs(w) < DECOYS_FROM ? 'NO CANISTERS ABOARD, CAPTAIN. NOT ON THIS BOAT.' : 'NO CANISTERS LEFT, CAPTAIN.');
+    if (isSurfaced(b) || b.depth < 9) return say('NOT ON THE SURFACE, CAPTAIN. THE EJECTOR WANTS WATER OVER IT.');
+    if (t - b.ejectAt < EJECT_S) return say('THE EJECTOR IS STILL DRAINING, CAPTAIN. HALF A MINUTE.');
+    b.canisters--;
+    b.ejectAt = t;
+    // Let go from the stern: a few metres abaft the boat, at her depth.
+    const a = (w.own.course * Math.PI) / 180;
+    this.s.esc.decoys.push(newDecoy(++this.s.esc.decoyN, w.own.x - Math.sin(a) * 30, w.own.y - Math.cos(a) * 30, b.depth, t));
+    obs.publish({ type: 'hull', kind: 'eject' });
+    say(b.canisters ? `CANISTER AWAY. ${['NONE', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX'][b.canisters] ?? b.canisters} LEFT.` : 'CANISTER AWAY. THAT WAS THE LAST.');
+  }
+
   private charge(x: number, y: number, z: number): void {
     const b = this.s.boat;
     if (b.lost) return;
@@ -702,6 +732,10 @@ export class Sim {
         this.effect({ kind: 'alarm', station: 3, level: 1, report: 'NEAR MISS. A GLAND IS LEAKING. PUMPS ON IT.' });
         this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'CLOSE! A LEAK AFT, CAPTAIN.' });
       }
+    } else if (d < 70 && z < b.depth - 22 && Math.hypot(x - w.own.x, y - w.own.y) < 50 && t - (said.above ?? -1e9) > 120) {
+      // Right over us and well above: they cannot set them deep enough (chunk 4.3).
+      said.above = t;
+      this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'ABOVE US, CAPTAIN. THEY ARE GOING OFF ABOVE US.' });
     } else if (d < 40 && t - (said.shaken ?? -1e9) > 20) {
       said.shaken = t;
       this.effect({ kind: 'alarm', station: 3, level: 1, report: 'DEPTH CHARGES CLOSE. GLASS BROKEN, NO LEAKS.' });

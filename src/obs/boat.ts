@@ -89,6 +89,8 @@ export interface BoatObs {
   power: PowerObs;
   /** Chunk 4.1: rigged for silent running. */
   silent: boolean;
+  /** Chunk 4.3: decoy canisters left aboard. */
+  canisters: number;
 }
 
 export function freshBoatObs(): BoatObs {
@@ -113,5 +115,6 @@ export function freshBoatObs(): BoatObs {
     flow: { vent: 0, blow: 0, spill: 0, flood: 0, pump: 0, trim: 0, bilge: 0 },
     power: freshPowerObs(),
     silent: false,
+    canisters: 0,
   };
 }

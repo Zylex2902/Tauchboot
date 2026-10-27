@@ -255,6 +255,7 @@ export const SFX = {
   ping: 'ping',
   pingHull: 'pingHull',
   splash: 'splash',
+  eject: 'eject',
 } as const;
 
 /**
@@ -262,7 +263,7 @@ export const SFX = {
  * screw, in two voices each (timbre 0, 1), named `screw-<engine><blades>-<timbre>`.
  * Rate = rpm / SIG_RPM[sig].
  */
-export const SIG_RPM: Record<string, number> = { steam4: 80, steam3: 150, diesel3: 110, diesel4: 100, turbine3: 220, torpedo4: 1200 };
+export const SIG_RPM: Record<string, number> = { steam4: 80, steam3: 150, diesel3: 110, diesel4: 100, turbine3: 220, torpedo4: 1200, canister3: 60 };
 export const sigSound = (sig: string, timbre: number) => `screw-${sig}-${timbre & 1}`;
 
 /** Turns per minute the screw loop is rendered at. */
@@ -348,6 +349,8 @@ export const SFX_NOTES: Record<string, string> = {
   ping: 'an escort\'s asdic ping coming through the water',
   pingHull: 'a ping finding us: a hard ring on the pressure hull',
   splash: 'depth charges going into the water overhead',
+  eject: 'the decoy ejector aft: a lever, a thump of air and the canister going out',
+  'screw-canister3-0': 'our decoy canister fizzing on the hydrophone, loops',
   'screw-torpedo4-0': 'our own torpedo running: fast contra-rotating screws, a thin high whine, loops',
   'screw-torpedo4-1': 'our own torpedo, second voice, loops',
   'screw-steam4-0': 'merchant: slow heavy four-blade screw, reciprocating steam, loops',
@@ -368,6 +371,7 @@ export const SFX_NOTES: Record<string, string> = {
  * and pitched a little lower.
  */
 function screwSig(sr: number, engine: string, blades: number, timbre: number): Float32Array {
+  if (engine === 'canister') return canisterSig(sr, timbre);
   const L = 60 / SIG_RPM[`${engine}${blades}`];
   const X = Math.min(0.06, L * 0.2);
   const out = len(sr, L + X);
@@ -429,6 +433,35 @@ function screwSig(sr: number, engine: string, blades: number, timbre: number): F
 }
 
 /** A small hard contact (switch blade, pawl, type bar tip). */
+/**
+ * Our decoy canister as the hydrophone hears it: a hiss of gas boiling off the charge, and
+ * bubbles bursting through it at random, each a little wet knock. No screws, no beat.
+ */
+function canisterSig(sr: number, timbre: number): Float32Array {
+  const L = 2;
+  const X = 0.08;
+  const out = len(sr, L + X);
+  const r = rng(1201 + timbre * 7);
+  // The hiss: noise, swelling and ebbing as the gas comes in gouts.
+  let a = 0;
+  let b = 0;
+  for (let i = 0; i < out.length; i++) {
+    a += (r() * 2 - 1 - a) * 0.6;
+    b += (a - b) * 0.25;
+    const gout = 0.55 + 0.25 * Math.sin((i / sr) * 7.3) + 0.2 * Math.sin((i / sr) * 2.9 + 1);
+    out[i] = (a - b) * 0.5 * gout;
+  }
+  // Bubbles: a burst of noise rung through one or two low wet modes.
+  const n = Math.round(L * 55);
+  for (let k = 0; k < n; k++) {
+    const at = r() * L;
+    const f = 300 + r() * r() * 1400;
+    const ex = burst(sr, 0.05, 1.5, 1300 + k, 0.5);
+    add(out, resonate(sr, ex, [[f, 0.006 + r() * 0.01, 1], [f * 1.9, 0.004, 0.3]]), 0.25 + r() * 0.5, at, sr);
+  }
+  return loopable(lowpass(highpass(out, 180, sr), 4200, sr), sr, X);
+}
+
 function contact(sr: number, dur: number, seed: number, lo: number, hi: number, tau: number, at = 0): Float32Array {
   return strike(sr, dur, 1.5, seed, 0.05, cluster(seed + 1, lo, hi, 7, tau), at);
 }
@@ -1313,6 +1346,17 @@ export function defineSounds(): void {
     }
     return lowpass(out, 1100, sr);
   }, 0.55);
+
+  d(SFX.eject, (sr) => {
+    // The ejector aft: the firing lever's clack, a hard thump of air through the hull, a hiss, the canister knocking clear.
+    const dur = 1.6;
+    const out = len(sr, dur);
+    add(out, contact(sr, 0.1, 1401, 900, 3200, 0.012), 0.5, 0, sr);
+    add(out, strike(sr, 0.9, 18, 1402, 0.85, cluster(1403, 45, 210, 8, 0.12)), 1, 0.12, sr);
+    add(out, lowpass(scrape(sr, 0.8, 3800, 1404, (p) => Math.exp(-p * 4)), 2600, sr), 0.45, 0.13, sr);
+    add(out, strike(sr, 0.4, 6, 1405, 0.6, cluster(1406, 380, 1300, 6, 0.03)), 0.35, 0.55, sr);
+    return out;
+  }, 0.65);
 
   d(SFX.drip, (sr) => {
     // A bead of condensation landing on a deck plate: a wet tick and a little ring of steel.
