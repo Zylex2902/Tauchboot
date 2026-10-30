@@ -201,6 +201,23 @@ Node check: `node pw/esc42.mjs [n]` (done-when: an escort sent to where the boat
 - Truth overlay: the WAR tab (or Y) steps the escorts' date: the patrol's own, then 1942, early 1943 and 1944. That gives the June 1941 engagement six canisters and the later doctrine. It shows the doctrine, each canister (age, depth, echo, who has classed it) and each datum held on a canister.
 Node check: `node pw/evade43.mjs [n]`. Done-when: each tool, on an otherwise plain boat, against the same boat without it, early and in 1944. It checks that the tool cuts its measure (hurt, or found for the layer) by at least 40% early, and by no more than half that once the counter is in. Browser: `node pw/pipe43.mjs` (the key by touch, the ejector, the tally, the hydrophone).
 
+## Compartment damage (chunk 4.4)
+- The pressure hull is six compartments: bow room, forward quarters (forward battery, sound and radio rooms), control room, after quarters (after battery), engine room and motor room. Each has hull integrity, water in its bilge, fire and, in the two battery compartments, chlorine. The systems live in them: drain pump, main switchboard, e-motors, bow and stern planes, hydrophone, radio, diesels and both batteries.
+- A charge within 45 m shakes the nearest compartment hardest:
+  - leaks: under 18 m, seams and flanges; 18 to 30 m, sometimes a gland or a flange;
+  - breakers trip anywhere in the boat: the lights go to the emergency lamp, the motors stop; the watch resets them in seconds;
+  - shock mounts and valves go in and near the compartment hit;
+  - switchgear can short and burn;
+  - the hull is dished, which brings her safe depth up: the chief says how far ("I WOULD NOT TAKE HER PAST ...").
+- Water is weight, and where it lies is trim. The drain pump draws the wettest bilge first, when it has power, is allowed to run (silent running) and isn't broken.
+- Seawater over a battery compartment's floor plates reaches the cells: chlorine, and the compartment is cleared. Clearing the forward quarters takes the sound room and radio with it. Pumping out stops the gas, and the fans clear it (slowly in silent running) before the men go back.
+- Effects: the hydrophone dead, no signals, one shaft or none, planes on hand gear (a quarter the speed), no diesel start, the room dark, the pump gone.
+- The damage party (two teams) works fires first, then leaks (worst first, after the drain pump once water is gaining), then systems. In a gassed compartment they work in breathing sets at half speed. Their hammering is a noise the escorts can hear.
+- The chief blows main ballast if she's flooding and going down well past her depth, or sinking past test depth. Blown up heavy with water, he won't take her down until she's pumped out.
+- Sounds: breakers slamming, a jet of water, a fire crackling, extinguishers, hammering, the gas alarm and hatches. Each is loud in its own compartment and faint through the bulkheads.
+- The strip lamps and the voices carry it for now; the damage control board, where you choose the order of the work, is chunk 4.5. Truth overlay: a DAMAGE line (water, hull, fire and gas by compartment, leaks, systems down, the teams).
+Node checks: `node pw/cas44.mjs [n]` is the done-when: near misses at 15 to 25 m, the cascade, the reports, and everything put right with her depth held. `node pw/cas44b.mjs` follows the long chain: a seam forward and the pump knocked out, then chlorine, the sound room cleared, the leak stopped, the pump back, the gas cleared and the set alive again. Browser: `node pw/dmg44ui.mjs` (breakers and the dark room, leak and hammer sounds, lamps, lights back).
+
 ## Saving and time (chunk 1.1)
 The patrol saves as you play (every few seconds, and whenever the app is hidden or closed) and resumes exactly where it was, paused. `?fresh` starts a new patrol, `?seed=123` fixes the random seed. Time compression: the WATCH CLOCK lever at the chart table (compartment 5), or `[` and `]`; a plate at the top right shows the rate, and any report, alarm or drill event drops it back to 1X.
 

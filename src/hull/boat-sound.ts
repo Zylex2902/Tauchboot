@@ -13,6 +13,10 @@ import { BOAT, obs, type DieselState, type HullSound } from '../obs';
 /** The engine room's station index (the decoy ejector is aft of it). */
 const ENGINE_ROOM = 7;
 
+/** Which compartment (chunk 4.4, bow to stern) each station stands in. */
+const ROOM_COMP = [0, 1, 1, 2, 2, 2, 2, 4, 5];
+const roomComp = (room: number) => ROOM_COMP[room] ?? 2;
+
 export class BoatSound {
   private bed: LoopHandle | null = null;
   private loops = new Map<string, LoopHandle>();
@@ -41,6 +45,34 @@ export class BoatSound {
       if (e.type === 'blast') this.blast(e.k, e.pan);
     });
     ticker.add((tk) => this.update(Math.min(100, tk.deltaMS) / 1000));
+  }
+
+  /**
+   * Chunk 4.4: the damage heard from where you stand: leaks jetting and fires crackling (loud
+   * in their own compartment, faint through a bulkhead), the damage party hammering wedges.
+   */
+  private nextHammer = 0;
+  private damage(dt: number): void {
+    const comps = obs.damage.comps;
+    if (!comps.length) return;
+    const here = roomComp(this.room);
+    let spray = 0;
+    let fire = 0;
+    let work = 0;
+    for (const [i, c] of comps.entries()) {
+      const k = i === here ? 1 : Math.abs(i - here) === 1 ? 0.18 : 0.05;
+      spray += Math.min(1, c.leaks * 0.5) * k;
+      fire += c.fire * k;
+      if (c.teams > 0 && (c.leaks > 0 || c.fire === 0)) work = Math.max(work, k);
+    }
+    this.loop(SFX.spray, Math.min(0.7, spray * 0.6));
+    this.loop(SFX.fire, Math.min(0.7, fire * 0.7));
+    this.nextHammer -= dt;
+    if (work > 0.04 && this.nextHammer <= 0) {
+      this.nextHammer = 2 + Math.random() * 4;
+      mixer.play(SFX.hammer, 'machinery', { gain: 0.7 * work, rate: 0.9 + Math.random() * 0.2 });
+      if (work >= 1) haptic('tick');
+    }
   }
 
   private loop(name: string, gain: number, rate = 1): void {
@@ -76,6 +108,7 @@ export class BoatSound {
     const b = obs.boat;
     const f = b.flow;
     this.t += dt;
+    this.damage(dt);
     const pw = b.power;
     const kn = Math.abs(b.speed);
     // Fans, gyro and mains: they die with the battery, and the boat goes eerily quiet.
@@ -292,6 +325,30 @@ export class BoatSound {
       case 'splash':
         // Charges going in overhead: heavy things hitting the water, then the long wait.
         mixer.play(SFX.splash, 'machinery', { gain: 0.65 });
+        break;
+      case 'trip':
+        // The main breakers dropping out (chunk 4.4): relays slamming, the lights going.
+        mixer.play(SFX.breaker, 'machinery', { gain: 0.8 });
+        mixer.play(SFX.lampOff, 'machinery', { gain: 0.5, rate: 0.8 });
+        haptic('heavy');
+        break;
+      case 'reset':
+        mixer.play(SFX.lampOn, 'machinery', { gain: 0.7 });
+        haptic('tick');
+        break;
+      case 'fire':
+        mixer.play(SFX.ignite, 'machinery', { gain: 0.8 });
+        mixer.play(SFX.alarmBell, 'machinery', { gain: 0.35, rate: 1.1 });
+        haptic('impact');
+        break;
+      case 'extinguish':
+        mixer.play(SFX.extinguish, 'machinery', { gain: 0.45 });
+        break;
+      case 'gas':
+        // Chlorine: the alarm, hatches slammed shut.
+        mixer.play(SFX.alarmBell, 'machinery', { gain: 0.5, rate: 0.9 });
+        setTimeout(() => mixer.play(SFX.hatch, 'machinery', { gain: 0.8 }), 1400);
+        haptic('impact');
         break;
       case 'eject':
         // The decoy ejector aft (chunk 4.3): loudest in the engine room, where it is.

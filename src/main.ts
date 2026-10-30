@@ -170,7 +170,7 @@ async function boot(): Promise<void> {
   // The lamp hangs plumb while the boat tilts: bow down (bow is to the left), it swings bowward.
   app.ticker.add(() => {
     light.lean = -obs.boat.pitch * 0.9;
-    light.power(obs.boat.power.charge, obs.boat.power.diesels === 'run');
+    light.power(obs.boat.power.charge, obs.boat.power.diesels === 'run', obs.damage.dark);
   });
   if (params.has('test')) Object.assign(window, { __light: light });
   // Depth charges close aboard (chunk 4.2): the lamp jumps and the whole boat shakes, whole art pixels at a time.

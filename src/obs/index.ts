@@ -2,6 +2,7 @@
  * The observation layer: the only thing the UI reads. The sim publishes here; the UI sends commands back through `send`. The UI never imports src/sim.
  */
 
+import { freshDamage, type DamageObs } from './damage';
 import { freshBoatObs, type BoatObs, type BoatSet } from './boat';
 import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type NavObs, type Signal, type Signature, type SoundObs } from './sense';
 import type { NeutralKey, ShipClassKey } from './ships';
@@ -21,6 +22,7 @@ export { ALPHA, dayLabel, decipher, encipher, groups, keyDay, MORSE, pad5, parse
 export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 export { BOW_TUBES, DEPTH_MAX, DEPTH_MIN, eraOf, freshTubes, NO_SET, RUN, TORPEDOES, turnOut, type Era, type Pistol, type TorpSet, type TorpSpec, type TorpType, type TubeObs, type TubesObs, type ReloadObs } from './torpedo';
+export { freshDamage, type CompDamageObs, type DamageObs, type SysDamageObs } from './damage';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
 export type AlarmLevel = 0 | 1 | 2;
@@ -283,7 +285,7 @@ export interface DrillObs {
 /** alarm: the dive alarm bell, rung through the boat. bomb / bombFar: aircraft bombs close aboard or off. */
 /** launch: a torpedo leaving the tube. detonation(Far): a torpedo going off. clang: a dud striking. breakup: a ship going down. */
 /** battle: battle stations rung through the boat (the engagement begins, chunk 3.6). quiet / unquiet: rigged for silent running, or secured (4.1). splash: depth charges going in near enough to hear (4.2). */
-export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle' | 'quiet' | 'unquiet' | 'splash' | 'eject';
+export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle' | 'quiet' | 'unquiet' | 'splash' | 'eject' | 'trip' | 'reset' | 'fire' | 'extinguish' | 'gas';
 
 export type ObsEvent =
   | { type: 'alarm'; station: number; obs: AlarmObs }
@@ -370,6 +372,8 @@ class Observation {
   sound: SoundObs = freshSound();
   /** Chunk 4.2: screws heard through the hull without the phones, a ship passing close (once a second), or null. */
   overhead: { level: number; bearing: number; rpm: number } | null = null;
+  /** Chunk 4.4: the compartments, systems and damage party as the crew reports them (once a second). */
+  damage: DamageObs = freshDamage();
   /** Navigator's dead reckoning, compass, log and watch clock (every tick). */
   readonly nav: NavObs = freshNav();
   /** Weather as last seen from the bridge or scope, and the hull thermometer. */

@@ -2,6 +2,7 @@ import type { HullSound } from '../obs';
 import { BOAT, TELEGRAPH_STOP, type BoatObs, type BoatSet } from '../obs/boat';
 import { power, newPower, type PowerState } from './power';
 import type { Rng } from './rng';
+import { down, hullK, newDamage, rivet, stepWater, type DamageState } from './damage';
 
 /**
  * Own boat in the vertical plane (chunk 1.2): tanks, air, planes, speed, depth, pitch.
@@ -72,7 +73,7 @@ export interface BoatState {
   set: BoatSet;
   clock: number;
   /** Crew depth-keeping memory: smoothed pitch and stern plane, and a mode. */
-  crew: { pitch: number; stern: number; rate: number; reg: -1 | 0 | 1; trim: -1 | 0 | 1; regT: number; trimT: number };
+  crew: { pitch: number; stern: number; rate: number; reg: -1 | 0 | 1; trim: -1 | 0 | 1; regT: number; trimT: number; blowT?: number };
   /** Lines already called (so the chief does not repeat himself), and when. */
   said: Record<string, number>;
   wasSurfaced: boolean;
@@ -90,6 +91,8 @@ export interface BoatState {
   /** Chunk 4.3: decoy canisters left aboard (none before 1942), and when the ejector last fired (world s). */
   canisters: number;
   ejectAt: number;
+  /** Chunk 4.4: the compartments, their water, fires and gas, the systems and the damage party. */
+  dmg: DamageState;
 }
 
 export interface BoatHost {
@@ -161,6 +164,7 @@ function blank(r: Rng): BoatState {
     silent: false,
     canisters: 0,
     ejectAt: -1e9,
+    dmg: newDamage(),
   };
 }
 
@@ -243,7 +247,12 @@ export const boat = {
   step(b: BoatState, h: BoatHost, dt: number, sea: number): void {
     if (b.lost) return;
     b.clock += dt;
-    if (!b.set.hand) crew(b, dt);
+    if (!b.set.hand) {
+      const was = b.crew.blowT ?? 0;
+      crew(b, dt);
+      if ((b.crew.blowT ?? 0) > was + 1) sayOnce(b, h, 'emergBlow', 'SHE WON\'T HOLD, CAPTAIN! BLOWING MAIN BALLAST!', 60);
+      if (!b.dived && b.bilge > 2 && b.set.ordered >= 1) sayOnce(b, h, 'tooWet', 'TOO MUCH WATER IN HER TO DIVE, CAPTAIN. I KEEP HER UP UNTIL IT IS PUMPED OUT.', 120);
+    }
     const s = b.set;
     const A = amb(b.depth);
     const surfaced = isSurfaced(b);
@@ -262,7 +271,9 @@ export const boat = {
       }
     } else b.ansT = 0;
     // Speed: diesels on the surface, motors on the battery; a heavy hull is slow to change.
-    const pin = { surfaced, diving: s.ventF || s.ventA, telegraph: b.answered, depth: b.depth, lost: false, flow, quiet: b.silent };
+    const D = b.dmg;
+    const motors = D.sys.motors.state === 'tripped' ? 'off' : D.sys.motors.state === 'damaged' ? 'half' : 'ok';
+    const pin = { surfaced, diving: s.ventF || s.ventA, telegraph: b.answered, depth: b.depth, lost: false, flow, quiet: b.silent, motors, dieselsOut: down(D, 'diesels') } as const;
     const kn = power.drive(b.power, pin);
     // Silent running stops the pumps: the regulating, trim and bilge pumps are the loudest things aboard.
     // Dead slow, the planes hold little; a heavy boat going deep past her depth makes the chief pump
@@ -277,8 +288,9 @@ export const boat = {
     const v = b.speed;
 
     // Planes follow their wheels at the speed of the drive.
-    b.bow = approachLinear(b.bow, s.bow, PLANE_RATE * dt);
-    b.stern = approachLinear(b.stern, s.stern, PLANE_RATE * dt);
+    // Jammed planes (chunk 4.4) are worked by hand from their own compartment: a quarter the speed.
+    b.bow = approachLinear(b.bow, s.bow, PLANE_RATE * (down(D, 'bowPlanes') ? 0.25 : 1) * dt);
+    b.stern = approachLinear(b.stern, s.stern, PLANE_RATE * (down(D, 'sternPlanes') ? 0.25 : 1) * dt);
 
     // Main ballast: air out through open vents floods the tank from below; HP air in blows it.
     const ventRate = 2.5 * A; // free m^3/s: a group floods in about 20 s
@@ -326,11 +338,11 @@ export const boat = {
       b.trimF = to;
     }
 
-    // Leaks past test depth, the bilge pump behind them.
-    b.bilge += b.rivets * 0.01 * dt;
-    const bp = live ? Math.min(b.bilge, (0.02 / (1 + b.depth / 80)) * dt) : 0;
-    b.bilge -= bp;
-    flow.bilge = live && b.bilge > 0.01 ? 1 : 0;
+    // Leaks into the compartments (chunk 4.4), the drain pump behind them: weight, and trim.
+    const wet = stepWater(D, b.depth, live, dt);
+    b.bilge = wet.weight;
+    b.rivets = D.leaks.length;
+    flow.bilge = wet.pumping ? 1 : 0;
     power.step(b.power, pin, h, dt);
 
     // Forces.
@@ -346,7 +358,7 @@ export const boat = {
     const surfDamp = 40 * Math.max(0, 1 - under);
     const drag = DRAG_Q * b.w * Math.abs(b.w) + (DRAG_L + surfDamp) * b.w;
     b.w += ((G * (net - drag)) / MASS) * dt;
-    const moment = ARM_MBT * (mbtF - mbtA) + ARM_TRIM * (2 * b.trimF - BOAT.trimTotal) + b.errM + ARM_BOW * fBow + ARM_STERN * fStern;
+    const moment = ARM_MBT * (mbtF - mbtA) + ARM_TRIM * (2 * b.trimF - BOAT.trimTotal) + b.errM + ARM_BOW * fBow + ARM_STERN * fStern + wet.moment;
     const k = K_DIVED + K_SURFACED * Math.max(0, 1 - under) ** 2;
     const th = b.pitch * D2R;
     const qr = b.q * D2R;
@@ -419,22 +431,18 @@ function hullEvents(b: BoatState, h: BoatHost, d0: number, dt: number): void {
     h.say(CHIEF, 'TEST DEPTH, CAPTAIN.');
     h.alarm(CR, 1, `PASSED TEST DEPTH (${T} M). THE HULL IS WORKING.`);
   }
-  if (d > T) {
-    const p = ((d - T) / Math.max(10, b.crush - T)) * 0.12 * dt;
+  // A hull dished by charges (chunk 4.4) weeps at a shallower depth than her test depth.
+  const Te = Math.round(T * hullK(b.dmg));
+  if (Te < T - 2 && d > Te - 15) sayOnce(b, h, 'weak', `THE HULL IS WEAKENED, CAPTAIN. I WOULD NOT TAKE HER PAST ${Te} METRES.`, 600);
+  if (d > Te) {
+    // Above her real test depth the weakened plates only weep now and then.
+    const p = ((d - Te) / Math.max(10, b.crush - Te)) * 0.12 * (d < T ? 0.3 : 1) * dt;
     if (h.rng.next() < p) {
-      b.rivets++;
-      h.hull('rivet');
-      h.alarm(CR, 2, `RIVETS SPRUNG: ${b.rivets} LEAKING. WATER IN THE BOAT. COME UP.`);
+      // A rivet sprung: in the weakest compartment; the damage party drives a plug into it.
+      rivet(b.dmg, h);
       sayOnce(b, h, 'rivet', 'RIVETS GOING! WATER IN THE BOAT!', 8);
     }
-  } else if (b.rivets > 0) {
-    b.rivetHeal += dt;
-    if (b.rivetHeal > 40) {
-      b.rivetHeal = 0;
-      b.rivets--;
-      if (b.rivets === 0) h.alarm(CR, 0, 'ALL QUIET.');
-    }
-  } else if (d < T - 10 && d0 >= T - 10) h.alarm(CR, 0, 'ALL QUIET.');
+  } else if (d < T - 10 && d0 >= T - 10 && !b.dmg.leaks.length) h.alarm(CR, 0, 'ALL QUIET.');
   if (d >= b.crush) {
     b.lost = 'crushed';
     h.hull('crush');
@@ -467,6 +475,13 @@ function crew(b: BoatState, dt: number): void {
     s.trim = 0;
     return;
   }
+  if (!full && !b.dived && b.bilge > 2) {
+    // Blown to the surface heavy with water (chunk 4.4): he will not take her down until it is pumped out.
+    s.ventF = s.ventA = false;
+    s.blow = 0;
+    s.bow = s.stern = 0;
+    return;
+  }
   if (!full && !b.dived) {
     // Dive: open the vents, planes down if there is way on.
     s.ventF = s.ventA = true;
@@ -475,14 +490,25 @@ function crew(b: BoatState, dt: number): void {
     s.stern = 0;
     return;
   }
-  if (full && (s.ventF || s.ventA)) s.ventF = s.ventA = false;
-  if (!full && b.dived) {
-    // Lost ballast air (a blow left on, or a captain's half-measure): flood it back.
-    s.ventF = s.ventA = true;
-  }
-  s.blow = 0;
   const e = b.depth - s.ordered; // + too deep
   const rate = b.rate;
+  // Heavy with water and going down past where he can hold her (chunk 4.4): blow main ballast.
+  // (Water aboard and still going down well past her depth, or going fast; or sinking past test depth.)
+  const flooding = e > 15 && rate > 0.05 && (b.bilge > 1.5 || rate > 0.3);
+  const crushing = b.depth > BOAT.testDepth + 5 && e > 3 && rate > 0.05;
+  if ((flooding || crushing) && b.air > 20 && !(c.blowT! > 0)) c.blowT = 10;
+  if ((c.blowT ?? 0) > 0) {
+    c.blowT! -= dt;
+    s.ventF = s.ventA = false;
+    s.blow = 1;
+  } else {
+    if (full && (s.ventF || s.ventA)) s.ventF = s.ventA = false;
+    // Lost ballast air (a blow left on, a captain's half-measure, the chief's emergency blow once
+    // she is back up to her depth): flood it back. Never while she is still too deep.
+    // Heavy with water in her (chunk 4.4), he keeps the air he blew until the bilges are pumped down.
+    if (!full && b.dived && e < 5 && b.bilge <= 2) s.ventF = s.ventA = true;
+    s.blow = 0;
+  }
   // Valves are worked in short spells, then they watch what she does before the next.
   c.regT -= dt;
   c.trimT -= dt;

@@ -64,6 +64,8 @@ export interface SoundObs {
   deaf: boolean;
   /** Own boat's noise in the phones against the sea's, 0 (well under) .. 1 (swamping it). */
   own: number;
+  /** Chunk 4.4: the set is broken, or the sound room cleared for gas: nothing comes in at all. */
+  dead?: boolean;
 }
 
 export type SightingKind = 'smoke' | 'masts' | 'ship' | 'shadow' | 'aircraft';

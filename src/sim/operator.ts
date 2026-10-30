@@ -190,9 +190,10 @@ export function stepOperator(op: OperatorState, h: OperatorHost, sources: SoundS
   if (op.deafFor >= 4) {
     op.deaf = deafNow;
     op.deafFor = 0;
+    // A dead set (chunk 4.4) the damage report has already told.
     if (deafNow) {
       const text = obs.boat.surfaced ? 'NOTHING ON THE SET, CAPTAIN. DIESELS AND WAVE SLAP DROWN IT ALL.' : 'TOO FAST, CAPTAIN. OUR OWN NOISE DROWNS EVERYTHING.';
-      say(2, { kind: 'deaf', bearing: null, log: 'DEAF, OWN NOISE', text });
+      if (!obs.sound.dead) say(2, { kind: 'deaf', bearing: null, log: 'DEAF, OWN NOISE', text });
     } else say(2, { kind: 'clear', bearing: null, log: 'SET CLEAR', text: 'SET IS CLEAR AGAIN. LISTENING ROUND.' });
   }
 

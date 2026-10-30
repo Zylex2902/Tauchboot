@@ -4,6 +4,7 @@ import type { Effect } from './drill';
 import { Rng } from './rng';
 import type { SenseState } from './sense';
 import { AERIAL_DEPTH } from './sense';
+import { down } from './damage';
 import type { WorldState } from './world';
 
 /**
@@ -96,7 +97,8 @@ export function stepRadio(rs: RadioState, se: SenseState, h: RadioHost, w: World
     const d = rs.wave - rs.tuned;
     rs.tuned = Math.abs(d) <= RETUNE * dt ? rs.wave : rs.tuned + Math.sign(d) * RETUNE * dt;
   }
-  const aerial = b.depth <= AERIAL_DEPTH && !b.lost;
+  // A receiver broken by a charge, or the radio room cleared for gas (chunk 4.4), takes nothing down.
+  const aerial = b.depth <= AERIAL_DEPTH && !b.lost && !(b.dmg && (down(b.dmg, 'radio') || b.dmg.comps.fwd.sealed));
   const onWave = Math.abs(rs.tuned - rs.wave) <= READ;
   // The top of the hour: the broadcast begins (one signal after another).
   const hour = Math.floor(ms / 3600000);

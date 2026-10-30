@@ -8,6 +8,7 @@ import { awashAt, drill, lensAbove, newDrillState, sea, type DrillHost, type Dri
 import { newDetect, stepDetect, type DetectHost, type DetectState } from './detect';
 import { stepHunt, type HuntHost } from './enemy-sense';
 import { EJECT_S, newDecoy } from './decoy';
+import { COMPS, hullK, IDX, LEAK, newDamage, shock, stepDamage, SYS, SYSTEMS, type CompId } from './damage';
 import { DECOYS_CARRIED, DECOYS_FROM, warMs } from './doctrine';
 import { churned, newEscortWorld, stepEscorts, type EscortHost, type EscortWorld } from './escort';
 import { Rng } from './rng';
@@ -33,9 +34,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 17;
+export const SAVE_VERSION = 18;
 /** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1), the escorts' hunts and depth charges (4.2). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -44,6 +45,8 @@ const pad3 = (n: number) => String(Math.round(norm(n)) % 360).padStart(3, '0');
 const QUIET = 'ALL QUIET.';
 /** The ejector's thump of air, heard by the escorts for a moment, dB (as NOISES in enemy-sense). */
 const EJECT_DB = 128;
+/** Half the pressure hull's length, metres (a charge is measured from the nearest point of it). */
+const HULL_HALF = 25;
 
 /** The chief takes her this deep on the dive alarm, metres. */
 const CRASH_DEPTH = 40;
@@ -281,6 +284,12 @@ export class Sim {
     s.esc.decoyN ??= 0;
     s.boat.canisters ??= s.world.t0 >= DECOYS_FROM ? DECOYS_CARRIED : 0;
     s.boat.ejectAt ??= -1e9;
+    if (!s.boat.dmg) {
+      // Chunk 4.4: leaks and bilge water carried over into the control room.
+      s.boat.dmg = newDamage();
+      for (let k = 0; k < (s.boat.rivets ?? 0); k++) s.boat.dmg.leaks.push({ id: ++s.boat.dmg.leakN, comp: 'control', kind: 'rivet', fix: 0 });
+      s.boat.dmg.comps.control.water = s.boat.bilge ?? 0;
+    }
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -376,6 +385,11 @@ export class Sim {
       // A drill that has ended clears its lamps (a lost boat keeps them).
       if (this.drillObs.phase === 'over' && !b.lost)
         for (let i = 0; i < 9; i++) if (this.s.alarms[i].level) this.effect({ kind: 'alarm', station: i, level: 0, report: QUIET });
+    }
+    // The compartments (chunk 4.4): fires, gas, breakers, the damage party, once a second.
+    if (this.s.world.n % 10 === 0 && !b.lost) {
+      stepDamage(b.dmg, this.boatHost, { fans: !b.silent && power.pumpsLive(b.power) });
+      this.damageObs();
     }
     this.helm(b.lost ? 0 : b.speed);
     stepWorld(this.s.world, this.rngWorld, TICK_S, b.lost ? 0 : b.speed);
@@ -682,6 +696,31 @@ export class Sim {
    * it splits her; close, rivets shear and the sea comes in; a near miss may start a gland; nearer than forty, glass and
    * gauges; further, the boat rings and the lamps swing.
    */
+  /** What the crew reports of the damage (chunk 4.4). */
+  private damageObs(): void {
+    const D = this.s.boat.dmg;
+    const teams = (id: CompId) => D.teams.filter((tm) => tm.job && tm.at === IDX[id]).length;
+    obs.damage = {
+      comps: COMPS.map((c) => {
+        const cs = D.comps[c.id];
+        return { id: c.id, name: c.name, station: c.station, water: Math.round((cs.water / c.floor) * 100) / 100, leaks: D.leaks.filter((l) => l.comp === c.id).length, fire: cs.fire, gas: cs.gas, sealed: cs.sealed, hull: cs.hull, teams: teams(c.id) };
+      }),
+      systems: SYSTEMS.map((s) => ({ id: s.id, name: s.name, comp: s.comp, state: D.sys[s.id].state, fix: D.sys[s.id].fix })),
+      teams: D.teams.map((tm) => {
+        const j = tm.job;
+        if (!j) return '';
+        if (j.kind === 'fire') return `FIRE, ${COMPS[IDX[j.comp]].name}`;
+        if (j.kind === 'leak') {
+          const l = D.leaks.find((q) => q.id === j.id);
+          return l ? `${LEAK[l.kind].say} LEAKING, ${COMPS[IDX[l.comp]].name}` : '';
+        }
+        return SYS[j.id].name;
+      }),
+      dark: D.sys.lights.state !== 'ok',
+      testDepth: Math.round(BOAT.testDepth * hullK(D)),
+    };
+  }
+
   /** The decoy ejector aft (chunk 4.3): a canister out with a thump of air, or the reason not. */
   private decoy(): void {
     const b = this.s.boat;
@@ -705,9 +744,15 @@ export class Sim {
     const b = this.s.boat;
     if (b.lost) return;
     const w = this.s.world;
-    const d = Math.hypot(x - w.own.x, y - w.own.y, z - (b.depth - 3));
+    // How far from her (the severity, as chunk 4.2 tuned it), and where along the pressure hull
+    // it is nearest (chunk 4.4: which compartment takes the shock).
+    const a = (w.own.course * Math.PI) / 180;
+    const dx = x - w.own.x;
+    const dy = y - w.own.y;
+    const d = Math.hypot(dx, dy, z - (b.depth - 3));
+    const at = Math.max(-HULL_HALF, Math.min(HULL_HALF, dx * Math.sin(a) + dy * Math.cos(a)));
     const k = Math.max(0, Math.min(1, 1 - Math.log10(Math.max(8, d) / 8) / Math.log10(4000 / 8)));
-    const rel = ((Math.atan2(x - w.own.x, y - w.own.y) * 180) / Math.PI - w.own.course) * (Math.PI / 180);
+    const rel = ((Math.atan2(dx, dy) * 180) / Math.PI - w.own.course) * (Math.PI / 180);
     if (k > 0.02) obs.publish({ type: 'blast', k, pan: Math.max(-1, Math.min(1, Math.sin(rel))) });
     const t = w.n * TICK_S;
     const said = this.s.esc.said;
@@ -715,24 +760,13 @@ export class Sim {
       b.lost = 'crushed';
       this.boatHost.hull('crush');
       this.lost('A CHARGE AGAINST THE HULL. SHE IS SPLIT OPEN.');
-    } else if (d < 18) {
-      b.rivets += 1 + Math.floor((18 - d) / 4);
-      this.boatHost.hull('rivet');
-      if (t - (said.hit ?? -1e9) > 20) {
-        said.hit = t;
-        this.effect({ kind: 'alarm', station: 3, level: 2, report: 'DEPTH CHARGES CLOSE ABOARD. WATER COMING IN. PUMPS NEEDED.' });
-        this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'WATER IN THE BOAT! RIVETS GONE!' });
-      }
-    } else if (d < 30 && this.rngHunt.next() < (30 - d) / 16) {
-      // A near miss: a gland weeping, a flange started. One small leak.
-      b.rivets += 1;
-      this.boatHost.hull('rivet');
-      if (t - (said.hit ?? -1e9) > 20) {
-        said.hit = t;
-        this.effect({ kind: 'alarm', station: 3, level: 1, report: 'NEAR MISS. A GLAND IS LEAKING. PUMPS ON IT.' });
-        this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'CLOSE! A LEAK AFT, CAPTAIN.' });
-      }
-    } else if (d < 70 && z < b.depth - 22 && Math.hypot(x - w.own.x, y - w.own.y) < 50 && t - (said.above ?? -1e9) > 120) {
+      return;
+    }
+    // The shock (chunk 4.4): leaks, breakers, shock mounts, a fire, by compartment.
+    const leaks = b.dmg.leakN;
+    if (d < 45) shock(b.dmg, this.boatHost, d, at);
+    if (b.dmg.leakN > leaks) return;
+    if (d < 70 && z < b.depth - 22 && Math.hypot(dx, dy) < 50 && t - (said.above ?? -1e9) > 120) {
       // Right over us and well above: they cannot set them deep enough (chunk 4.3).
       said.above = t;
       this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'ABOVE US, CAPTAIN. THEY ARE GOING OFF ABOVE US.' });
@@ -742,6 +776,7 @@ export class Sim {
       this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: 'CLOSE! SHE HOLDS, CAPTAIN.' });
     }
   }
+
 
   private bombs(d: Drop): void {
     const b = this.s.boat;

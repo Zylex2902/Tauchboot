@@ -2,6 +2,7 @@ import { obs } from '../obs';
 import type { Sim } from '../sim/core';
 import { FIRM, radiated } from '../sim/enemy-sense';
 import { decoyEcho } from '../sim/decoy';
+import { COMPS, SYSTEMS } from '../sim/damage';
 import { DECOYS_CARRIED, DECOYS_FROM, doctrineAt, warMs } from '../sim/doctrine';
 import { HULLS } from '../sim/fleet';
 import { layerAt, layerLoss, waterTemp } from '../sim/ocean';
@@ -324,6 +325,12 @@ export function mountTruth(sim: Sim): void {
     // Chunk 4.1: being found. Own radiated noise and what makes it; each escort's margins (dB, 0 = even odds a roll comes good).
     const rad = radiated(b, s.torp);
     L(`BEING FOUND    NOISE ${rad.db.toFixed(0)} DB${b.silent ? ' (SILENT RUNNING)' : ''}: ${Object.entries(rad.parts).map(([k, v]) => `${k.toUpperCase()} ${Math.round(v!)}`).join(' ')}   SCOPE EXPOSURE ${s.detect.e.toFixed(2)}   CONTACTS ${s.detect.contacts ?? 0}`, COL.dim);
+    // Chunk 4.4: the compartments and the damage party.
+    const D = b.dmg;
+    if (D) {
+      L(`DAMAGE   ${COMPS.map((c) => { const q = D.comps[c.id]; return `${c.id.toUpperCase()} ${q.water.toFixed(1)}T${q.hull < 1 ? ` H${q.hull.toFixed(2)}` : ''}${q.fire ? ` FIRE${q.fire.toFixed(2)}` : ''}${q.gas ? ` GAS${q.gas.toFixed(2)}${q.sealed ? '!' : ''}` : ''}`; }).join('  ')}`, COL.dim);
+      L(`  LEAKS ${D.leaks.map((l) => `${l.comp}:${l.kind} ${Math.round(l.fix * 100)}%`).join(', ') || '-'}   DOWN ${SYSTEMS.filter((q) => D.sys[q.id].state !== 'ok').map((q) => `${q.id} ${D.sys[q.id].state}${D.sys[q.id].fix ? ` ${Math.round(D.sys[q.id].fix * 100)}%` : ''}`).join(', ') || '-'}   TEAMS ${D.teams.map((tm) => `@${tm.at.toFixed(1)} ${tm.job ? (tm.job.kind === 'sys' ? tm.job.id : tm.job.kind === 'fire' ? 'fire ' + tm.job.comp : 'leak ' + tm.job.id) : 'idle'}`).join(' | ')}`, D.leaks.length ? COL.escort : undefined);
+    }
     const wm = warMs(w);
     const doc = doctrineAt(wm);
     L(`  WAR DATE ${new Date(wm).toISOString().slice(0, 7)}${w.war !== undefined ? ' (OVERRIDE, Y)' : ''}   DOCTRINE: CHARGES TO ${doc.maxSet} M, ECHO CLASSING ${doc.classK}, HOLD ${Math.round(doc.huntMax / 60)} MIN (${Math.round(doc.lostMax / 60)} LOST), ${doc.layerWise ? 'LAYER-WISE' : 'NO BT'}, DECOY CLASSED IN ${doc.decoyClass > 1e8 ? '-' : `${doc.decoyClass} S`}   CANISTERS ${b.canisters}`, COL.dim);

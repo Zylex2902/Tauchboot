@@ -3,6 +3,7 @@ import type { BoatState } from './boat';
 import type { DetectHost, DetectState } from './detect';
 import { escortClosing } from './detect';
 import { decoyEcho, decoyHiss, decoyLive, type Decoy } from './decoy';
+import { repairing } from './damage';
 import { doctrineAt, warMs } from './doctrine';
 import { layerLoss } from './ocean';
 import type { Rng } from './rng';
@@ -86,6 +87,8 @@ export const NOISES = {
   door: 120,
   /** A torpedo's launch: the impulse air and the fish's start. */
   launch: 150,
+  /** The damage party: hammering, wrenches on steel (chunk 4.4). */
+  repair: 114,
 } as const;
 
 export type Sensor = 'asdic' | 'ears' | 'radar';
@@ -140,6 +143,8 @@ export function radiated(b: BoatState, tw: TorpWorld): { db: number; parts: Part
     if (k === 'drain') parts.drain = NOISES.drain;
   }
   if (tw.fish.some((f) => !f.done && f.t < 2.5)) parts.launch = NOISES.launch;
+  // The damage party at work: wedges hammered home, a wrench on a flange (chunk 4.4).
+  if (b.dmg && repairing(b.dmg)) parts.repair = NOISES.repair;
   return { db: powerSum(...Object.values(parts)), parts };
 }
 

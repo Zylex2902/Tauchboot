@@ -198,10 +198,11 @@ export class Lighting {
    * The lamps hang off the battery: as it runs down the pool shrinks and the filament
    * stutters more; flat, only the emergency lamp glows. Cheap to call every frame.
    */
-  power(charge: number, mains: boolean): void {
-    const dim = mains ? 1 : charge <= 0 ? 0.32 : charge < 0.1 ? 0.6 + 0.4 * (charge / 0.1) : 1;
+  power(charge: number, mains: boolean, dark = false): void {
+    // The main switchboard out (chunk 4.4): breakers drop, the emergency lamp only.
+    const dim = dark ? 0.32 : mains ? 1 : charge <= 0 ? 0.32 : charge < 0.1 ? 0.6 + 0.4 * (charge / 0.1) : 1;
     if (Math.abs(dim - this.target.dim) < 0.005) return;
-    const ms = Math.abs(dim - this.target.dim) > 0.2 ? 1800 : 600;
+    const ms = dark ? 140 : this.target.dim <= 0.33 && dim === 1 ? 400 : Math.abs(dim - this.target.dim) > 0.2 ? 1800 : 600;
     this.set({ dim, flicker: dim < 1 ? 0.25 + (1 - dim) * 1.6 : 0.25 }, ms);
   }
 

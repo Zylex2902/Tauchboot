@@ -96,6 +96,9 @@ export interface PowerInput {
   flow: { vent: number; blow: number; flood: number; pump: number; trim: number; bilge: number };
   /** Silent running (chunk 4.1): the fans are stopped. */
   quiet?: boolean;
+  /** Chunk 4.4: the motors' breakers out ('off'), one motor damaged ('half': one shaft); the diesels damaged. */
+  motors?: 'ok' | 'half' | 'off';
+  dieselsOut?: boolean;
 }
 
 export interface PowerHost {
@@ -152,14 +155,19 @@ export const power = {
     else if (!p.flat) p.drive = 'motor';
     else p.drive = 'none';
     if (p.drive === 'diesel') return SURFACED_KN[t] ?? 0;
-    if (p.drive === 'motor') return creeping(i) ? Math.sign(DIVED_KN[t]) * SILENT_KN : (DIVED_KN[t] ?? 0);
+    if (p.drive === 'motor') {
+      if (i.motors === 'off') return 0;
+      const kn = creeping(i) ? Math.sign(DIVED_KN[t]) * SILENT_KN : (DIVED_KN[t] ?? 0);
+      // One shaft: a little over half the speed (the screw on the dead shaft drags).
+      return i.motors === 'half' && !creeping(i) ? kn * 0.6 : kn;
+    }
     return 0;
   },
 
   /** Loads, charge and fuel for one step; flows are this step's (pumps, vents). */
   step(p: PowerState, i: PowerInput, h: PowerHost, dt: number): void {
     // The diesels: the engine crew's own routine, or start and stop by the captain's hand.
-    const canRun = i.surfaced && !i.diving && !i.lost && p.fuel > 0;
+    const canRun = i.surfaced && !i.diving && !i.lost && p.fuel > 0 && !i.dieselsOut;
     const hand = p.set.hand;
     // Stopped, they wait for the battery to want a proper charge; running, they top it right up.
     const want = !hand && canRun && (i.telegraph !== 3 || p.bat < (p.diesel === 'stop' ? 0.95 : 0.995));

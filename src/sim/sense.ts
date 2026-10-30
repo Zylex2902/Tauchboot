@@ -10,6 +10,7 @@ import { beaufortOf, seaStateOf, waveHeight } from './weather';
 import type { WorldState } from './world';
 import { settled } from './torpedo';
 import { decoyHiss, type Decoy } from './decoy';
+import { down } from './damage';
 
 /**
  * The observation layer's sim side (chunk 2.2): turns the true world into what the boat
@@ -288,6 +289,11 @@ export function noiseFloor(bf: number, ss: number, ownDb: number, surfaced: bool
 
 /** Once a second: the sound field. */
 function hear(se: SenseState, r: Rng, w: WorldState, b: BoatState, em: Emitter[], t: number): void {
+  // The set broken by a charge, or the sound room cleared for chlorine (chunk 4.4): nothing at all.
+  if (b.dmg && (down(b.dmg, 'hydro') || b.dmg.comps.fwd.sealed)) {
+    obs.sound = { sources: [], noise: 0, deaf: true, own: 0, dead: true };
+    return;
+  }
   const ss = seaStateOf(waveHeight(w.weather));
   const surfaced = isSurfaced(b);
   const bf = beaufortOf(w.weather.wind + w.weather.gust);

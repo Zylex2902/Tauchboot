@@ -256,6 +256,12 @@ export const SFX = {
   pingHull: 'pingHull',
   splash: 'splash',
   eject: 'eject',
+  spray: 'spray',
+  fire: 'fire',
+  ignite: 'ignite',
+  extinguish: 'extinguish',
+  hammer: 'hammer',
+  breaker: 'breaker',
 } as const;
 
 /**
@@ -350,6 +356,12 @@ export const SFX_NOTES: Record<string, string> = {
   pingHull: 'a ping finding us: a hard ring on the pressure hull',
   splash: 'depth charges going into the water overhead',
   eject: 'the decoy ejector aft: a lever, a thump of air and the canister going out',
+  spray: 'a leak: seawater jetting from a gland or a seam under pressure, loops',
+  fire: 'an electrical fire: crackle and spit of burning insulation, loops',
+  ignite: 'a switchboard shorting: a hard arc crack and the whoomph of it catching',
+  extinguish: 'a hand extinguisher: the plunger struck, foam hissing out',
+  hammer: 'the damage party: a wooden wedge hammered into a leak, steel ringing',
+  breaker: 'the main breakers dropping out: heavy relays slamming open',
   'screw-canister3-0': 'our decoy canister fizzing on the hydrophone, loops',
   'screw-torpedo4-0': 'our own torpedo running: fast contra-rotating screws, a thin high whine, loops',
   'screw-torpedo4-1': 'our own torpedo, second voice, loops',
@@ -1357,6 +1369,72 @@ export function defineSounds(): void {
     add(out, strike(sr, 0.4, 6, 1405, 0.6, cluster(1406, 380, 1300, 6, 0.03)), 0.35, 0.55, sr);
     return out;
   }, 0.65);
+
+  d(SFX.spray, (sr) => {
+    // Seawater jetting in under pressure: a hard rushing hiss, spattering on steel, wandering as the jet moves.
+    const dur = 2;
+    const out = rush(sr, dur, 1501, 2600, 1.4);
+    const r = rng(1502);
+    let wob = 0;
+    for (let i = 0; i < out.length; i++) {
+      wob += (r() - 0.5 - wob) * 0.0008;
+      out[i] *= 2 + wob * 30;
+    }
+    add(out, scrape(sr, dur, 900, 1503, () => 0.35), 1);
+    return loopable(lowpass(highpass(out, 300, sr), 6000, sr), sr, 0.1);
+  }, 0.5);
+
+  d(SFX.fire, (sr) => {
+    // Burning cable and insulation: a dense crackle, now and then a spit, over a low roar of draught.
+    const dur = 2.4;
+    const out = rush(sr, dur, 1511, 380, 1.2);
+    for (let i = 0; i < out.length; i++) out[i] *= 0.9;
+    add(out, scrape(sr, dur, 140, 1512, () => 1), 0.9);
+    const r = rng(1513);
+    for (let k = 0; k < 9; k++) add(out, contact(sr, 0.05, 1514 + k, 900, 4200, 0.004), 0.6 + r() * 0.4, r() * dur, sr);
+    return loopable(lowpass(out, 5200, sr), sr, 0.1);
+  }, 0.5);
+
+  d(SFX.ignite, (sr) => {
+    // A short: the arc's crack, a buzz of it holding, the whoomph of insulation catching.
+    const dur = 1.4;
+    const out = len(sr, dur);
+    add(out, contact(sr, 0.15, 1521, 1200, 7000, 0.01), 1, 0, sr);
+    add(out, buzz(sr, 0.35, 100, 0.3, (t) => Math.exp(-t * 6)), 0.5, 0.02, sr);
+    add(out, lowpass(rush(sr, 1, 1522, 300, 1), 900, sr), 1.2, 0.25, sr);
+    return out;
+  }, 0.7);
+
+  d(SFX.extinguish, (sr) => {
+    // The plunger struck on the cap, then foam hissing out of the nozzle, fading as the can empties.
+    const dur = 1.8;
+    const out = len(sr, dur);
+    add(out, strike(sr, 0.3, 4, 1531, 0.5, cluster(1532, 600, 2600, 6, 0.03)), 0.7, 0, sr);
+    const h = rush(sr, 1.6, 1533, 3200, 1);
+    for (let i = 0; i < h.length; i++) h[i] *= Math.exp(-(i / sr) * 1.2) * 1.6;
+    add(out, highpass(h, 800, sr), 1, 0.08, sr);
+    return out;
+  }, 0.55);
+
+  d(SFX.hammer, (sr) => {
+    // A wedge driven home: two hard blows of a maul on wood against steel, the hull ringing a little.
+    const dur = 1.2;
+    const out = len(sr, dur);
+    for (const [at, g, seed] of [[0, 1, 1541], [0.42, 0.85, 1542]] as const) {
+      add(out, strike(sr, 0.5, 5, seed, 0.75, cluster(seed + 10, 140, 700, 7, 0.04)), g, at, sr);
+      add(out, strike(sr, 0.7, 2, seed + 20, 0.3, cluster(seed + 30, 900, 3400, 8, 0.2, 0.4)), g * 0.25, at + 0.004, sr);
+    }
+    return out;
+  }, 0.6);
+
+  d(SFX.breaker, (sr) => {
+    // The main breakers dropping out: three heavy relays slamming open, the last with an arc's spit.
+    const dur = 0.7;
+    const out = len(sr, dur);
+    [0, 0.05, 0.11].forEach((at, k) => add(out, strike(sr, 0.3, 3, 1551 + k, 0.5, cluster(1555 + k, 300, 1800, 7, 0.03)), 1 - k * 0.15, at, sr));
+    add(out, contact(sr, 0.08, 1560, 2000, 8000, 0.004), 0.6, 0.115, sr);
+    return out;
+  }, 0.7);
 
   d(SFX.drip, (sr) => {
     // A bead of condensation landing on a deck plate: a wet tick and a little ring of steel.
