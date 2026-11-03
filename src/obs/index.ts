@@ -22,7 +22,7 @@ export { ALPHA, dayLabel, decipher, encipher, groups, keyDay, MORSE, pad5, parse
 export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 export { BOW_TUBES, DEPTH_MAX, DEPTH_MIN, eraOf, freshTubes, NO_SET, RUN, TORPEDOES, turnOut, type Era, type Pistol, type TorpSet, type TorpSpec, type TorpType, type TubeObs, type TubesObs, type ReloadObs } from './torpedo';
-export { freshDamage, type CompDamageObs, type DamageObs, type SysDamageObs } from './damage';
+export { freshDamage, type CompDamageObs, type CrewObs, type DamageObs, type PumpObs, type SysDamageObs } from './damage';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
 export type AlarmLevel = 0 | 1 | 2;
@@ -346,6 +346,10 @@ export type Command =
   | { type: 'reload'; tube: number | number[] | 'all'; torp: TorpType }
   | { type: 'reloadCancel'; tube: number }
   | { type: 'reloadHands'; hands: number }
+  /** Chunk 4.5, the damage control board: a team's peg ('comp:<id>', 'sys:<id>', null = the chief's). */
+  | { type: 'dcPost'; team: number; post: string | null }
+  /** The drain pump's switch, or one bilge suction valve on its manifold. */
+  | { type: 'dcPump'; run?: boolean; comp?: string; open?: boolean }
   /** The gyro angle the attack table sends to the tubes, degrees off the bow. */
   | { type: 'gyroSet'; deg: number }
   /** Fire these tubes in turn, fanned across `spread` degrees. */

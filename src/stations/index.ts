@@ -1,5 +1,6 @@
 import type { KitContext } from '../controls';
 import { ConningTower } from './conning-tower';
+import { DamageBoard } from './damage-board';
 import { ControlRoom } from './control-room';
 import { EngineRoom } from './engine-room';
 import { STATIONS } from './panel-art';
@@ -24,5 +25,6 @@ export function createStation(index: number, ctx: KitContext): StationScene {
   if (index === 5) return new ConningTower(index, ctx);
   if (index === 6) return new Bridge(index, ctx);
   if (index === 7) return new EngineRoom(index, ctx);
+  if (index === 8) return new DamageBoard(index, ctx);
   return new PlaceholderStation(index, STATIONS[index], ctx);
 }

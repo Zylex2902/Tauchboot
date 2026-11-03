@@ -329,7 +329,7 @@ export function mountTruth(sim: Sim): void {
     const D = b.dmg;
     if (D) {
       L(`DAMAGE   ${COMPS.map((c) => { const q = D.comps[c.id]; return `${c.id.toUpperCase()} ${q.water.toFixed(1)}T${q.hull < 1 ? ` H${q.hull.toFixed(2)}` : ''}${q.fire ? ` FIRE${q.fire.toFixed(2)}` : ''}${q.gas ? ` GAS${q.gas.toFixed(2)}${q.sealed ? '!' : ''}` : ''}`; }).join('  ')}`, COL.dim);
-      L(`  LEAKS ${D.leaks.map((l) => `${l.comp}:${l.kind} ${Math.round(l.fix * 100)}%`).join(', ') || '-'}   DOWN ${SYSTEMS.filter((q) => D.sys[q.id].state !== 'ok').map((q) => `${q.id} ${D.sys[q.id].state}${D.sys[q.id].fix ? ` ${Math.round(D.sys[q.id].fix * 100)}%` : ''}`).join(', ') || '-'}   TEAMS ${D.teams.map((tm) => `@${tm.at.toFixed(1)} ${tm.job ? (tm.job.kind === 'sys' ? tm.job.id : tm.job.kind === 'fire' ? 'fire ' + tm.job.comp : 'leak ' + tm.job.id) : 'idle'}`).join(' | ')}`, D.leaks.length ? COL.escort : undefined);
+      L(`  LEAKS ${D.leaks.map((l) => `${l.comp}:${l.kind} ${Math.round(l.fix * 100)}%`).join(', ') || '-'}   DOWN ${SYSTEMS.filter((q) => D.sys[q.id].state !== 'ok').map((q) => `${q.id} ${D.sys[q.id].state}${D.sys[q.id].fix ? ` ${Math.round(D.sys[q.id].fix * 100)}%` : ''}`).join(', ') || '-'}   TEAMS ${D.teams.map((tm) => `@${tm.at.toFixed(1)} ${tm.job ? (tm.job.kind === 'sys' ? tm.job.id : tm.job.kind === 'fire' ? 'fire ' + tm.job.comp : 'leak ' + tm.job.id) : 'idle'}${tm.post ? ` [POST ${'comp' in tm.post ? tm.post.comp : tm.post.sys}]` : ''}`).join(' | ')}   PUMP ${D.pump.run ? 'RUN' : 'STOP'}${D.drawing ? ` ON ${D.drawing}` : ''}${D.pump.shut.length ? ` SHUT ${D.pump.shut.join(' ')}` : ''}`, D.leaks.length ? COL.escort : undefined);
     }
     const wm = warMs(w);
     const doc = doctrineAt(wm);

@@ -8,7 +8,7 @@ import { awashAt, drill, lensAbove, newDrillState, sea, type DrillHost, type Dri
 import { newDetect, stepDetect, type DetectHost, type DetectState } from './detect';
 import { stepHunt, type HuntHost } from './enemy-sense';
 import { EJECT_S, newDecoy } from './decoy';
-import { COMPS, hullK, IDX, LEAK, newDamage, shock, stepDamage, SYS, SYSTEMS, type CompId } from './damage';
+import { COMPS, hullK, IDX, LEAK, migrateDamage, newDamage, post, pumpSet, shock, stepDamage, SYS, SYSTEMS, type CompId, type Job, type Post, type SysId } from './damage';
 import { DECOYS_CARRIED, DECOYS_FROM, warMs } from './doctrine';
 import { churned, newEscortWorld, stepEscorts, type EscortHost, type EscortWorld } from './escort';
 import { Rng } from './rng';
@@ -34,9 +34,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 18;
+export const SAVE_VERSION = 19;
 /** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1), the escorts' hunts and depth charges (4.2). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -290,6 +290,7 @@ export class Sim {
       for (let k = 0; k < (s.boat.rivets ?? 0); k++) s.boat.dmg.leaks.push({ id: ++s.boat.dmg.leakN, comp: 'control', kind: 'rivet', fix: 0 });
       s.boat.dmg.comps.control.water = s.boat.bilge ?? 0;
     }
+    migrateDamage(s.boat.dmg);
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -469,6 +470,18 @@ export class Sim {
         if (c.order === 'decoy') this.decoy();
         break;
       }
+      case 'dcPost': {
+        // Chunk 4.5: a team's peg on the damage control board.
+        const [k, id] = (c.post ?? '').split(':');
+        const to: Post | null = k === 'comp' ? { comp: id as CompId } : k === 'sys' ? { sys: id as SysId } : null;
+        if (!this.s.boat.lost) post(this.s.boat.dmg, this.boatHost, c.team, to);
+        this.damageObs();
+        break;
+      }
+      case 'dcPump':
+        if (!this.s.boat.lost) pumpSet(this.s.boat.dmg, this.boatHost, { run: c.run, comp: c.comp as CompId | undefined, open: c.open });
+        this.damageObs();
+        break;
       case 'boatSet':
         boat.set(this.s.boat, this.boatHost, c.set);
         break;
@@ -703,9 +716,9 @@ export class Sim {
     obs.damage = {
       comps: COMPS.map((c) => {
         const cs = D.comps[c.id];
-        return { id: c.id, name: c.name, station: c.station, water: Math.round((cs.water / c.floor) * 100) / 100, leaks: D.leaks.filter((l) => l.comp === c.id).length, fire: cs.fire, gas: cs.gas, sealed: cs.sealed, hull: cs.hull, teams: teams(c.id) };
+        return { id: c.id, name: c.name, short: c.short, station: c.station, water: Math.round((cs.water / c.floor) * 100) / 100, leaks: D.leaks.filter((l) => l.comp === c.id).length, fire: cs.fire, gas: cs.gas, sealed: cs.sealed, hull: cs.hull, teams: teams(c.id), suction: !D.pump.shut.includes(c.id) };
       }),
-      systems: SYSTEMS.map((s) => ({ id: s.id, name: s.name, comp: s.comp, state: D.sys[s.id].state, fix: D.sys[s.id].fix })),
+      systems: SYSTEMS.map((s) => ({ id: s.id, name: s.name, board: s.board, comp: s.comp, state: D.sys[s.id].state, fix: D.sys[s.id].fix })),
       teams: D.teams.map((tm) => {
         const j = tm.job;
         if (!j) return '';
@@ -716,9 +729,46 @@ export class Sim {
         }
         return SYS[j.id].name;
       }),
+      crews: D.teams.map((tm) => ({ at: tm.at, job: this.jobShort(tm.job), what: this.jobWhat(tm.job), where: tm.job ? COMPS[IDX[this.jobAt(tm.job)]].short : '', working: !!tm.job && tm.at === IDX[this.jobAt(tm.job)], fix: this.jobFix(tm.job), post: !tm.post ? null : 'comp' in tm.post ? `comp:${tm.post.comp}` : `sys:${tm.post.sys}` })),
+      aboard: COMPS.reduce((n, c) => n + D.comps[c.id].water, 0),
+      pump: { run: D.pump.run, drawing: D.drawing ?? null, out: D.sys.pump.state !== 'ok' },
       dark: D.sys.lights.state !== 'ok',
       testDepth: Math.round(BOAT.testDepth * hullK(D)),
     };
+  }
+
+  /** A job as the damage control board shows it, short. */
+  private jobShort(j: Job | null): string {
+    const D = this.s.boat.dmg;
+    if (!j) return '';
+    if (j.kind === 'fire') return `FIRE ${COMPS[IDX[j.comp]].short}`;
+    if (j.kind === 'leak') {
+      const l = D.leaks.find((q) => q.id === j.id);
+      return l ? `${l.kind.toUpperCase()} ${COMPS[IDX[l.comp]].short}` : '';
+    }
+    return SYS[j.id].board;
+  }
+
+  private jobWhat(j: Job | null): string {
+    const D = this.s.boat.dmg;
+    if (!j) return '';
+    if (j.kind === 'fire') return 'FIRE';
+    if (j.kind === 'leak') return D.leaks.find((q) => q.id === j.id)?.kind.toUpperCase() ?? '';
+    return SYS[j.id].board;
+  }
+
+  private jobAt(j: Job): CompId {
+    const D = this.s.boat.dmg;
+    return j.kind === 'fire' ? j.comp : j.kind === 'leak' ? (D.leaks.find((q) => q.id === j.id)?.comp ?? 'control') : SYS[j.id].comp;
+  }
+
+  /** How far a job is done, 0..1 (a fire: how far it is beaten down). */
+  private jobFix(j: Job | null): number {
+    const D = this.s.boat.dmg;
+    if (!j) return 0;
+    if (j.kind === 'fire') return 1 - D.comps[j.comp].fire;
+    if (j.kind === 'leak') return D.leaks.find((q) => q.id === j.id)?.fix ?? 1;
+    return D.sys[j.id].fix;
   }
 
   /** The decoy ejector aft (chunk 4.3): a canister out with a thump of air, or the reason not. */

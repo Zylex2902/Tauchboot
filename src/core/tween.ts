@@ -95,6 +95,12 @@ export class Tweens {
         keep.push(a);
         continue;
       }
+      // Its sprite was destroyed mid-move (a log line struck off while the pad rolled up): drop
+      // the tween and let its waiter go on. Writing to it would throw and stop the ticker.
+      if ((a.target as { destroyed?: boolean }).destroyed) {
+        a.done.forEach((d) => d());
+        continue;
+      }
       const p = Math.min(1, a.t / Math.max(1, a.o.duration));
       const e = (a.o.ease ?? ease.outCubic)(p);
       const snap = a.o.snap ?? true;

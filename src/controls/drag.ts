@@ -5,7 +5,8 @@ import { SFX } from '../core/sfx';
 import { ease } from '../core/tween';
 import { approach, Control, type BaseSpec, type KitContext } from './control';
 
-export type DragItem = 'pencil' | 'peg';
+/** peg2: the second team's peg, its head painted red (chunk 4.5). */
+export type DragItem = 'pencil' | 'peg' | 'peg2';
 
 export interface DragSpec extends BaseSpec {
   kind: 'drag';
@@ -24,7 +25,7 @@ export interface DragValue {
 }
 
 function art(item: DragItem): { tex: Texture; shadow: Texture; w: number; h: number } {
-  const p = item === 'pencil' ? pencil() : peg();
+  const p = item === 'pencil' ? pencil() : peg(item === 'peg2');
   const s = new Pix(p.w, p.h);
   for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) if (p.get(x, y) >= 0) s.set(x, y, C.black);
   return { tex: p.toTexture(), shadow: s.toTexture(), w: p.w, h: p.h };
@@ -46,12 +47,12 @@ function pencil(): Pix {
   return p;
 }
 
-function peg(): Pix {
+function peg(red = false): Pix {
   const p = new Pix(10, 14);
-  p.disc(4, 4, 4, C.brass0);
-  p.disc(4, 4, 3, C.brass1);
-  p.set(3, 2, C.brass2);
-  p.set(2, 3, C.brass2);
+  p.disc(4, 4, 4, red ? C.red0 : C.brass0);
+  p.disc(4, 4, 3, red ? C.red1 : C.brass1);
+  p.set(3, 2, red ? C.amber0 : C.brass2);
+  p.set(2, 3, red ? C.amber0 : C.brass2);
   p.rect(3, 8, 3, 6, C.brass0);
   p.rect(3, 8, 1, 6, C.brass1);
   return p;
@@ -131,11 +132,12 @@ export class Drag extends Control<DragValue> {
       this.emit({ x: this.root.x, y: this.root.y, slot: null });
       return;
     }
-    // Seat in the nearest slot if close, else go back to the one it came from.
+    // Seat in the nearest slot to where the finger let go (the object may still be catching
+    // up with it on a slow frame), else go back to the one it came from.
     let best = this.value.slot ?? 0;
     let bestD = Infinity;
     slots.forEach((sl, i) => {
-      const d = Math.hypot(sl.x - this.root.x, sl.y - this.root.y);
+      const d = Math.hypot(sl.x - this.tx, sl.y - this.ty);
       if (d < bestD) [best, bestD] = [i, d];
     });
     const seat = bestD <= 24 ? best : (this.value.slot ?? 0);
@@ -149,6 +151,39 @@ export class Drag extends Control<DragValue> {
       this.sfx('seat', SFX.peg);
       this.buzz('seat', 'lock');
       this.emit({ x: to.x, y: to.y, slot: seat });
+    });
+  }
+
+  /**
+   * New drop slots (the board they sit in has been laid out again): the object keeps its slot
+   * and stands at its new place at once.
+   */
+  setSlots(slots: { x: number; y: number }[], bounds = this.s.bounds): void {
+    this.s.slots = slots;
+    this.s.bounds = bounds;
+    const at = this.value.slot;
+    if (at === null || !slots[at] || this.held || this.settling) return;
+    this.restore({ x: slots[at].x, y: slots[at].y, slot: at });
+  }
+
+  /** Move it to a slot by code (the sim moved it): lifted, carried over and seated, with its sounds. */
+  seat(slot: number): void {
+    const to = this.s.slots?.[slot];
+    // (Once at a time: a caller asking every frame until it lands must not stack moves.)
+    if (!to || slot === this.value.slot || this.held || this.settling) return;
+    this.settling = true;
+    this.sfx('pickup', SFX.pickup, { gain: 0.5 });
+    void this.ctx.tw.to(this.sprite, { y: -2 }, { duration: 70 });
+    void this.ctx.tw.to(this.shadow, { x: 2, y: 3 }, { duration: 70 });
+    void this.ctx.tw.to(this.root, { x: to.x, y: to.y }, { duration: 320, ease: ease.inOutCubic }).then(() => {
+      this.settling = false;
+      this.fx = this.tx = to.x;
+      this.fy = this.ty = to.y;
+      void this.ctx.tw.to(this.sprite, { y: 0 }, { duration: 160, ease: ease.outBounce });
+      void this.ctx.tw.to(this.shadow, { x: 1, y: 1 }, { duration: 160, ease: ease.outBounce });
+      this.sfx('seat', SFX.peg);
+      this.buzz('seat', 'tick');
+      this.emit({ x: to.x, y: to.y, slot }, true);
     });
   }
 

@@ -54,13 +54,6 @@ export const PLACEHOLDERS: Record<number, PlaceholderSpec> = {
     captions: [['PORT', 40, 48], ['STBD', 126, 48]],
     stencil: [432, 150],
   },
-  8: {
-    controls: [
-      ...[1, 2, 3].map((n, i): ControlSpec => ({ kind: 'hold', id: `pump${n}`, x: 70 + i * 86, y: 86, rate: 0.35, decay: 0.05, color: 'green', label: `PUMP ${n}` })),
-      ...['A', 'B', 'C'].map((n, i): ControlSpec => ({ kind: 'switch', id: `breaker${n}`, x: 60 + i * 86, y: 180, lamp: true, initial: true, label: n })),
-    ],
-    stencil: [404, 150],
-  },
 };
 
 /** Big worn stencil numeral: glyphs blown up k times, paint missing in an ordered pattern. */
