@@ -270,6 +270,8 @@ export const SFX = {
   abandon: 'abandon',
   scuttle: 'scuttle',
   toll: 'toll',
+  /** Chunk 5.1: a roster card's edge flicking past the thumb. */
+  riffle: 'riffle',
 } as const;
 
 /**
@@ -378,6 +380,7 @@ export const SFX_NOTES: Record<string, string> = {
   abandon: 'all hands going up: boots on ladder rungs, the hatch thrown open',
   scuttle: 'the scuttling charges: two muffled thumps in the bilges, the vents roaring',
   toll: 'a ship\'s bell struck once, the end',
+  riffle: 'the edge of a card in a file flicking past a thumb',
   'screw-canister3-0': 'our decoy canister fizzing on the hydrophone, loops',
   'screw-torpedo4-0': 'our own torpedo running: fast contra-rotating screws, a thin high whine, loops',
   'screw-torpedo4-1': 'our own torpedo, second voice, loops',
@@ -1533,6 +1536,13 @@ export function defineSounds(): void {
     add(out, air, 0.9, 1.2, sr);
     return grit(lowpass(out, 3000, sr), 2);
   }, 0.95);
+
+  d(SFX.riffle, (sr) => {
+    // A stiff card's edge let go under the thumb: a dry tick, a short papery tail.
+    const out = strike(sr, 0.05, 4, 761, 0.6, cluster(762, 1400, 4200, 5, 0.006));
+    add(out, scrape(sr, 0.06, 3800, 763, (p) => Math.exp(-p * 9)), 0.6, 0.002, sr);
+    return lowpass(highpass(out, 500, sr), 6500, sr);
+  }, 0.35);
 
   d(SFX.toll, (sr) => {
     // A ship's bell struck once with the clapper: bronze, a long hum dying away.

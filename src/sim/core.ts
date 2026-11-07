@@ -12,6 +12,7 @@ import { COMPS, hullK, IDX, LEAK, migrateDamage, newDamage, post, pumpSet, shell
 import { DECOYS_CARRIED, DECOYS_FROM, warMs } from './doctrine';
 import { churned, newEscortWorld, stepEscorts, type EscortHost, type EscortWorld } from './escort';
 import { Rng } from './rng';
+import { newCrew, rosterOf, type CrewState } from './crew';
 import { clearWeather } from './weather';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
 import { beam, newNav, newSense, orderFix, scopeWorld, stepSense, type SenseHost, type SenseState } from './sense';
@@ -35,9 +36,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 20;
+export const SAVE_VERSION = 21;
 /** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1), the escorts' hunts and depth charges (4.2). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -113,6 +114,8 @@ export interface SimState {
   esc: EscortWorld;
   /** Chunk 4.6: how the boat was lost, once she is. */
   loss?: LossObs | null;
+  /** Chunk 5.1: the 44 men. */
+  crew: CrewState;
 }
 
 export interface Snapshot {
@@ -244,6 +247,7 @@ export class Sim {
       torp: newTorp(),
       engage: newEngage(),
       esc: newEscortWorld(),
+      crew: null as unknown as CrewState,
     };
     // The engagement's convoy has been on its course a while: it comes on steady, not still forming up.
     if (kind === 'attack') {
@@ -251,6 +255,7 @@ export class Sim {
       for (let i = 0; i < ENGAGE_PREROLL / TICK_S; i++) stepWorld(s.world, worldRng, TICK_S, 0);
     }
     s.sense = newSense(senseRng, s.world);
+    s.crew = newCrew(seed, s.world.t0);
     s.rng.sense = senseRng.s;
     // Decoy canisters for the ejector aft, from 1942 (chunk 4.3).
     s.boat.canisters = warMs(s.world) >= DECOYS_FROM ? DECOYS_CARRIED : 0;
@@ -311,6 +316,7 @@ export class Sim {
     }
     migrateDamage(s.boat.dmg);
     s.loss ??= null;
+    s.crew ??= newCrew(s.seed, s.world.t0);
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -326,8 +332,16 @@ export class Sim {
     obs.publish({ type: 'timeScale', scale: this.s.scale, dropped: false });
     obs.publish({ type: 'paused', paused: this.s.paused });
     if (this.s.loss) obs.publish({ type: 'lost', loss: { ...this.s.loss } });
+    this.publishRoster();
     this.hydroTick(false);
     this.present(1);
+  }
+
+  /** The roster on the captain's desk (chunk 5.1), published again whenever it changes. */
+  private rosterRev = -1;
+  private publishRoster(): void {
+    this.rosterRev = this.s.crew.rev;
+    obs.publish({ type: 'roster', roster: rosterOf(this.s.crew, this.s.world.t0 + this.s.world.n * TICK_S * 1000) });
   }
 
   private get drillObs() {
@@ -414,6 +428,7 @@ export class Sim {
     }
     // The compartments (chunk 4.4): fires, gas, breakers, the damage party, once a second.
     // Loss states (chunk 4.6): abandoning ship, and the first officer's warnings when she is forced up.
+    if (this.s.world.n % 10 === 0 && this.s.crew.rev !== this.rosterRev) this.publishRoster();
     if (this.s.world.n % 10 === 0 && !b.lost) stepLoss(b, this.lossHost, this.s.world, this.s.world.n * TICK_S, this.s.world.ships.some((q) => q.ai?.mode === 'gun'));
     if (this.s.world.n % 10 === 0 && !b.lost) {
       stepDamage(b.dmg, this.boatHost, { fans: !b.silent && power.pumpsLive(b.power) });

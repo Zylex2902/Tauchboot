@@ -3,6 +3,7 @@
  */
 
 import { freshDamage, type DamageObs } from './damage';
+import { freshRoster, type RosterObs } from './crew';
 import { freshBoatObs, type BoatObs, type BoatSet } from './boat';
 import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type NavObs, type Signal, type Signature, type SoundObs } from './sense';
 import type { NeutralKey, ShipClassKey } from './ships';
@@ -22,6 +23,7 @@ export { ALPHA, dayLabel, decipher, encipher, groups, keyDay, MORSE, pad5, parse
 export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 export { BOW_TUBES, DEPTH_MAX, DEPTH_MIN, eraOf, freshTubes, NO_SET, RUN, TORPEDOES, turnOut, type Era, type Pistol, type TorpSet, type TorpSpec, type TorpType, type TubeObs, type TubesObs, type ReloadObs } from './torpedo';
+export { freshRoster, ROLES, SECTION, type FaceObs, type ManObs, type Role, type RosterObs } from './crew';
 export { freshDamage, type CompDamageObs, type CrewObs, type DamageObs, type PumpObs, type SysDamageObs } from './damage';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
@@ -314,7 +316,9 @@ export type ObsEvent =
   /** Chunk 4.6: an escort's gun firing on the surfaced boat (bearing off our bow, loudness 0..1). */
   | { type: 'gun'; bearing: number; level: number }
   /** Chunk 4.6: the boat is lost (or scuttled): how, and the crew's last report. */
-  | { type: 'lost'; loss: LossObs };
+  | { type: 'lost'; loss: LossObs }
+  /** Chunk 5.1: the crew roster, whenever it changes. */
+  | { type: 'roster'; roster: RosterObs };
 
 /**
  * How the boat was lost (chunk 4.6). crushed: driven past where the hull gives way; flooded: so
@@ -409,6 +413,8 @@ class Observation {
   damage: DamageObs = freshDamage();
   /** Chunk 4.6: how the boat was lost, once she is. */
   loss: LossObs | null = null;
+  /** Chunk 5.1: the crew roster. */
+  roster: RosterObs = freshRoster();
   /** Navigator's dead reckoning, compass, log and watch clock (every tick). */
   readonly nav: NavObs = freshNav();
   /** Weather as last seen from the bridge or scope, and the hull thermometer. */
@@ -436,6 +442,7 @@ class Observation {
     if (e.type === 'drill') this.drill = e.drill;
     if (e.type === 'timeScale') this.timeScale = e.scale;
     if (e.type === 'lost') this.loss = e.loss;
+    if (e.type === 'roster') this.roster = e.roster;
     if (e.type === 'lookout') keep(this.lookouts, e.report);
     if (e.type === 'signal') {
       // A repeat fills in what was lost: it replaces the copy taken down before.
