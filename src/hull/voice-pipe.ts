@@ -28,8 +28,11 @@ export const ORDERS: { id: string; text: [string, string]; say: string; station:
   { id: 'decoy', text: ['DECOY', 'CANISTER'], say: 'LET GO A CANISTER.', station: 7 },
 ];
 
+/** Chunk 4.6: under its own red cover at the foot of the board. */
+const SCUTTLE = { id: 'scuttle', text: ['SCUTTLE', ''] as [string, string], say: 'SCUTTLE AND ABANDON SHIP!', station: 3 };
+
 const BW = 300;
-const BH = 112;
+const BH = 158;
 const BX = 90;
 const TAB_W = 40;
 const TAB_H = 16;
@@ -42,6 +45,12 @@ function boardArt(): Pix {
   p.rect(1, BH - 1, BW - 2, 1, C.brass0);
   drawText(p, 'VOICE PIPE', 10, 6, C.amber1, C.black);
   drawText(p, 'ORDERS TO ANY STATION', 10 + measure('VOICE PIPE') + 10, 6, C.iron7);
+  // Chunk 4.6: scuttling, apart from the rest behind a rule and a red cover.
+  p.rect(8, 115, BW - 16, 1, C.iron1);
+  p.rect(8, 116, BW - 16, 1, C.iron5);
+  drawText(p, 'SCUTTLE AND ABANDON SHIP', 10, 123, C.red1, C.black);
+  drawText(p, 'ON THE SURFACE, A SHIP NEAR TO TAKE US OFF.', 10, 133, C.iron7);
+  drawText(p, 'LIFT THE COVER, THEN PRESS.', 10, 143, C.iron7);
   // Pull tab hanging below the board: brass, with the pipe's mouth on it.
   const tx = BW / 2 - TAB_W / 2;
   p.rect(tx + 1, BH + 1, TAB_W, TAB_H, C.black);
@@ -74,7 +83,7 @@ export class VoicePipe {
   private openState = false;
   private queue: VoiceLine[] = [];
   private speaking = false;
-  onOrder: (o: (typeof ORDERS)[number]) => void = () => {};
+  onOrder: (o: { id: string; station: number }) => void = () => {};
   private silentKey: Key | null = null;
   /** The decoy key's tally: one brass stud per canister aboard, dulling as each goes (chunk 4.3). */
   private pips: Sprite[] = [];
@@ -130,6 +139,9 @@ export class VoicePipe {
       if (o.id === 'decoy') this.tally(8 + (i % 4) * (KEY_W + 5), 24 + Math.floor(i / 4) * (KEY_H + 8) + KEY_H + 2);
       return c.root;
     });
+    const sc = createControl({ kind: 'button', id: 'order-scuttle', x: BW - 34, y: 133, radius: 9, color: 'red', cover: true, coverTimeout: 6000, label: 'SCUTTLE', pressHaptic: 'heavy' }, ctx);
+    sc.onChange(() => this.order(SCUTTLE));
+    this.keyControls.push(sc.root);
     return this.keyControls;
   }
 
@@ -170,7 +182,7 @@ export class VoicePipe {
     });
   }
 
-  private order(o: (typeof ORDERS)[number]): void {
+  private order(o: (typeof ORDERS)[number] | typeof SCUTTLE): void {
     this.close();
     // The silent-running key is down while she is rigged: pressing it secures.
     const p = o.id === 'silent' && obs.boat.silent ? { ...o, id: 'secure', say: 'SECURE FROM SILENT RUNNING.' } : o;

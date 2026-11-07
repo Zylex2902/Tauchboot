@@ -43,6 +43,12 @@ export class BoatSound {
       if (e.type === 'hull') this.event(e.kind);
       if (e.type === 'ping') this.ping(e.bearing, e.level, e.on);
       if (e.type === 'blast') this.blast(e.k, e.pan);
+      // Chunk 4.6: her gun, heard through the hull as she closes.
+      if (e.type === 'gun') {
+        const pan = Math.sin((e.bearing * Math.PI) / 180);
+        mixer.play(SFX.gun, 'machinery', { gain: 0.35 + 0.6 * e.level, pan, rate: 0.95 + Math.random() * 0.1 });
+        if (e.level > 0.5) haptic('tick');
+      }
     });
     ticker.add((tk) => this.update(Math.min(100, tk.deltaMS) / 1000));
   }
@@ -354,6 +360,34 @@ export class BoatSound {
         // The decoy ejector aft (chunk 4.3): loudest in the engine room, where it is.
         mixer.play(SFX.eject, 'machinery', { gain: this.room === ENGINE_ROOM ? 0.85 : 0.5 });
         haptic('impact');
+        break;
+      case 'inrush':
+        mixer.play(SFX.inrush, 'machinery', { gain: 1 });
+        haptic('heavy');
+        break;
+      case 'ram':
+        mixer.play(SFX.ram, 'machinery', { gain: 1 });
+        haptic('heavy');
+        setTimeout(() => haptic('heavy'), 180);
+        break;
+      case 'shell':
+        mixer.play(SFX.shell, 'machinery', { gain: 1, pan: (Math.random() - 0.5) * 1.2 });
+        this.creak(0.4, 1.3);
+        haptic('heavy');
+        break;
+      case 'shellSplash':
+        mixer.play(SFX.shellSplash, 'machinery', { gain: 0.75, pan: (Math.random() - 0.5) * 1.4 });
+        haptic('tick');
+        break;
+      case 'abandon':
+        mixer.play(SFX.abandon, 'machinery', { gain: 0.9 });
+        mixer.play(SFX.alarmBell, 'machinery', { gain: 0.6, rate: 0.85 });
+        haptic('impact');
+        break;
+      case 'scuttle':
+        mixer.play(SFX.scuttle, 'machinery', { gain: 1 });
+        haptic('heavy');
+        setTimeout(() => haptic('heavy'), 700);
         break;
       case 'battle':
         // Battle stations: the gong struck three times through the boat.

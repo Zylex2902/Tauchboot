@@ -246,8 +246,13 @@ export interface AirResult {
 /** The engagement (chunk 3.6): what became of the attack. */
 export interface AttackResult {
   kind: 'attack';
-  /** sunk: at least one ship going down; damaged: hit, still afloat; escaped: no hits, out of reach; crushed: the boat lost. */
-  outcome: 'sunk' | 'damaged' | 'escaped' | 'crushed';
+  /** sunk: at least one ship going down; damaged: hit, still afloat; escaped: no hits, out of reach; crushed: the boat lost with all hands; scuttled: abandoned on the surface (chunk 4.6). */
+  outcome: 'sunk' | 'damaged' | 'escaped' | 'crushed' | 'scuttled';
+  /** Chunk 4.6: how the boat was lost (crushed or scuttled outcomes). */
+  loss?: LossKind;
+  /** Chunk 4.6: seconds hunted by escorts, and the charges they dropped. */
+  hunted?: number;
+  charges?: number;
   /** Ships sunk or going down: type and tonnage. */
   sunk: { cls: ShipClassKey; tons: number }[]; // debrief
   /** Ships hit and still afloat. */
@@ -285,7 +290,8 @@ export interface DrillObs {
 /** alarm: the dive alarm bell, rung through the boat. bomb / bombFar: aircraft bombs close aboard or off. */
 /** launch: a torpedo leaving the tube. detonation(Far): a torpedo going off. clang: a dud striking. breakup: a ship going down. */
 /** battle: battle stations rung through the boat (the engagement begins, chunk 3.6). quiet / unquiet: rigged for silent running, or secured (4.1). splash: depth charges going in near enough to hear (4.2). */
-export type HullSound = 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle' | 'quiet' | 'unquiet' | 'splash' | 'eject' | 'trip' | 'reset' | 'fire' | 'extinguish' | 'gas';
+/** Chunk 4.6: inrush: the sea taking her; ram: an escort's stem through the hull; shell / shellSplash: a shell striking, or falling close; abandon: the crew going up the ladders; scuttle: the scuttling charges. */
+export type HullSound = 'inrush' | 'ram' | 'shell' | 'shellSplash' | 'abandon' | 'scuttle' | 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle' | 'quiet' | 'unquiet' | 'splash' | 'eject' | 'trip' | 'reset' | 'fire' | 'extinguish' | 'gas';
 
 export type ObsEvent =
   | { type: 'alarm'; station: number; obs: AlarmObs }
@@ -304,7 +310,30 @@ export type ObsEvent =
   /** Chunk 4.2: an escort's asdic ping reaching us (bearing off our bow, loudness 0..1); on: it found us and rings on the hull. */
   | { type: 'ping'; bearing: number; level: number; on: boolean }
   /** Chunk 4.2: a depth charge going off: how close (0 far .. 1 against the hull) and from which side (-1 port .. 1 starboard). */
-  | { type: 'blast'; k: number; pan: number };
+  | { type: 'blast'; k: number; pan: number }
+  /** Chunk 4.6: an escort's gun firing on the surfaced boat (bearing off our bow, loudness 0..1). */
+  | { type: 'gun'; bearing: number; level: number }
+  /** Chunk 4.6: the boat is lost (or scuttled): how, and the crew's last report. */
+  | { type: 'lost'; loss: LossObs };
+
+/**
+ * How the boat was lost (chunk 4.6). crushed: driven past where the hull gives way; flooded: so
+ * much water in her she went down; split: a charge against the hull; rammed: an escort's stem
+ * through her on the surface. Those are lost with all hands. scuttled: the crew opened her up
+ * and abandoned her on the surface; they are taken prisoner.
+ */
+export type LossKind = 'crushed' | 'flooded' | 'split' | 'rammed' | 'scuttled';
+export const ALL_HANDS: readonly LossKind[] = ['crushed', 'flooded', 'split', 'rammed'];
+
+export interface LossObs {
+  kind: LossKind;
+  /** Keel depth when it happened, metres. */
+  depth: number;
+  /** The last report, as the end screen gives it. */
+  report: string;
+  /** Sea date, ms since the epoch (UTC). */
+  at: number;
+}
 
 export type Command =
   | { type: 'pause'; on: boolean }
@@ -378,6 +407,8 @@ class Observation {
   overhead: { level: number; bearing: number; rpm: number } | null = null;
   /** Chunk 4.4: the compartments, systems and damage party as the crew reports them (once a second). */
   damage: DamageObs = freshDamage();
+  /** Chunk 4.6: how the boat was lost, once she is. */
+  loss: LossObs | null = null;
   /** Navigator's dead reckoning, compass, log and watch clock (every tick). */
   readonly nav: NavObs = freshNav();
   /** Weather as last seen from the bridge or scope, and the hull thermometer. */
@@ -404,6 +435,7 @@ class Observation {
     if (e.type === 'paused') this.paused = e.paused;
     if (e.type === 'drill') this.drill = e.drill;
     if (e.type === 'timeScale') this.timeScale = e.scale;
+    if (e.type === 'lost') this.loss = e.loss;
     if (e.type === 'lookout') keep(this.lookouts, e.report);
     if (e.type === 'signal') {
       // A repeat fills in what was lost: it replaces the copy taken down before.

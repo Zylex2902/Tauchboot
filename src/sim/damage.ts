@@ -249,6 +249,28 @@ export function shock(dm: DamageState, h: DamageHost, dist: number, x: number): 
   if (gear.gear && r.next() < 0.35 * s2) ignite(dm, h, gear.id);
 }
 
+/**
+ * A shell from an escort's gun striking the surfaced boat (chunk 4.6), `x` metres along her
+ * from midships: a hole in the pressure hull there (water, and a weaker hull), and what was
+ * behind the plating: a system, or the switchgear.
+ */
+export function shellHit(dm: DamageState, h: DamageHost, x: number): void {
+  const r = h.rng;
+  let hit = 0;
+  let best = 1e9;
+  COMPS.forEach((c, i) => {
+    const e = Math.abs(c.x - x);
+    if (e < best) (best = e), (hit = i);
+  });
+  const at = COMPS[hit];
+  const c = dm.comps[at.id];
+  c.hull = clamp(c.hull - 0.18, 0.1, 1);
+  leak(dm, h, at.id, r.next() < 0.35 ? 'seam' : 'flange');
+  const here = SYSTEMS.filter((sd) => sd.comp === at.id && dm.sys[sd.id].state !== 'damaged');
+  if (here.length && r.next() < 0.45) setSys(dm, h, here[Math.floor(r.next() * here.length)].id, 'damaged');
+  if (at.gear && r.next() < 0.3) ignite(dm, h, at.id);
+}
+
 function ignite(d: DamageState, h: DamageHost, comp: CompId): void {
   const c = d.comps[comp];
   if (c.fire > 0) return;

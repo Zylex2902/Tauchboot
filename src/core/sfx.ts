@@ -262,6 +262,14 @@ export const SFX = {
   extinguish: 'extinguish',
   hammer: 'hammer',
   breaker: 'breaker',
+  inrush: 'inrush',
+  ram: 'ram',
+  gun: 'gun',
+  shell: 'shell',
+  shellSplash: 'shellSplash',
+  abandon: 'abandon',
+  scuttle: 'scuttle',
+  toll: 'toll',
 } as const;
 
 /**
@@ -362,6 +370,14 @@ export const SFX_NOTES: Record<string, string> = {
   extinguish: 'a hand extinguisher: the plunger struck, foam hissing out',
   hammer: 'the damage party: a wooden wedge hammered into a leak, steel ringing',
   breaker: 'the main breakers dropping out: heavy relays slamming open',
+  inrush: 'the sea taking her: water roaring in through the broken hull, the boat filling',
+  ram: 'an escort\'s stem through the hull: a crushing tear of plating, the boat heeling',
+  gun: 'an escort\'s gun firing on the surfaced boat, heard through the hull',
+  shell: 'a shell striking the hull: a hard bang, plating ringing, splinters',
+  shellSplash: 'a shell falling close: the whip of it, the plume collapsing on the casing',
+  abandon: 'all hands going up: boots on ladder rungs, the hatch thrown open',
+  scuttle: 'the scuttling charges: two muffled thumps in the bilges, the vents roaring',
+  toll: 'a ship\'s bell struck once, the end',
   'screw-canister3-0': 'our decoy canister fizzing on the hydrophone, loops',
   'screw-torpedo4-0': 'our own torpedo running: fast contra-rotating screws, a thin high whine, loops',
   'screw-torpedo4-1': 'our own torpedo, second voice, loops',
@@ -1435,6 +1451,98 @@ export function defineSounds(): void {
     add(out, contact(sr, 0.08, 1560, 2000, 8000, 0.004), 0.6, 0.115, sr);
     return out;
   }, 0.7);
+
+  // ---------------------------------------------------------------- loss states (chunk 4.6)
+
+  d(SFX.inrush, (sr) => {
+    // The sea taking her: a roar of water through the breach, deepening as she fills, air bursting out.
+    const dur = 5;
+    const out = rush(sr, dur, 1601, 700, 2.4);
+    for (let i = 0; i < out.length; i++) {
+      const t = i / sr;
+      out[i] *= 3.2 * Math.min(1, t / 0.25) * Math.min(1, (dur - t) / 2.2);
+    }
+    add(out, lowpass(rush(sr, dur, 1602, 160, 1), 220, sr), 2.5);
+    add(out, bubbleTrain(sr, dur, 1603, 45, 60, 420), 0.18);
+    for (let k = 0; k < 5; k++) add(out, strike(sr, 1.2, 25, 1604 + k, 0.8, cluster(1610 + k, 35, 260, 9, 0.5)), 0.5 - k * 0.07, 0.2 + k * 0.6, sr);
+    return grit(lowpass(highpass(out, 35, sr), 2400, sr), 2.2);
+  }, 1);
+
+  d(SFX.ram, (sr) => {
+    // A stem through the pressure hull: a crushing blow, plating tearing along her, frames buckling.
+    const dur = 3.2;
+    const out = strike(sr, dur, 70, 1621, 0.92, cluster(1622, 25, 140, 12, 0.7));
+    const tear = scrape(sr, 1.6, 900, 1623, (p) => (1 - p) ** 1.5);
+    add(out, resonate(sr, tear, cluster(1624, 180, 1800, 14, 0.05)), 0.9, 0.08, sr);
+    for (let k = 0; k < 4; k++) add(out, strike(sr, 1, 20, 1630 + k, 0.7, cluster(1634 + k, 50, 600, 9, 0.25)), 0.6 - k * 0.1, 0.3 + k * 0.35, sr);
+    add(out, rush(sr, 2, 1640, 600, 2), 1.2, 1.1, sr);
+    return grit(lowpass(out, 2600, sr), 3.5);
+  }, 1);
+
+  d(SFX.gun, (sr) => {
+    // Her gun, heard through the hull on the surface: a flat heavy concussion and its echo off the sea.
+    const dur = 1.8;
+    const out = strike(sr, dur, 45, 1651, 0.9, cluster(1652, 30, 160, 8, 0.25));
+    add(out, lowpass(scrape(sr, 1.2, 1800, 1653, (p) => Math.exp(-p * 5)), 700, sr), 0.6, 0.01, sr);
+    add(out, strike(sr, 1, 30, 1654, 0.95, cluster(1655, 30, 120, 6, 0.3)), 0.25, 0.42, sr);
+    return lowpass(out, 1400, sr);
+  }, 0.8);
+
+  d(SFX.shell, (sr) => {
+    // A shell striking: the bang of it on the plating, steel ringing, splinters rattling about.
+    const dur = 2;
+    const out = strike(sr, dur, 6, 1661, 0.35, cluster(1662, 140, 900, 14, 0.25));
+    add(out, strike(sr, dur, 40, 1663, 0.9, cluster(1664, 30, 140, 8, 0.4)), 1, 0.005, sr);
+    const r = rng(1665);
+    for (let k = 0; k < 12; k++) add(out, contact(sr, 0.06, 1666 + k, 1500, 6000, 0.006), 0.25 + r() * 0.25, 0.05 + r() * 0.6, sr);
+    return grit(lowpass(out, 5200, sr), 2.8);
+  }, 0.95);
+
+  d(SFX.shellSplash, (sr) => {
+    // A shell falling close: its whip overhead, the crump in the water, the plume coming down on the casing.
+    const dur = 2.2;
+    const out = len(sr, dur);
+    const whip = highpass(scrape(sr, 0.35, 5000, 1681, (p) => p * p), 1500, sr);
+    add(out, whip, 0.4, 0, sr);
+    add(out, strike(sr, 0.9, 35, 1682, 0.9, cluster(1683, 40, 200, 7, 0.15)), 0.8, 0.34, sr);
+    const rain = lowpass(rush(sr, 1.6, 1684, 2800, 1), 3000, sr);
+    for (let i = 0; i < rain.length; i++) rain[i] *= Math.exp(-(i / sr) * 1.8) * 1.4;
+    add(out, rain, 0.7, 0.55, sr);
+    return out;
+  }, 0.75);
+
+  d(SFX.abandon, (sr) => {
+    // All hands going up: boots on the ladder rungs, many of them, and the hatch thrown back.
+    const dur = 3.4;
+    const out = len(sr, dur);
+    const r = rng(1691);
+    for (let t = 0.05; t < 3; t += 0.09 + r() * 0.12) add(out, strike(sr, 0.25, 12, 1692 + Math.floor(r() * 6), 0.7, cluster(1700, 300, 1400, 8, 0.02)), 0.35 + r() * 0.35, t, sr);
+    add(out, strike(sr, 1.2, 30, 1710, 0.6, cluster(1711, 60, 700, 12, 0.25)), 0.9, 0.4, sr); // the hatch going back
+    add(out, lowpass(rush(sr, 3, 1712, 900, 1), 1200, sr), 0.5, 0.45, sr); // daylight and wind
+    return out;
+  }, 0.7);
+
+  d(SFX.scuttle, (sr) => {
+    // The scuttling charges: two thumps deep in her, then the vents thrown open and the air roaring out.
+    const dur = 4.5;
+    const out = len(sr, dur);
+    add(out, strike(sr, 1.4, 50, 1721, 0.95, cluster(1722, 25, 120, 8, 0.4)), 1, 0, sr);
+    add(out, strike(sr, 1.4, 50, 1723, 0.95, cluster(1724, 25, 130, 8, 0.4)), 0.85, 0.7, sr);
+    const air = rush(sr, 3.2, 1725, 1500, 2);
+    for (let i = 0; i < air.length; i++) air[i] *= 2 * Math.min(1, (i / sr) / 0.3) * Math.min(1, (3.2 - i / sr) / 1.4);
+    add(out, air, 0.9, 1.2, sr);
+    return grit(lowpass(out, 3000, sr), 2);
+  }, 0.95);
+
+  d(SFX.toll, (sr) => {
+    // A ship's bell struck once with the clapper: bronze, a long hum dying away.
+    const dur = 6;
+    const hit = burst(sr, dur, 3, 1731, 0.15);
+    const modes: Mode[] = [[312, 3.2, 1], [624, 2.4, 0.55], [741, 1.8, 0.4], [1013, 1.3, 0.35], [1480, 0.9, 0.25], [2210, 0.5, 0.15], [156, 4, 0.3]];
+    const out = resonate(sr, hit, modes);
+    for (let i = 0; i < out.length; i++) out[i] *= Math.min(1, (dur - i / sr) / 1.5);
+    return out;
+  }, 0.75);
 
   d(SFX.drip, (sr) => {
     // A bead of condensation landing on a deck plate: a wet tick and a little ring of steel.

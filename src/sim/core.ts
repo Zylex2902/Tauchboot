@@ -1,4 +1,4 @@
-import { BOAT, connectSim, DIVE_DRILL, obs, SCOPE_SURFACE, TELEGRAPH, TIME_SCALES, type AlarmLevel, type AlarmObs, type Command, type DrillKind } from '../obs';
+import { BOAT, connectSim, DIVE_DRILL, obs, SCOPE_SURFACE, TELEGRAPH, TIME_SCALES, type AlarmLevel, type AlarmObs, type Command, type DrillKind, type LossKind, type LossObs } from '../obs';
 import { boat, boatAtPeriscopeDepth, boatSurfaced, isSurfaced, type BoatHost, type BoatState } from './boat';
 import { power } from './power';
 import { stepAir, type Drop } from './air';
@@ -8,7 +8,7 @@ import { awashAt, drill, lensAbove, newDrillState, sea, type DrillHost, type Dri
 import { newDetect, stepDetect, type DetectHost, type DetectState } from './detect';
 import { stepHunt, type HuntHost } from './enemy-sense';
 import { EJECT_S, newDecoy } from './decoy';
-import { COMPS, hullK, IDX, LEAK, migrateDamage, newDamage, post, pumpSet, shock, stepDamage, SYS, SYSTEMS, type CompId, type Job, type Post, type SysId } from './damage';
+import { COMPS, hullK, IDX, LEAK, migrateDamage, newDamage, post, pumpSet, shellHit, shock, stepDamage, SYS, SYSTEMS, type CompId, type Job, type Post, type SysId } from './damage';
 import { DECOYS_CARRIED, DECOYS_FROM, warMs } from './doctrine';
 import { churned, newEscortWorld, stepEscorts, type EscortHost, type EscortWorld } from './escort';
 import { Rng } from './rng';
@@ -19,6 +19,7 @@ import { BAND, newRadio, stepRadio, type RadioState } from './radio';
 import { newAirWorld } from './air';
 import { defaultLandmarks, newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
 import { engage, ENGAGE_PREROLL, ENGAGE_WORLD, newEngage, type EngageState } from './engage';
+import { cannotDive, deepLoss, lossReport, scuttleOrder, stepLoss, UP_DEPTH, type LossHost } from './loss';
 import { fire, GANG, newTorp, RACKS, reloads, valve, runningFish, scopeTorps, setFailures, setGyro, stepTorp, tubes, type TorpHost, type TorpWorld } from './torpedo';
 
 /**
@@ -34,9 +35,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 19;
+export const SAVE_VERSION = 20;
 /** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1), the escorts' hunts and depth charges (4.2). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -110,6 +111,8 @@ export interface SimState {
   engage: EngageState;
   /** The escorts' hunts: charges in the water, recent explosions, charges left aboard (chunk 4.2). */
   esc: EscortWorld;
+  /** Chunk 4.6: how the boat was lost, once she is. */
+  loss?: LossObs | null;
 }
 
 export interface Snapshot {
@@ -128,6 +131,7 @@ export class Sim {
   private rngSpot: Rng;
   private rngTorp: Rng;
   private rngHunt: Rng;
+  private lossHost: LossHost;
   private huntHost: HuntHost;
   private escortHost: EscortHost;
   private torpHost: TorpHost;
@@ -173,6 +177,15 @@ export class Sim {
       splash: () => obs.publish({ type: 'hull', kind: 'splash' }),
       boom: (x, y, z) => this.charge(x, y, z),
       overhead: (o) => (obs.overhead = o && { level: o.level, bearing: o.bearing, rpm: o.rpm }),
+      gun: (sh, r, hit) => this.gun(sh, r, hit),
+      ram: () => {
+        const b = this.s.boat;
+        if (b.lost) return;
+        b.lost = 'rammed';
+        obs.publish({ type: 'hull', kind: 'ram' });
+        obs.publish({ type: 'blast', k: 1, pan: 0 });
+        this.lost('rammed');
+      },
     };
     this.senseHost = { rng: this.rngSense, effect: (f) => this.effect(f) };
     this.opHost = { rng: this.rngHydro, effect: (f) => this.effect(f), publish: (call) => obs.publish({ type: 'hydroCall', call }) };
@@ -189,6 +202,12 @@ export class Sim {
       hull: (kind) => obs.publish({ type: 'hull', kind }),
     };
     this.silentHost = { ...this.boatHost, say: () => {} };
+    this.lossHost = {
+      say: (from, text, delay = 0) => (delay > 0 ? this.s.sched.push({ at: this.s.tick + Math.round(delay / TICK_S), fx: [{ kind: 'voice', from, text }] }) : this.effect({ kind: 'voice', from, text })),
+      alarm: this.host.alarm,
+      hull: (kind) => obs.publish({ type: 'hull', kind }),
+      lose: (kind) => this.lost(kind),
+    };
     this.keepPrev();
   }
 
@@ -291,6 +310,7 @@ export class Sim {
       s.boat.dmg.comps.control.water = s.boat.bilge ?? 0;
     }
     migrateDamage(s.boat.dmg);
+    s.loss ??= null;
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -305,6 +325,7 @@ export class Sim {
     obs.publish({ type: 'drill', drill: this.drillObs });
     obs.publish({ type: 'timeScale', scale: this.s.scale, dropped: false });
     obs.publish({ type: 'paused', paused: this.s.paused });
+    if (this.s.loss) obs.publish({ type: 'lost', loss: { ...this.s.loss } });
     this.hydroTick(false);
     this.present(1);
   }
@@ -373,7 +394,11 @@ export class Sim {
     const phase = this.drillObs.phase;
     const wasLost = b.lost;
     boat.step(b, this.boatHost, TICK_S, sea(this.s.drill.clock));
-    if (b.lost && !wasLost) this.lost('THE HULL HAS GIVEN WAY.');
+    if (b.lost && !wasLost) {
+      // The hull gave way: driven too deep, or so much water in her she went down (chunk 4.6).
+      b.lost = deepLoss(b);
+      this.lost(b.lost);
+    }
     if (this.s.kind === 'dive') {
       this.s.drill.clock += TICK_S;
       dive.step(this.s.dive, b, this.host, TICK_S);
@@ -388,6 +413,8 @@ export class Sim {
         for (let i = 0; i < 9; i++) if (this.s.alarms[i].level) this.effect({ kind: 'alarm', station: i, level: 0, report: QUIET });
     }
     // The compartments (chunk 4.4): fires, gas, breakers, the damage party, once a second.
+    // Loss states (chunk 4.6): abandoning ship, and the first officer's warnings when she is forced up.
+    if (this.s.world.n % 10 === 0 && !b.lost) stepLoss(b, this.lossHost, this.s.world, this.s.world.n * TICK_S, this.s.world.ships.some((q) => q.ai?.mode === 'gun'));
     if (this.s.world.n % 10 === 0 && !b.lost) {
       stepDamage(b.dmg, this.boatHost, { fans: !b.silent && power.pumpsLive(b.power) });
       this.damageObs();
@@ -412,7 +439,7 @@ export class Sim {
     stepHunt(this.s.detect, this.huntHost, this.s.world, b, this.s.torp, up ? lens : -1, TICK_S, (sh) => churned(this.s.esc, sh, this.s.world, t), this.s.esc.decoys, t - b.ejectAt < 2 ? EJECT_DB : 0);
     // The escorts' hunts, pings and depth charges (chunk 4.2).
     stepEscorts(this.s.esc, this.s.detect, this.escortHost, this.s.world, b, TICK_S);
-    if (this.s.kind === 'attack') engage.step(this.s.engage, this.host, TICK_S, this.s.torp, this.s.world, this.s.detect, up, (o) => obs.publish({ type: 'drill', drill: o }));
+    if (this.s.kind === 'attack') engage.step(this.s.engage, this.host, TICK_S, this.s.torp, this.s.world, this.s.detect, up, (o) => obs.publish({ type: 'drill', drill: o }), this.hunted);
     if (this.s.world.n % 10 === 0) {
       const h = this.s.hydro;
       const drillKey = this.s.kind === 'scope' ? (this.s.sense.src.drill?.key ?? null) : null;
@@ -445,6 +472,8 @@ export class Sim {
 
   private apply(c: Command): void {
     const d = this.s.drill;
+    // Abandoning ship (chunk 4.6): nobody is at the controls any more.
+    if (this.s.boat.scuttle && c.type !== 'drillNew' && c.type !== 'drillBegin' && c.type !== 'acknowledge' && c.type !== 'leave') return;
     switch (c.type) {
       case 'order': {
         const b = this.s.boat;
@@ -468,6 +497,7 @@ export class Sim {
         if (c.order === 'surface') boat.order(this.s.boat, this.silentHost, 0);
         if (c.order === 'silent' || c.order === 'secure') boat.silent(b, this.silentHost, c.order === 'silent');
         if (c.order === 'decoy') this.decoy();
+        if (c.order === 'scuttle') scuttleOrder(b, this.lossHost, this.s.world, this.s.world.n * TICK_S);
         break;
       }
       case 'dcPost': {
@@ -538,6 +568,9 @@ export class Sim {
         const kind = c.kind ?? this.s.kind;
         this.s.kind = kind;
         if (kind === 'attack') this.newEngagement();
+        // A new boat (chunk 4.6): whatever became of the last one is behind us.
+        this.s.loss = null;
+        obs.loss = null;
         this.s.drill = newDrillState(this.rngDrill, d.clock, d);
         this.s.dive = newDiveState();
         this.s.air = newAirDrill();
@@ -690,18 +723,69 @@ export class Sim {
     const up = b.depth < 9;
     this.effect({ kind: 'voice', from: up ? 'BRIDGE' : 'CONTROL ROOM', text: up ? 'ALARM! CLEAR THE BRIDGE!' : 'ALARM! TAKING HER DOWN!' });
     if (this.s.kind === 'air') airDrill.alarm(this.s.air);
+    // Chunk 4.6: blown up heavy with water, she cannot go down until it is pumped out.
+    const why = cannotDive(b);
+    if (why) {
+      this.host.later(2, [{ kind: 'voice', from: 'CONTROL ROOM', text: `WE CANNOT DIVE, CAPTAIN. ${why}. PUMPING.` }]);
+      return;
+    }
     this.s.sched.push({ at: this.s.tick + Math.round((up ? 3 : 0.5) / TICK_S), fx: [{ kind: 'crash' }] });
   }
 
-  /** Bombs from an aircraft: how close, and how deep she was when they fell. */
-  /** The boat is lost: every drill and the engagement end there. */
-  private lost(report: string): void {
+  /** An escort hunting us (chunk 4.6: the engagement goes on until they give up). */
+  private get hunted(): boolean {
+    return this.s.world.ships.some((q) => !!q.ai && !q.gone && !q.sunk);
+  }
+
+  /**
+   * Chunk 4.6: nothing is happening to the boat: not lost, nobody hunting her, no charges in
+   * the water, no leaks, fires or water in her, inside her test depth and no report pending.
+   * The app keeps its last safe save from such a moment.
+   */
+  get calm(): boolean {
+    const s = this.s;
+    const b = s.boat;
+    const D = b.dmg;
+    return (
+      !b.lost && !b.scuttle && !this.hunted && !s.esc.charges.length && !D.leaks.length && b.bilge < 1 &&
+      !COMPS.some((c) => D.comps[c.id].fire > 0 || D.comps[c.id].gas > 0) && b.depth < BOAT.testDepth && this.drillObs.phase !== 'over' && !s.engage.ending
+    );
+  }
+
+  /**
+   * Chunk 4.6: an escort's gun fires on the surfaced boat: the report heard at once, the shell
+   * arriving after its flight (a hit, or a splash close aboard).
+   */
+  private gun(sh: { x: number; y: number }, r: number, hit: boolean): void {
+    const w = this.s.world;
+    const bearing = norm((Math.atan2(sh.x - w.own.x, sh.y - w.own.y) * 180) / Math.PI - w.own.course);
+    obs.publish({ type: 'gun', bearing, level: Math.max(0.15, Math.min(1, 1 - r / 9000)) });
+    const said = this.s.esc.said;
+    const t = w.n * TICK_S;
+    if (t - (said.gun ?? -1e9) > 90) {
+      said.gun = t;
+      this.effect({ kind: 'voice', from: 'BRIDGE', text: 'GUNFIRE! THE ESCORT IS FIRING ON US!' });
+    }
+    const at = (this.rngHunt.next() * 2 - 1) * HULL_HALF;
+    this.s.sched.push({ at: this.s.tick + Math.max(1, Math.round(r / 600 / TICK_S)), fx: [{ kind: 'shell', hit, at, r }] });
+  }
+
+  /** The boat is lost (chunk 4.6: how): every drill and the engagement end there. */
+  private lost(kind: LossKind): void {
     const b = this.s.boat;
+    const report = lossReport(kind, b.depth);
+    this.s.loss = { kind, depth: Math.round(b.depth), report, at: this.s.world.t0 + this.s.world.n * TICK_MS };
+    obs.publish({ type: 'lost', loss: { ...this.s.loss } });
+    this.setScale(1, true);
     drill.lose(this.s.drill);
     dive.lose(this.s.dive, b);
     airDrill.lose(this.s.air);
-    engage.lose(this.s.engage, this.s.torp, this.s.world, this.s.detect);
-    for (let i = 0; i < 9; i++) this.effect({ kind: 'alarm', station: i, level: 2, report });
+    engage.lose(this.s.engage, this.s.torp, this.s.world, this.s.detect, kind);
+    // Every lamp red; nothing after this (the voices, the reports already on their way) is heard.
+    for (let i = 0; i < 9; i++) {
+      this.s.alarms[i] = { level: 2, report };
+      obs.publish({ type: 'alarm', station: i, obs: { level: 2, report } });
+    }
   }
 
   /**
@@ -806,10 +890,11 @@ export class Sim {
     if (k > 0.02) obs.publish({ type: 'blast', k, pan: Math.max(-1, Math.min(1, Math.sin(rel))) });
     const t = w.n * TICK_S;
     const said = this.s.esc.said;
+    if (this.s.kind === 'attack') this.s.engage.charges = (this.s.engage.charges ?? 0) + 1;
     if (d < 6) {
-      b.lost = 'crushed';
+      b.lost = 'split';
       this.boatHost.hull('crush');
-      this.lost('A CHARGE AGAINST THE HULL. SHE IS SPLIT OPEN.');
+      this.lost('split');
       return;
     }
     // The shock (chunk 4.4): leaks, breakers, shock mounts, a fire, by compartment.
@@ -848,6 +933,17 @@ export class Sim {
 
   /** Voice lines and raised lamps pull time compression back to real time. */
   private effect(f: Effect): void {
+    if (f.kind === 'shell') {
+      const b = this.s.boat;
+      if (b.lost) return;
+      if (f.hit && b.depth < UP_DEPTH) {
+        obs.publish({ type: 'hull', kind: 'shell' });
+        obs.publish({ type: 'blast', k: 0.55, pan: 0 });
+        shellHit(b.dmg, this.boatHost, f.at);
+        this.effect({ kind: 'voice', from: 'BRIDGE', text: 'WE ARE HIT!', keep: true });
+      } else obs.publish({ type: 'hull', kind: 'shellSplash' });
+      return;
+    }
     if (f.kind === 'crash') {
       const b = this.s.boat;
       if (b.lost) return;
@@ -855,6 +951,7 @@ export class Sim {
       this.effect({ kind: 'voice', from: 'CONTROL ROOM', text: `FLOODING! FULL AHEAD, PLANES HARD DOWN. GOING TO ${CRASH_DEPTH}.` });
       return;
     }
+    if (this.s.boat.lost) return; // chunk 4.6: the boat is gone; nobody reports any more
     if (f.kind === 'voice') {
       obs.publish({ type: 'voice', line: { from: f.from, text: f.text } });
       if (!f.keep) this.setScale(1, true);

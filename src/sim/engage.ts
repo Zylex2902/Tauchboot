@@ -1,4 +1,4 @@
-import { SHIP_CLASSES, type AttackResult, type DrillObs } from '../obs';
+import { SHIP_CLASSES, type AttackResult, type DrillObs, type LossKind } from '../obs';
 import type { DetectState } from './detect';
 import type { DrillHost } from './drill';
 import { HULLS } from './fleet';
@@ -10,7 +10,8 @@ import type { WorldOpts, WorldState } from './world';
  * (the slice's four merchant types, one corvette ahead) crosses a mile or so ahead of the
  * boat lying trimmed at periscope depth on a June forenoon. Hear it, find it, range it, set
  * the table, flood and fire; it ends when a ship is heard going down, when the convoy is out
- * of reach, or with the boat.
+ * of reach, or with the boat. From chunk 4.6 it goes on while an escort hunts the boat: the
+ * report comes once they have given her up (or she is lost).
  */
 
 /** The world the engagement is played in: fixed so every tester gets the same fair chance. */
@@ -36,8 +37,10 @@ export const ENGAGE_PREROLL = 360;
 const REACH = 8000;
 /** Never before this many seconds (the convoy is still coming). */
 const MIN_T = 900;
-/** The convoy is long gone by now in any case. */
+/** The convoy is long gone by now in any case (unless an escort is still hunting us). */
 const MAX_T = 4200;
+/** Chunk 4.6: seconds from the loss to the report (the end screen plays first). */
+const LOSS_HOLD = 7;
 
 export interface EngageState {
   obs: DrillObs;
@@ -49,6 +52,10 @@ export interface EngageState {
   firstSunkWall: number | null;
   /** The result, due at this engagement second. */
   ending: { at: number; result: AttackResult } | null;
+  /** Chunk 4.6: seconds hunted by escorts, charges dropped, and what the first officer has said of the hunt. */
+  hunted?: number;
+  charges?: number;
+  huntSaid?: { on?: boolean; off?: boolean };
 }
 
 export const newEngage = (): EngageState => ({
@@ -87,6 +94,8 @@ function tally(e: EngageState, tw: TorpWorld, w: WorldState, ds: DetectState, ou
     seconds: Math.round(e.t),
     wall: Math.round(e.wall),
     firstSunkWall: e.firstSunkWall === null ? null : Math.round(e.firstSunkWall),
+    hunted: Math.round(e.hunted ?? 0),
+    charges: e.charges ?? 0,
   };
 }
 
@@ -112,20 +121,36 @@ export const engage = {
   },
 
   /** The boat is lost: the engagement ends there. */
-  lose(e: EngageState, tw: TorpWorld, w: WorldState, ds: DetectState): void {
+  lose(e: EngageState, tw: TorpWorld, w: WorldState, ds: DetectState, kind: LossKind = 'crushed'): void {
     if (!live(e)) return;
-    e.ending = { at: e.t, result: tally(e, tw, w, ds, 'crushed') };
+    const res = tally(e, tw, w, ds, kind === 'scuttled' ? 'scuttled' : 'crushed');
+    res.loss = kind;
+    e.ending = { at: e.t + LOSS_HOLD, result: res };
   },
 
-  step(e: EngageState, h: DrillHost, dt: number, tw: TorpWorld, w: WorldState, ds: DetectState, scopeUp: boolean, emit: (o: DrillObs) => void): void {
+  step(e: EngageState, h: DrillHost, dt: number, tw: TorpWorld, w: WorldState, ds: DetectState, scopeUp: boolean, emit: (o: DrillObs) => void, hunted = false): void {
     if (!live(e)) return;
     e.t += dt;
     e.obs.t = e.t;
     if (scopeUp) e.scopeUp += dt;
-    if (!e.ending) {
+    // Chunk 4.6: an escort hunting us holds the report back until she gives up.
+    if (hunted) e.hunted = (e.hunted ?? 0) + dt;
+    const said = (e.huntSaid ??= {});
+    if (e.ending && hunted && e.ending.result.outcome !== 'crushed' && e.ending.result.outcome !== 'scuttled') {
+      e.ending = null;
+      if (!said.on) {
+        said.on = true;
+        h.say('FIRST OFFICER', 'THE ESCORT IS COMING FOR US, CAPTAIN. TAKE HER DEEP AND QUIET.');
+      }
+    }
+    if (!e.ending && !hunted) {
       const merchants = w.ships.filter((s) => s.role !== 'escort');
       // A ship heard breaking up is a ship sunk; the report follows the noise.
       const going = merchants.some((s) => s.hit?.told || s.sunk);
+      if (going && said.on && !said.off) {
+        said.off = true;
+        h.say('FIRST OFFICER', 'SHE HAS GIVEN US UP, CAPTAIN. WE HAVE SHAKEN HER OFF.');
+      }
       if (going) {
         if (e.firstSunkWall === null) e.firstSunkWall = e.wall;
         e.ending = { at: e.t + 14, result: tally(e, tw, w, ds, 'sunk') };
@@ -137,14 +162,14 @@ export const engage = {
         if (((e.t > MIN_T && !near && !settling) || e.t > MAX_T) && !running) {
           const res = tally(e, tw, w, ds, 'escaped');
           if (res.hurt > 0) res.outcome = 'damaged';
-          h.say('FIRST OFFICER', res.hurt > 0 ? 'SHE IS STILL AFLOAT, CAPTAIN, AND THE REST ARE OUT OF REACH.' : 'THEY ARE OUT OF REACH, CAPTAIN.');
+          h.say('FIRST OFFICER', said.on ? 'SHE HAS GIVEN US UP, CAPTAIN, AND THE CONVOY IS OUT OF REACH.' : res.hurt > 0 ? 'SHE IS STILL AFLOAT, CAPTAIN, AND THE REST ARE OUT OF REACH.' : 'THEY ARE OUT OF REACH, CAPTAIN.');
           e.ending = { at: e.t + 4, result: res };
         }
       }
     }
     if (e.ending && e.t >= e.ending.at) {
       // Counted again at the end: a second ship may have gone in the meantime.
-      const res = e.ending.result.outcome === 'sunk' ? tally(e, tw, w, ds, 'sunk') : e.ending.result;
+      const res = e.ending.result.outcome === 'sunk' ? tally(e, tw, w, ds, 'sunk') : { ...e.ending.result, hunted: Math.round(e.hunted ?? 0), charges: e.charges ?? 0 };
       e.ending = null;
       publish(e, emit, { phase: 'over', result: res });
     }

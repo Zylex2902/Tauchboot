@@ -14,12 +14,13 @@ import { loadSettings } from './core/settings';
 import { defineSounds } from './core/sfx';
 import { Tweens } from './core/tween';
 import { Hull } from './hull/hull';
-import { obs } from './obs';
+import { ALL_HANDS, obs } from './obs';
+import { career, onCareer, setCareer } from './core/career';
 import { runSim, Sim, type Snapshot } from './sim/core';
 import { BoatSound } from './hull/boat-sound';
 import { Lighting } from './core/lighting';
 import { newSeed } from './sim/rng';
-import { clearStoreNow, readStore, writeStore } from './core/store';
+import { clearStoreNow, readStore, writeStore, writeStoreNow } from './core/store';
 import type { UiState } from './hull/hull';
 
 async function lockLandscape(): Promise<void> {
@@ -38,15 +39,23 @@ async function registerServiceWorker(): Promise<void> {
 }
 
 const PATROL_KEY = 'tiefgang.patrol.v1';
+/** Chunk 4.6: the last safe save (a calm moment), to go back to when the boat is lost. Never kept on Iron Man. */
+const SAFE_KEY = 'tiefgang.safe.v1';
+/** Chunk 4.6: the Iron Man lever as last set, for the next patrol's orders. */
+const IRON_KEY = 'tiefgang.ironman.v1';
+/** Real ms between safe saves. */
+const SAFE_EVERY = 30000;
 
 interface PatrolSave {
   sim: Snapshot;
   ui: UiState;
   savedAt: number;
+  /** Chunk 4.6: one save, lost with the boat. */
+  ironMan?: boolean;
 }
 
-async function loadPatrol(): Promise<PatrolSave | null> {
-  const raw = await readStore(PATROL_KEY);
+async function loadPatrol(key = PATROL_KEY): Promise<PatrolSave | null> {
+  const raw = await readStore(key);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as PatrolSave;
@@ -58,10 +67,36 @@ async function loadPatrol(): Promise<PatrolSave | null> {
 /** Set while a new engagement reloads the app: nothing more is saved over the cleared patrol. */
 let restarting = false;
 
-function savePatrol(sim: Sim, hull: Hull): void {
+/** The last safe save's sea clock (world ticks), and when it was written (real ms). */
+let safe: { n: number; at: number } | null = null;
+
+function savePatrol(sim: Sim, hull: Hull, forceSafe = false): void {
   if (restarting || (window as { __noSave?: boolean }).__noSave) return; // test hook: compare runs without writing
-  const save: PatrolSave = { sim: sim.snapshot(), ui: hull.uiState(), savedAt: Date.now() };
-  writeStore(PATROL_KEY, JSON.stringify(save));
+  const save: PatrolSave = { sim: sim.snapshot(), ui: hull.uiState(), savedAt: Date.now(), ironMan: career.ironMan };
+  const json = JSON.stringify(save);
+  writeStore(PATROL_KEY, json);
+  // Chunk 4.6: a calm moment is kept as the last safe save (not on Iron Man: one save only).
+  if (!career.ironMan && sim.calm && (forceSafe || !safe || Date.now() - safe.at >= SAFE_EVERY)) {
+    writeStore(SAFE_KEY, json);
+    safe = { n: sim.state.world.n, at: Date.now() };
+  }
+}
+
+/**
+ * Chunk 4.6: the boat is lost. Iron Man and all hands lost: the save goes with her, at once
+ * (and nothing more is written). Otherwise the last safe save is offered, if there is one.
+ */
+function onLost(sim: Sim, kind: string): void {
+  const allHands = (ALL_HANDS as readonly string[]).includes(kind);
+  if (career.ironMan && allHands) {
+    restarting = true;
+    void clearStoreNow(PATROL_KEY);
+    void clearStoreNow(SAFE_KEY);
+    safe = null;
+    setCareer({ saveGone: true, lastSafe: null });
+    return;
+  }
+  setCareer({ lastSafe: allHands && safe ? { seaAgo: Math.max(0, (sim.state.world.n - safe.n) / 10) } : null });
 }
 
 /**
@@ -121,6 +156,10 @@ async function boot(): Promise<void> {
   const params = new URLSearchParams(location.search);
   // A patrol saved before the engagement existed (chunk 3.6, save v14) starts on the engagement instead.
   const kept = params.has('fresh') ? null : await loadPatrol();
+  // Chunk 4.6: the patrol's save mode, and its last safe save.
+  const keptSafe = params.has('fresh') ? null : await loadPatrol(SAFE_KEY);
+  if (keptSafe && !keptSafe.sim?.sim?.boat?.lost) safe = { n: keptSafe.sim.sim.world.n, at: keptSafe.savedAt };
+  setCareer({ ironMan: kept ? !!kept.ironMan : (await readStore(IRON_KEY)) === '1' });
   const saved = kept && (kept.sim?.v ?? 0) < 14 && !params.has('test') ? null : kept;
   const restored = saved ? Sim.load(saved.sim) : null;
   // A new boat starts on the engagement (chunk 3.6); test pages keep the old open sea unless asked.
@@ -135,9 +174,29 @@ async function boot(): Promise<void> {
   startAutosave(sim, hull);
   hull.onRestart = () => {
     restarting = true;
-    void clearStoreNow(PATROL_KEY).then(() => location.reload());
+    void Promise.all([clearStoreNow(PATROL_KEY), clearStoreNow(SAFE_KEY)]).then(() => location.reload());
   };
-  if (params.has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer, __sim: sim, __obs: obs, __save: () => savePatrol(sim, hull) });
+  // Chunk 4.6: back to the last safe save: it becomes the patrol, and the app starts from it.
+  hull.onLoadLast = () => {
+    restarting = true;
+    void readStore(SAFE_KEY).then(async (raw) => {
+      if (raw) await writeStoreNow(PATROL_KEY, raw);
+      location.reload();
+    });
+  };
+  obs.on((e) => e.type === 'lost' && onLost(sim, e.loss.kind));
+  if (obs.loss) onLost(sim, obs.loss.kind);
+  // Iron Man is the engagement's; a drill is practice.
+  obs.on((e) => e.type === 'drill' && e.drill.kind !== 'attack' && career.ironMan && setCareer({ ironMan: false }));
+  let lastIron = career.ironMan;
+  onCareer((c) => {
+    if (c.ironMan === lastIron) return;
+    lastIron = c.ironMan;
+    writeStore(IRON_KEY, c.ironMan ? '1' : '0');
+    if (c.ironMan) void clearStoreNow(SAFE_KEY).then(() => (safe = null));
+    savePatrol(sim, hull);
+  });
+  if (params.has('test')) Object.assign(window, { __hull: hull, __app: app, __mixer: mixer, __sim: sim, __obs: obs, __save: (forceSafe?: boolean) => savePatrol(sim, hull, forceSafe), __career: career, __safe: () => safe });
   // Truth overlay for development: what the boat senses laid over what is there. Loaded on
   // ?debug, or (where the URL cannot be changed, as in the playtest) by a four-finger tap or
   // typing TRUTH. Never reached from the game's own UI.
@@ -170,7 +229,7 @@ async function boot(): Promise<void> {
   // The lamp hangs plumb while the boat tilts: bow down (bow is to the left), it swings bowward.
   app.ticker.add(() => {
     light.lean = -obs.boat.pitch * 0.9;
-    light.power(obs.boat.power.charge, obs.boat.power.diesels === 'run', obs.damage.dark);
+    light.power(obs.boat.power.charge, obs.boat.power.diesels === 'run', obs.damage.dark || hull.lossDark);
   });
   if (params.has('test')) Object.assign(window, { __light: light });
   // Depth charges close aboard (chunk 4.2): the lamp jumps and the whole boat shakes, whole art pixels at a time.

@@ -16,6 +16,7 @@ import { ReportSlips } from './report';
 import { compMid, StationStrip } from './strip';
 import { BULKHEAD_W, PASSAGE_W, bulkheadTexture, passageTexture } from './transit-art';
 import { VoicePipe } from './voice-pipe';
+import { LossCurtain } from './loss';
 
 
 /** The UI half of a save: where you stand and how every wheel, lever and switch is set. */
@@ -81,6 +82,7 @@ export class Hull {
   private pause: Pause;
   private slips: ReportSlips;
   private card: DrillCard;
+  private curtain: LossCurtain;
   private coach: Coach;
   private plateHolder = new Container();
   /** Panel size in art px: the canvas less the strip. */
@@ -102,17 +104,21 @@ export class Hull {
     this.voice = new VoicePipe(tw, ctx);
     this.pause = new Pause(tw, ctx);
     this.card = new DrillCard(tw, ctx);
+    // Chunk 4.6: the end of the boat, under the report card.
+    this.curtain = new LossCurtain(tw, ctx.ticker);
+    this.card.hold = () => this.curtain.until();
+    this.card.onDown = () => this.curtain.settle();
     const plate = new TimePlate(tw);
     this.plateHolder.addChild(plate.root);
     this.coach = new Coach(tw, ctx, {
       station: () => this.current,
       travelling: () => !!this.travel,
       scene: (i) => this.scene(i),
-      blocked: () => this.pause.isPaused || this.card.isOpen || this.voice.isOpen,
+      blocked: () => this.pause.isPaused || this.card.isOpen || this.voice.isOpen || this.curtain.isDown,
       stripRect: (i) => this.strip.compRect(i),
     });
     // The prompts sit under the subtitles (the crew's words stay readable) and over the strip.
-    this.root.addChild(this.viewport, this.plateHolder, this.strip.root, this.coach.root, this.voice.root, this.slips.root, this.card.root, this.pause.root);
+    this.root.addChild(this.viewport, this.plateHolder, this.strip.root, this.coach.root, this.voice.root, this.slips.root, this.curtain.root, this.card.root, this.pause.root);
 
     this.strip.onTap = (i) => this.goTo(i);
     this.strip.onLongPress = (i) => {
@@ -188,6 +194,16 @@ export class Hull {
     this.card.restart = fn;
   }
 
+  /** Chunk 4.6: the lights failing as the boat is lost (until the dark is complete). */
+  get lossDark(): boolean {
+    return this.curtain.dimming || (!!obs.boat.lost && !this.curtain.isDown);
+  }
+
+  /** Chunk 4.6: how the app goes back to the last safe save. */
+  set onLoadLast(fn: () => void) {
+    this.card.loadLast = fn;
+  }
+
   get station(): number {
     return this.current;
   }
@@ -206,6 +222,7 @@ export class Hull {
     this.voice.setFrame(W, H);
     this.coach.setFrame(W, H);
     this.card.setFrame(W, l.artH);
+    this.curtain.setFrame(W, l.artH);
     this.pause.setFrame(l.artW, l.artH);
     this.plateHolder.x = W - 480;
     this.scenes.forEach((s) => s?.setLayout(l));
@@ -243,7 +260,7 @@ export class Hull {
 
   /** Tap on the strip (or a key): travel there, or skip / redirect a travel in flight. */
   goTo(i: number): void {
-    if (this.pause.isPaused || this.card.isOpen || i < 0 || i > 8) return;
+    if (this.pause.isPaused || this.card.isOpen || this.curtain.isDown || i < 0 || i > 8) return;
     this.slips.dismiss();
     this.voice.close();
     const t = this.travel;
@@ -482,6 +499,7 @@ export class Hull {
         if (k === 'Enter' || k === ' ') this.card.pressKey();
         return;
       }
+      if (this.curtain.isDown) return; // chunk 4.6: the boat is gone
       if (k === 'v' || k === 'V') return this.voice.toggle();
       if (k === ']' || k === '[') return send({ type: 'timeScale', scale: stepScale(k === ']' ? 1 : -1) });
       if (k === 'ArrowLeft' || k === 'ArrowRight') {

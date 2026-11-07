@@ -66,7 +66,9 @@ export type Effect =
   | { kind: 'voice'; from: string; text: string; keep?: boolean }
   | { kind: 'alarm'; station: number; level: 0 | 1 | 2; report: string }
   /** The dive alarm's orders reach the control room (after the bridge is cleared). */
-  | { kind: 'crash' };
+  | { kind: 'crash' }
+  /** Chunk 4.6: an escort's shell arriving: it strikes `at` metres along her from midships, or falls close. */
+  | { kind: 'shell'; hit: boolean; at: number; r: number };
 
 /** Sea surface at the scope head, metres: a long swell and a shorter chop. */
 export const sea = (s: number) => 0.42 * Math.sin(0.83 * s) + 0.22 * Math.sin(2.05 * s + 1.3) + 0.1 * Math.sin(4.4 * s + 0.4);

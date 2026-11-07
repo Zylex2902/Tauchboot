@@ -83,7 +83,9 @@ export interface BoatObs {
   rivets: number;
   /** Water in the bilges, tonnes. */
   bilge: number;
-  lost: null | 'crushed';
+  lost: null | import('./index').LossKind;
+  /** Chunk 4.6: abandoning ship (scuttling) is under way. */
+  scuttling: boolean;
   /** For sound: 0..1 rates of what is moving air and water right now. */
   flow: { vent: number; blow: number; spill: number; flood: number; pump: number; trim: number; bilge: number };
   power: PowerObs;
@@ -112,6 +114,7 @@ export function freshBoatObs(): BoatObs {
     rivets: 0,
     bilge: 0,
     lost: null,
+    scuttling: false,
     flow: { vent: 0, blow: 0, spill: 0, flood: 0, pump: 0, trim: 0, bilge: 0 },
     power: freshPowerObs(),
     silent: false,

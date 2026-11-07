@@ -8,6 +8,7 @@ import { HULLS, type HullKey, type ShipState } from './fleet';
 import { layerAt, layerLoss } from './ocean';
 import type { Rng } from './rng';
 import type { WorldState } from './world';
+import { ABANDON, UP_DEPTH } from './loss';
 
 /**
  * The escorts at work (chunk 4.2). An escort sent off her station (a scope seen, a torpedo's
@@ -23,6 +24,10 @@ import type { WorldState } from './world';
  *   a pattern off the rails and throwers, its depth her estimate (doctrine first, then from
  *   the range she lost contact at);
  * - open: straight on out, the water churned by the charges, then round for another run.
+ * - gun (chunk 4.6): the boat on the surface and in sight: straight at her at full speed to
+ *   ram, the gun firing as she closes. Once the crew are seen on deck abandoning, she ceases
+ *   fire and closes slowly to take them off. If the boat gets under, the hunt goes on from
+ *   where she dived.
  * She calls another escort to the first contact (if the convoy can spare one), and gives up
  * after twenty minutes without contact, an hour and a quarter in all, or out of charges
  * (hours, later in the war: doctrine.ts). Later in the war she also sets charges below a
@@ -39,7 +44,7 @@ const wrap = (d: number) => norm(d + 180) - 180;
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 const pad3 = (n: number) => String(Math.round(norm(n) / 5) * 5 % 360).padStart(3, '0');
 
-export type HuntMode = 'run' | 'search' | 'track' | 'attack' | 'open';
+export type HuntMode = 'run' | 'search' | 'track' | 'attack' | 'open' | 'gun';
 
 export interface EscortAI {
   mode: HuntMode;
@@ -70,6 +75,8 @@ export interface EscortAI {
   /** She had firm contact at the last look (for the sound room's calls); she has called for help. */
   had: boolean;
   called: boolean;
+  /** Chunk 4.6: when her gun fires next at a surfaced boat. */
+  nextGun?: number;
 }
 
 export interface Charge {
@@ -108,7 +115,19 @@ export interface EscortHost {
   boom(x: number, y: number, z: number): void;
   /** What the crew hears through the hull without phones: a ship's screws passing close, or nothing. */
   overhead(o: { level: number; bearing: number; rpm: number; id: number } | null): void;
+  /** Chunk 4.6: her gun fires at the surfaced boat from this range; the shell hits or falls close. */
+  gun(s: ShipState, range: number, hit: boolean): void;
+  /** Chunk 4.6: her stem goes through the surfaced boat. */
+  ram(s: ShipState): void;
 }
+
+/** Chunk 4.6: her gun's range on a surfaced boat (m), seconds between rounds by hull, and how close her stem cuts the boat. */
+const GUN_RANGE = 5500;
+const GUN_EVERY: Partial<Record<HullKey, number>> = { trawler: 10, corvette: 7, sloop: 6, destroyer: 4 };
+const RAM_R = 30;
+
+/** How far a lookout sees a surfaced boat: the visibility, cut down by the dark. */
+const sightOf = (w: WorldState) => Math.max(800, Math.min(9000, w.weather.vis * 1000) * (0.15 + 0.85 * w.sky.light));
 
 /** Charges carried, by hull. */
 const RACKS: Partial<Record<HullKey, number>> = { corvette: 40, sloop: 60, destroyer: 35, trawler: 20 };
@@ -308,7 +327,9 @@ function overhead(h: EscortHost, w: WorldState, b: BoatState): void {
   h.overhead(b.lost ? null : best);
 }
 
-function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _b: BoatState, s: ShipState, e: Ear | undefined, t: number, ms: number, doc: Doctrine): void {
+function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, b: BoatState, s: ShipState, e: Ear | undefined, t: number, ms: number, doc: Doctrine): void {
+  // The boat on the surface and in sight (chunk 4.6): a gun action, whatever she was doing.
+  if (surfaceAction(h, w, b, s, t)) return;
   // Sent off her station (a sighting, a torpedo, a contact): the hunt begins, or its datum moves.
   if (s.hunt) {
     if (!s.ai) {
@@ -474,6 +495,65 @@ function think(ew: EscortWorld, ds: DetectState, h: EscortHost, w: WorldState, _
       if ((r > OPEN_R * k && t - a.since > 30) || t - a.since > OPEN_S) mode(firm ? 'track' : 'search');
       break;
   }
+}
+
+/**
+ * The boat is up and she can see her (chunk 4.6): run at her to ram, the gun firing as she
+ * closes; she holds fire once the crew are on deck abandoning. Returns false (and, if the boat
+ * has gone under or out of sight, turns the action into a hunt from where she was) otherwise.
+ */
+function surfaceAction(h: EscortHost, w: WorldState, b: BoatState, s: ShipState, t: number): boolean {
+  const up = !b.lost && b.depth < UP_DEPTH;
+  const r = Math.hypot(w.own.x - s.x, w.own.y - s.y);
+  if (!up || r > sightOf(w)) {
+    const a = s.ai;
+    if (a?.mode === 'gun') {
+      // She dived (or slipped away in the dark): hunt from where she was last seen.
+      a.mode = 'run';
+      a.since = t;
+      a.lastContact = t;
+      a.hist = [a.datum.t, a.datum.x, a.datum.y];
+      a.datum = { ...a.datum, vx: 0, vy: 0 };
+    }
+    return false;
+  }
+  if (!s.ai) s.ai = start(s, w.own.x, w.own.y, t, h.rng);
+  const a = s.ai;
+  if (a.mode !== 'gun') {
+    a.mode = 'gun';
+    a.since = t;
+    a.drops = [];
+    a.aim = null;
+    a.nextGun = t + 6 + h.rng.next() * 6; // the gun's crew closing up
+  }
+  const sp = b.speed;
+  const vx = Math.sin(w.own.course * D2R) * sp;
+  const vy = Math.cos(w.own.course * D2R) * sp;
+  a.datum = { x: w.own.x, y: w.own.y, t, vx, vy };
+  a.hist = [t, w.own.x, w.own.y];
+  a.lastContact = t;
+  const top = HULLS[s.hull].maxKn;
+  if (b.scuttle && t - b.scuttle.t0 >= ABANDON.deck) {
+    // Men on deck and in the water: cease fire, close slowly, stop to pick them up.
+    a.course = brgTo(s, w.own);
+    a.kn = r > 600 ? 8 : r > 300 ? 3 : 0;
+    return true;
+  }
+  if (r < RAM_R) {
+    h.ram(s);
+    return true;
+  }
+  // Straight at her, led by her own speed: a stem is the surest weapon there is.
+  const lead = r / (top * KN);
+  a.course = brgTo(s, { x: w.own.x + vx * lead, y: w.own.y + vy * lead });
+  a.kn = top;
+  if (r < GUN_RANGE && t >= (a.nextGun ?? 0)) {
+    a.nextGun = t + (GUN_EVERY[s.hull] ?? 8) * (0.8 + 0.4 * h.rng.next());
+    const light = 0.3 + 0.7 * w.sky.light;
+    const p = (0.6 * (1 - r / GUN_RANGE) ** 2 + 0.04) * light;
+    h.gun(s, r, h.rng.next() < p);
+  }
+  return true;
 }
 
 /** Depth charges going in: heard as splashes if near enough. */

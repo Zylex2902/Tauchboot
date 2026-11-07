@@ -44,3 +44,13 @@ export async function clearStoreNow(key: string): Promise<void> {
     /* nothing to clear */
   }
 }
+
+/** Write and wait until it has landed (before a reload that must find it). */
+export async function writeStoreNow(key: string, value: string): Promise<void> {
+  try {
+    if (native) await Preferences.set({ key, value });
+    else localStorage.setItem(key, value);
+  } catch {
+    /* no storage here */
+  }
+}

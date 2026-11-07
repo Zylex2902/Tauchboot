@@ -1,4 +1,4 @@
-import type { HullSound } from '../obs';
+import type { HullSound, LossKind } from '../obs';
 import { BOAT, TELEGRAPH_STOP, type BoatObs, type BoatSet } from '../obs/boat';
 import { power, newPower, type PowerState } from './power';
 import type { Rng } from './rng';
@@ -69,7 +69,9 @@ export interface BoatState {
   crush: number;
   rivets: number;
   rivetHeal: number;
-  lost: null | 'crushed';
+  lost: null | LossKind;
+  /** Chunk 4.6: abandoning ship, from this world second (the crew going up, the charges, the sea). */
+  scuttle?: { t0: number } | null;
   set: BoatSet;
   clock: number;
   /** Crew depth-keeping memory: smoothed pitch and stern plane, and a mode. */
@@ -393,6 +395,7 @@ export const boat = {
     o.rivets = b.rivets;
     o.bilge = b.bilge;
     o.lost = b.lost;
+    o.scuttling = !!b.scuttle;
     o.flow = { ...b.flow };
     o.silent = b.silent;
     o.canisters = b.canisters;

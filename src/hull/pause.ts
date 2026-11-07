@@ -1,6 +1,7 @@
-import { Container, Rectangle, Sprite, TilingSprite, type Texture } from 'pixi.js';
+import { Container, Rectangle, Sprite, Texture, TilingSprite } from 'pixi.js';
 import { mixer } from '../core/audio';
-import { drawText, measure } from '../core/font';
+import { drawText, measure, textTexture } from '../core/font';
+import { career, onCareer } from '../core/career';
 import { haptic } from '../core/haptics';
 import { HAPTIC_ICON, icon } from '../core/icons';
 import { drawIcon } from '../core/tool-icons';
@@ -70,7 +71,6 @@ function cardArt(): Pix {
   cap('ATTACK TABLE', 70, 188);
   cap('PROMPTS', 194, 28);
   cap('TORPEDO FAILURES', 194, 188);
-  drawText(p, 'THE PATROL IS SAVED AS YOU PLAY.', 12, h - 12, C.iron6);
   return p;
 }
 
@@ -88,6 +88,8 @@ export class Pause {
   private framed = new Container();
   private paused = false;
   private dropY = 0;
+  private saveLine = new Sprite();
+  private saveText = '';
   onChange: (paused: boolean) => void = () => {};
 
   constructor(private tw: Tweens, ctx: KitContext) {
@@ -157,6 +159,11 @@ export class Pause {
     );
     coach.onChange((i) => updateSettings({ prompts: i === 1 }));
     this.card.addChild(resume.root, hap.root, vol.root, plot.root, dec.root, tab.root, torp.root, coach.root);
+    // Chunk 4.6: how the patrol is kept: saved as you play, or Iron Man's one save.
+    this.saveLine.position.set(12, CARD.h - 12);
+    this.card.addChild(this.saveLine);
+    this.showSave();
+    onCareer(() => this.showSave());
 
     this.tab.position.set(TAB.x, TAB.y);
     this.tab.addChild(new Sprite(tabArt().toTexture()));
@@ -172,6 +179,15 @@ export class Pause {
 
     this.framed.addChild(this.veil, this.card);
     this.root.addChild(this.catcher, this.framed, this.tab);
+  }
+
+  private showSave(): void {
+    const t = career.ironMan ? 'IRON MAN: ONE SAVE. LOSE HER, LOSE IT.' : 'THE PATROL IS SAVED AS YOU PLAY.';
+    if (t === this.saveText) return;
+    this.saveText = t;
+    const old = this.saveLine.texture;
+    this.saveLine.texture = textTexture(t, career.ironMan ? C.red1 : C.iron6);
+    if (old !== Texture.EMPTY) old.destroy(true);
   }
 
   /** Card centred on the canvas, the veil over all of it, the tab at its bottom-right corner. */

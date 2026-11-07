@@ -1,7 +1,9 @@
 import { Container, Rectangle, Sprite } from 'pixi.js';
+import { career, setCareer } from '../core/career';
 import { mixer } from '../core/audio';
 import { ART_H, ART_W } from '../core/display';
-import { measure } from '../core/font';
+import { drawText, measure } from '../core/font';
+import { plate } from '../stations/panel-art';
 import { haptic } from '../core/haptics';
 import { C, type ColorIndex } from '../core/palette';
 import { Pix } from '../core/pixels';
@@ -9,7 +11,7 @@ import { SFX } from '../core/sfx';
 import { TypedText, wrap, type TypedLine } from '../core/typed';
 import { ease, type Tweens } from '../core/tween';
 import { createControl, type AnyControl, type KitContext } from '../controls';
-import { BOAT, DIVE_DRILL, obs, send, SHIP_CLASSES, type AirResult, type AttackResult, type DiveResult, type DrillKind, type DrillObs, type DrillResult, type ScopeResult } from '../obs';
+import { ALL_HANDS, BOAT, DIVE_DRILL, obs, send, SHIP_CLASSES, type AirResult, type AttackResult, type DiveResult, type DrillKind, type DrillObs, type DrillResult, type ScopeResult } from '../obs';
 
 const CARD = { x: 84, y: 22, w: 312, h: 196 };
 const TEXT_W = CARD.w - 24;
@@ -73,10 +75,14 @@ function attackOrders(): TypedLine[] {
   para('THE FIRST OFFICER TALKS YOU THROUGH IT ON THE SLIP AT THE TOP. SKIP IT TO GO YOUR OWN WAY.');
   gap();
   para('SHORT LOOKS. IF THEY SEE THE SCOPE, THE CONVOY TURNS AWAY.', C.red0);
+  para('IRON MAN: ONE SAVE. LOSE THE BOAT WITH ALL HANDS AND THE SAVE GOES WITH HER.', C.iron5);
   return L;
 }
 
 const wallClock = (s: number) => `${Math.floor(s / 60)} MIN ${String(Math.round(s) % 60).padStart(2, '0')} S`;
+
+/** Chunk 4.6: how the boat was lost, at the head of the report. */
+const LOSS_HEAD = { crushed: 'THE HULL GAVE WAY.', flooded: 'SHE FILLED AND WENT DOWN.', split: 'A CHARGE SPLIT HER OPEN.', rammed: 'RAMMED AND SUNK ON THE SURFACE.', scuttled: 'SCUTTLED. THE CREW ARE PRISONERS.' } as const;
 
 function attackReport(r: AttackResult): TypedLine[] {
   const L: TypedLine[] = [];
@@ -85,8 +91,9 @@ function attackReport(r: AttackResult): TypedLine[] {
     damaged: 'HIT, BUT STILL AFLOAT. THE CONVOY IS PAST.',
     escaped: 'THE CONVOY GOT PAST UNHARMED.',
     crushed: 'THE HULL GAVE WAY.',
+    scuttled: LOSS_HEAD.scuttled,
   };
-  L.push({ text: head[r.outcome], color: r.outcome === 'sunk' ? C.ink1 : C.red0 });
+  L.push({ text: r.loss ? LOSS_HEAD[r.loss] : head[r.outcome], color: r.outcome === 'sunk' ? C.ink1 : C.red0 });
   L.push({ text: '', color: C.ink0 });
   const tons = r.sunk.reduce((a, q) => a + q.tons, 0);
   for (const q of r.sunk.slice(0, 2)) row(L, 'SUNK', `${SHIP_CLASSES[q.cls].name}, ${q.tons} GRT`);
@@ -94,9 +101,21 @@ function attackReport(r: AttackResult): TypedLine[] {
   if (r.hurt) row(L, 'DAMAGED', `${r.hurt} SHIP${r.hurt > 1 ? 'S' : ''} STILL AFLOAT`, C.red0);
   row(L, 'FIRED', r.fired ? `${r.fired}: ${r.hits} HIT${r.hits === 1 ? '' : 'S'}${r.duds ? `, ${r.duds} DUD${r.duds > 1 ? 'S' : ''}` : ''}${r.faults ? `, ${r.faults} RAN BAD` : ''}` : 'NOTHING');
   row(L, 'SCOPE UP', `${r.scopeUp} S${r.seen ? '  (SEEN)' : ''}`, r.seen ? C.red0 : C.ink0);
+  if (r.hunted) row(L, 'HUNTED', `${Math.round(r.hunted / 60)} MIN${r.charges ? `, ${r.charges} CHARGES` : ''}`, C.red0);
   row(L, 'SEA TIME', clock(r.seconds));
   row(L, 'CLOCKED', r.firstSunkWall !== null ? `${wallClock(r.firstSunkWall)} TO THE FIRST SINKING` : wallClock(r.wall));
   L.push({ text: '', color: C.ink0 });
+  // Chunk 4.6: what is left of the patrol's save.
+  if (r.loss && ALL_HANDS.includes(r.loss)) {
+    L.push({ text: 'VERDICT: LOST WITH ALL HANDS.', color: C.ink1 });
+    if (career.ironMan || career.saveGone) L.push({ text: 'IRON MAN: THE SAVE WENT DOWN WITH HER.', color: C.red0 });
+    else if (career.lastSafe) L.push({ text: `LAST SAVE: ${Math.max(1, Math.round(career.lastSafe.seaAgo / 60))} MIN OF SEA TIME BEFORE THE LOSS.`, color: C.ink0 });
+    return L;
+  }
+  if (r.outcome === 'scuttled') {
+    L.push({ text: 'VERDICT: THE BOAT IS LOST. THE CREW LIVE.', color: C.ink1 });
+    return L;
+  }
   const v =
     r.outcome === 'crushed' ? 'VERDICT: LOST WITH ALL HANDS.'
     : r.outcome === 'sunk' && !r.seen && r.fired > 0 && r.hits >= r.fired - 1 ? 'VERDICT: GOOD. CLEAN, QUIET AND HOME.'
@@ -241,13 +260,22 @@ export class DrillCard {
   private card = new Container();
   private body = new Container();
   private key: AnyControl;
-  private other: AnyControl;
+  private other: AnyControl | null;
+  /** Chunk 4.6: the Iron Man lever, on the engagement's orders only. */
+  private iron = new Container();
   private showing: string | null = null;
   private kind: DrillKind = 'scope';
   private token = 0;
-  private keyMode: 'begin' | 'again' = 'begin';
+  private keyMode: 'begin' | 'again' | 'lost' = 'begin';
+  /** The sheet's words, for tests. */
+  lastText = '';
   /** A new engagement starts the whole boat afresh (set by the app: a clean patrol). */
   restart: (() => void) | null = null;
+  /** Chunk 4.6: back to the last safe save (set by the app). */
+  loadLast: (() => void) | null = null;
+  /** Chunk 4.6: the report waits for the end screen; told when the card is down over it. */
+  hold: () => Promise<void> = () => Promise.resolve();
+  onDown: () => void = () => {};
   /** Extra drop on a tall canvas, so the card hangs in the middle. */
   private dropY = 0;
 
@@ -282,6 +310,7 @@ export class DrillCard {
     this.card.addChild(this.key.root);
     // The other drill: swaps the orders (and sets the boat up for it).
     this.other = this.makeOther(OTHER.dive, ctx);
+    this.makeIron(ctx);
     this.card.position.set(CARD.x, -CARD.h - 6);
     this.card.visible = false;
     this.root.addChild(this.catcher, this.card);
@@ -299,29 +328,66 @@ export class DrillCard {
   }
 
   private press(): void {
-    if (this.keyMode === 'begin') send({ type: 'drillBegin' });
+    if (this.keyMode === 'lost') this.restart?.();
+    else if (this.keyMode === 'begin') send({ type: 'drillBegin' });
     else if (this.kind === 'attack' && this.restart) this.restart();
     else send({ type: 'drillNew' });
   }
 
   private makeOther(text: string, ctx: KitContext): AnyControl {
     const k = createControl({ kind: 'key', id: 'drill-other', style: 'paper', w: 84, h: 20, text, x: 10, y: CARD.h - 29 }, ctx);
-    k.onChange(() => (NEXT[this.kind] === 'attack' && this.restart ? this.restart() : send({ type: 'drillNew', kind: NEXT[this.kind] })));
+    k.onChange(() => {
+      if (this.keyMode === 'lost') this.loadLast?.();
+      else if (NEXT[this.kind] === 'attack' && this.restart) this.restart();
+      else send({ type: 'drillNew', kind: NEXT[this.kind] });
+    });
     this.card.addChild(k.root);
     return k;
+  }
+
+  /**
+   * Chunk 4.6: IRON MAN, a lever at the foot of the engagement's orders: one save, lost with
+   * the boat. Set before BEGIN; the card is gone once the patrol is under way.
+   */
+  private ironLever: AnyControl | null = null;
+  private makeIron(ctx: KitContext): void {
+    // A small riveted plate screwed to the clipboard: the lever needs its own iron to sit in.
+    const PW = 84;
+    const PH = 50;
+    const px = CARD.w - PW - 8;
+    const py = CARD.h - PH - 6;
+    const pp = new Pix(PW + 2, PH + 2);
+    pp.rect(2, 2, PW, PH, C.black);
+    plate(pp, 0, 0, PW, PH);
+    drawText(pp, 'IRON MAN', Math.floor((PW - measure('IRON MAN')) / 2), 5, C.amber1, C.black);
+    const cap = new Sprite(pp.toTexture());
+    cap.position.set(px, py);
+    const lever = createControl({ kind: 'lever', id: 'iron-man', x: px + 22, y: py + 22, axis: 'x', length: 40, detents: ['OFF', 'ON'], initial: career.ironMan ? 1 : 0, weight: 40 }, ctx);
+    lever.onChange((i) => setCareer({ ironMan: i === 1 }));
+    this.ironLever = lever;
+    this.iron.addChild(cap, lever.root);
+    this.iron.visible = false;
+    this.card.addChild(this.iron);
   }
 
   private sync(d: DrillObs): void {
     this.kind = d.kind;
     if (d.phase === 'brief') this.open(`${d.kind}:brief`, TITLE(d.kind, false), ORDERS_FOR[d.kind](), 'BEGIN');
-    else if (d.phase === 'over' && d.result) this.open(`${d.kind}:over`, TITLE(d.kind, true), report(d.result), 'AGAIN');
-    else this.close();
+    else if (d.phase === 'over' && d.result) {
+      // Chunk 4.6: the boat lost in the engagement: a new patrol, or back to the last safe save.
+      const lost = d.kind === 'attack' && (d.result.outcome === 'crushed' || d.result.outcome === 'scuttled');
+      const title = lost ? (d.result.outcome === 'scuttled' ? 'CONVOY WN 37: THE BOAT SCUTTLED' : 'CONVOY WN 37: THE BOAT LOST') : TITLE(d.kind, true);
+      const result = d.result;
+      // The report waits until the end screen has had its say (a loss), and is built then (the save's fate is known).
+      void this.hold().then(() => obs.drill === d && this.open(`${d.kind}:over`, title, report(result), lost ? 'NEW PATROL' : 'AGAIN', lost));
+    } else this.close();
   }
 
-  private open(showing: string, title: string, lines: TypedLine[], keyText: string): void {
+  private open(showing: string, title: string, lines: TypedLine[], keyText: string, lost = false): void {
     if (this.showing === showing) return;
     this.showing = showing;
-    this.keyMode = showing.endsWith('brief') ? 'begin' : 'again';
+    this.lastText = [title, ...lines.map((l) => l.text)].join(' | ');
+    this.keyMode = showing.endsWith('brief') ? 'begin' : lost ? 'lost' : 'again';
     const tok = ++this.token;
     this.catcher.eventMode = 'static';
     const swap = () => {
@@ -332,13 +398,20 @@ export class DrillCard {
       text.root.position.set(0, 14);
       this.body.addChild(t.root, text.root);
       this.setKeyText(keyText);
-      const ctxKey = (this.other as unknown as { ctx: KitContext }).ctx;
-      this.other.destroy();
-      this.other = this.makeOther(OTHER[NEXT[this.kind]], ctxKey);
+      const ctxKey = (this.key as unknown as { ctx: KitContext }).ctx;
+      this.other?.destroy();
+      // Lost: the other key goes back to the last safe save, when there is one to go back to.
+      const lostAllHands = lost && obs.drill.result?.outcome === 'crushed';
+      const back = lostAllHands && !career.ironMan && !career.saveGone && !!career.lastSafe && !!this.loadLast;
+      this.other = lost ? (back ? this.makeOther('LAST SAVE', ctxKey) : null) : this.makeOther(OTHER[NEXT[this.kind]], ctxKey);
+      this.iron.visible = showing === 'attack:brief';
+      const lv = this.ironLever as unknown as { value: number; set(i: number): void } | null;
+      if (lv && lv.value !== (career.ironMan ? 1 : 0)) lv.set(career.ironMan ? 1 : 0);
       this.card.visible = true;
       this.card.y = -CARD.h - 6;
       mixer.play(SFX.pickup, 'ui', { gain: 0.7 });
       mixer.play(SFX.slide, 'ui', { gain: 0.35, rate: 0.8 });
+      if (this.keyMode === 'lost') this.onDown();
       void this.tw.to(this.card, { y: CARD.y + this.dropY }, { duration: 340, ease: ease.outBack }).then(async () => {
         if (tok !== this.token) return;
         mixer.play(SFX.plate, 'ui', { gain: 0.35, rate: 0.9 });
