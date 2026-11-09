@@ -358,7 +358,7 @@ export class Sim {
   }
 
   /** The watch bill (chunk 5.2), published whenever a duty changes or a bar would move. */
-  private watchSent = '';
+  private watchSent = 0;
   private publishWatch(): void {
     const c = this.s.crew;
     this.watchSent = watchKey(c, c.watch, this.clockMs);

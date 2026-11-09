@@ -194,9 +194,15 @@ export function watchObs(c: CrewState, w: WatchState, clock: number, t: number):
   };
 }
 
-/** A key that changes when anything the roster shows has moved (duties, or fatigue/morale by half a percent). */
-export function watchKey(c: CrewState, w: WatchState, clock: number): string {
-  let k = `${sectionAt(clock)}${w.battle ? 'B' : ''}`;
-  for (const m of c.men) k += `${(m.duty ?? '?')[0]}${Math.round(m.fatigue * 200)},${Math.round(m.morale * 200)};`;
-  return k;
+const DUTY_N: Record<Duty, number> = { watch: 1, below: 2, awake: 3, stations: 4, day: 5 };
+
+/** A number that changes when anything the roster shows has moved (duties, or fatigue/morale by half a percent). */
+export function watchKey(c: CrewState, w: WatchState, clock: number): number {
+  let h = (sectionAt(clock) + (w.battle ? 8 : 0)) | 0;
+  for (const m of c.men) {
+    h = Math.imul(h ^ (m.duty ? DUTY_N[m.duty] : 0), 0x01000193);
+    h = Math.imul(h ^ Math.round(m.fatigue * 200), 0x01000193);
+    h = Math.imul(h ^ Math.round(m.morale * 200), 0x01000193);
+  }
+  return h;
 }
