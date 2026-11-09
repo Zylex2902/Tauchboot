@@ -1,0 +1,48 @@
+// Recognition manual screenshots: the desk (index + a ship page), the neutrals page, the book up in the tower over a live scope.
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const OUT = '/tmp/claude-0/shots';
+const VW = +(process.argv[2] ?? 960), VH = +(process.argv[3] ?? 540);
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const ctx = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+const page = await ctx.newPage();
+const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && errs.push(m.text()));
+await page.goto('http://localhost:4173/?test&fresh&seed=7', { waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__hull.scenes.every(Boolean), null, { timeout: 30000 });
+await page.evaluate(() => { window.__noSave = true; });
+const tag = `${VW}x${VH}`;
+// Scope drill: begin, then put the glass on her at 6x by command (screenshot only).
+await page.waitForFunction(() => window.__obs.drill.phase === 'brief', null, { timeout: 8000 });
+const tapArt = async (x, y) => { const s = await page.evaluate(() => window.__hull.root.worldTransform.a); const o = await page.evaluate(() => window.__hull.root.getGlobalPosition()); await page.touchscreen.tap(o.x + x * s, o.y + y * s); };
+await page.evaluate(() => window.__hull.card.close?.());
+await page.keyboard.press('2');
+await page.waitForFunction(() => window.__hull.station === 1 && !window.__hull.travel, null, { timeout: 8000 });
+await page.waitForTimeout(600);
+await page.screenshot({ path: `${OUT}/desk-${tag}.png` });
+await page.evaluate(() => window.__hull.scenes[1].book.go('liner'));
+await page.waitForTimeout(700);
+await page.screenshot({ path: `${OUT}/desk-liner-${tag}.png` });
+await page.evaluate(() => window.__hull.scenes[1].book.go('neutrals'));
+await page.waitForTimeout(700);
+await page.screenshot({ path: `${OUT}/desk-neutrals-${tag}.png` });
+await page.evaluate(() => window.__hull.scenes[1].book.go('trawler'));
+await page.waitForTimeout(700);
+await page.screenshot({ path: `${OUT}/desk-trawler-${tag}.png` });
+const info = await page.evaluate(() => {
+  const sim = window.__sim; const d = sim.state.drill;
+  return { cls: d.ship.cls, flag: d.ship.flag ?? null, x: d.ship.x, y: d.ship.y };
+});
+const brg = ((Math.atan2(info.x, info.y) * 180) / Math.PI + 360) % 360;
+await page.keyboard.press('6');
+await page.waitForFunction(() => window.__hull.station === 5 && !window.__hull.travel, null, { timeout: 8000 });
+await page.evaluate((b) => { window.__sim.command({ type: 'scopeSet', height: 1, trained: b, high: true }); const v = window.__hull.scenes[5].view; v.ppd = 188 / 6; }, brg);
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${OUT}/tower-scope-${tag}.png` });
+await page.evaluate(() => window.__hull.scenes[5].openBook(true));
+await page.waitForTimeout(900);
+await page.screenshot({ path: `${OUT}/tower-book-${tag}.png` });
+await page.evaluate((k) => window.__hull.scenes[5].book.go(k), info.cls);
+await page.waitForTimeout(900);
+await page.screenshot({ path: `${OUT}/tower-page-${tag}.png` });
+console.log(JSON.stringify({ errs, info }));
+await browser.close();

@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const page = await (await browser.newContext({ viewport: { width: 852, height: 393 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true })).newPage();
+const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && errs.push(m.text()));
+await page.goto('http://localhost:4181/sound-test.html'); await page.waitForTimeout(800);
+await page.touchscreen.tap(120, 140); await page.waitForTimeout(300);
+await page.screenshot({ path: process.argv[2] });
+console.log(JSON.stringify(errs), await page.evaluate(() => document.querySelectorAll('.key').length));
+await browser.close();

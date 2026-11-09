@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const page = await (await browser.newContext({ viewport: { width: 960, height: 540 } })).newPage();
+await page.goto('http://localhost:4173/?test&fresh', { waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__hull.scenes.every(Boolean), null, { timeout: 60000 });
+await page.evaluate(() => { window.__noSave = true; window.__hull.card.close?.(); });
+await page.keyboard.press('p');
+await page.waitForTimeout(900);
+await page.screenshot({ path: '/tmp/claude-0/shots/pause34.png' });
+await browser.close();

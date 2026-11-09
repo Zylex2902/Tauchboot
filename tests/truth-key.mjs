@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const page = await (await browser.newContext({ viewport: { width: 960, height: 540 }, hasTouch: true })).newPage();
+const errs = []; page.on('pageerror', e => errs.push(e.message));
+await page.goto('http://localhost:4173/?test&fresh', { waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__hull.scenes.every(Boolean), null, { timeout: 30000 });
+const before = await page.evaluate(() => !!window.__truth);
+await page.keyboard.type('truth');
+await page.waitForFunction(() => window.__truth?.isOn(), null, { timeout: 8000 });
+console.log(JSON.stringify({ errs, before, after: await page.evaluate(() => window.__truth.isOn()) }));
+await browser.close();

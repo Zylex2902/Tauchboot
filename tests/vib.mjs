@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const ctx = await browser.newContext({ viewport: { width: 852, height: 393 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+const page = await ctx.newPage();
+await page.addInitScript(() => { window.__vib = []; const o = navigator.vibrate.bind(navigator); navigator.vibrate = (p) => { window.__vib.push(new Error().stack.split('\n').slice(2,6).join(' | ')); return o(p); }; });
+await page.goto('http://localhost:4173/?test', { waitUntil: 'networkidle' });
+await page.waitForTimeout(4000);
+const v = await page.evaluate(() => window.__vib);
+console.log(v.length); console.log([...new Set(v)].slice(0,5).join('\n\n'));
+await browser.close();

@@ -1,0 +1,14 @@
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const OUT = '/tmp/claude-0/shots/36';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const ctx = await browser.newContext({ viewport: { width: 928, height: 540 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+const page = await ctx.newPage();
+const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && errs.push(m.text()));
+await page.goto('http://localhost:4173/?test&fresh&engage&seed=3', { waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__hull.scenes.every(Boolean), null, { timeout: 60000 });
+await page.evaluate(() => { window.__noSave = true; });
+await page.waitForTimeout(6000);
+await page.screenshot({ path: `${OUT}/card-orders.png` });
+console.log(JSON.stringify({ errs, d: await page.evaluate(() => window.__obs.drill) }));
+await browser.close();

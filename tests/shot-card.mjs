@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const page = await (await browser.newContext({ viewport: { width: 960, height: 540 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true })).newPage();
+await page.goto('http://localhost:4173/?test&fresh&seed=41', { waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__hull.scenes.every(Boolean), null, { timeout: 60000 });
+await page.evaluate(() => { window.__noSave = true; window.__sim.command({ type: 'drillNew', kind: 'air' }); });
+await page.waitForTimeout(9000);
+await page.screenshot({ path: '/tmp/claude-0/shots/air-orders.png' });
+await browser.close();

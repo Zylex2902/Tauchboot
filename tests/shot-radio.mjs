@@ -1,0 +1,21 @@
+// Screenshot of the sound room (chunk 2.3 layout work). Usage: node shot-radio.mjs [w h name query]
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const OUT = '/tmp/claude-0/shots';
+const VW = +(process.argv[2] ?? 960), VH = +(process.argv[3] ?? 540), NAME = process.argv[4] ?? 'radio';
+const Q = process.argv[5] ?? '';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const ctx = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+const page = await ctx.newPage();
+const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && errs.push(m.text()));
+await page.goto(`http://localhost:4173/?test&fresh&seed=41${Q}`, { waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__hull.scenes.every(Boolean), null, { timeout: 30000 });
+await page.evaluate(() => { window.__noSave = true; });
+await page.keyboard.press('Enter');
+await page.waitForTimeout(400);
+await page.keyboard.press('3');
+await page.waitForFunction(() => window.__hull.station === 2 && !window.__hull.travel, null, { timeout: 8000 });
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${OUT}/${NAME}-${VW}.png` });
+console.log(JSON.stringify({ errs }));
+await browser.close();

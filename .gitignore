@@ -14,3 +14,9 @@ android/local.properties
 android/.idea/
 dist-single/
 dist-sounds
+
+# test harness output
+tests/*-sim.mjs
+tests/world-*.svg
+tests/world-*.png
+tests/undefined

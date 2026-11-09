@@ -1,0 +1,38 @@
+// Chunk 4.1: SILENT RUNNING on the voice pipe by touch: rigs her, latches the key, fans run down; pressed again it secures.
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+let fails = 0;
+const check = (ok, msg) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`); if (!ok) fails++; };
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const page = await (await browser.newContext({ viewport: { width: 960, height: 540 }, hasTouch: true })).newPage();
+const errs = []; page.on('pageerror', (e) => errs.push(String(e)));
+await page.goto('http://localhost:4173/?test&fresh', { waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__hull.scenes.every(Boolean), null, { timeout: 90000 });
+await page.evaluate(() => { window.__noSave = true; window.__hull.card.close?.(); });
+const sounds = [];
+await page.evaluate(() => { const m = window.__mixer; const p = m.play.bind(m); m.play = (n, bus, o) => { (window.__played ??= []).push(n); return p(n, bus, o); }; const l = m.loop.bind(m); m.loop = (n, bus, o) => { (window.__played ??= []).push('loop:' + n); return l(n, bus, o); }; });
+const keyAt = async (id) => page.evaluate((id) => { const v = window.__hull.voice; const c = v.keyControls.find((k) => k.children?.length && k.label === undefined && false); 
+  // find by spec id through the control tree
+  const all = []; const walk = (o) => { all.push(o); (o.children ?? []).forEach(walk); }; walk(v.root);
+  const k = v.keyControls[1]; const r = k.getBounds(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, id);
+const tap = async (p) => { await page.touchscreen.tap(p.x, p.y); };
+await page.evaluate(() => window.__hull.voice.open());
+await page.waitForTimeout(800);
+const k = await keyAt('order-silent');
+await tap(k);
+await page.waitForTimeout(2500);
+let st = await page.evaluate(() => ({ silent: window.__obs.boat.silent, latched: window.__hull.voice.silentKey?.isLatched, played: window.__played ?? [] }));
+check(st.silent, 'SILENT RUNNING by touch rigs the boat');
+check(st.latched, 'the key stays down in its well while rigged');
+check(st.played.includes('lampOff') && st.played.some((n) => n === 'loop:motor'), 'breakers drop out and the fans run down (sound)');
+await page.evaluate(() => window.__hull.voice.open());
+await page.waitForTimeout(900);
+await page.screenshot({ path: '/tmp/claude-0/shots/pipe41-silent.png' });
+await tap(k);
+await page.waitForTimeout(2500);
+st = await page.evaluate(() => ({ silent: window.__obs.boat.silent, latched: window.__hull.voice.silentKey?.isLatched, played: window.__played ?? [] }));
+check(!st.silent && !st.latched, 'pressed again, it secures from silent running and the key springs up');
+check(st.played.includes('lampOn'), 'breakers in, fans spin up (sound)');
+check(!errs.length, `no page errors ${errs.join(' ')}`);
+console.log(fails ? `FAILS ${fails}` : 'ALL PASS');
+await browser.close();

@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const ctx = await browser.newContext({ viewport: { width: 852, height: 393 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+const page = await ctx.newPage();
+await page.goto('http://localhost:4173/?test', { waitUntil: 'networkidle' });
+await page.waitForTimeout(4000);
+const cdp = await ctx.newCDPSession(page);
+await cdp.send('Profiler.enable'); await cdp.send('Profiler.start');
+await page.waitForTimeout(3000);
+const { profile } = await cdp.send('Profiler.stop');
+const self = new Map(); const dt = profile.timeDeltas; const byId = new Map(profile.nodes.map(n => [n.id, n]));
+profile.samples.forEach((id, i) => { const n = byId.get(id); const k = n.callFrame.functionName + ' ' + n.callFrame.url.split('/').pop() + ':' + n.callFrame.lineNumber; self.set(k, (self.get(k) || 0) + (dt[i] || 0)); });
+console.log([...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => (v / 1000).toFixed(0) + 'ms ' + k).join('\n'));
+await browser.close();

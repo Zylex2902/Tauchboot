@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process','--no-zygote',"--headless='shell'"].includes(a)) });
+const ctx = await browser.newContext({ viewport: { width: 852, height: 393 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+const page = await ctx.newPage(); const errs = [];
+page.on('pageerror', e => errs.push(e.message)); page.on('console', m => (m.type()==='error'||m.type()==='warning') && errs.push(m.text()));
+await page.goto('http://localhost:4180/'); await page.waitForTimeout(1200);
+await page.touchscreen.tap(300, 200); await page.waitForTimeout(300);
+await page.screenshot({ path: process.argv[2] });
+console.log(JSON.stringify(errs.slice(0,8)), await page.evaluate(()=>document.querySelector('canvas')?.width));
+await browser.close();

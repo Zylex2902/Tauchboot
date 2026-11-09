@@ -1,0 +1,16 @@
+{
+  "name": "tiefgang-tests",
+  "version": "1.0.0",
+  "description": "Node and Playwright test harness for TIEFGANG (see tests/README.md)",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@sparticuz/chromium": "^153.0.0",
+    "playwright": "^1.64.0"
+  }
+}

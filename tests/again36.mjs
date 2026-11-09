@@ -1,0 +1,40 @@
+// The engagement's report, and AGAIN: a clean new engagement after a reload (the save cleared).
+import { chromium } from 'playwright';
+import sp from '@sparticuz/chromium';
+const browser = await chromium.launch({ executablePath: await sp.executablePath(), args: sp.args.filter(a => !['--single-process', '--no-zygote', "--headless='shell'"].includes(a)) });
+const ctx = await browser.newContext({ viewport: { width: 928, height: 540 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+const page = await ctx.newPage();
+const errs = []; page.on('pageerror', e => errs.push(e.message));
+let fails = 0;
+const check = (ok, msg) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`); if (!ok) fails++; };
+await page.goto('http://localhost:4173/?test&engage', { waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__hull && window.__hull.scenes.every(Boolean), null, { timeout: 60000 });
+await page.waitForTimeout(3000);
+const cdp = await ctx.newCDPSession(page);
+const touch = (type, p) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [{ x: p.x, y: p.y, id: 1 }] : [] });
+const keyAt = () => page.evaluate(() => { const k = window.__hull.card.key, r = k.hitRect(), d = window.devicePixelRatio; const g = k.root.parent.toGlobal({ x: r.x + r.width / 2, y: r.y + r.height / 2 }); return { x: g.x / d, y: g.y / d }; });
+const tap = async (p) => { await touch('touchStart', p); await page.waitForTimeout(70); await touch('touchEnd'); };
+await tap(await keyAt());
+await page.waitForFunction(() => window.__obs.drill.phase === 'attack', null, { timeout: 8000 });
+// Sink the near ship by fiat (this test is the report's), then let the sea run to the report.
+await page.evaluate(() => {
+  const sim = window.__sim, w = sim.state.world;
+  const s = w.ships.find((q) => q.hull === 'collier');
+  s.hit = { hits: 1, flood: 1.2, sinkT0: w.n * 0.1, sinkDur: 30, founderAt: null, trim: 0, lastT: w.n * 0.1, lastAlong: 0, maxKn: 0 };
+  for (let i = 0; i < 600; i++) sim.step();
+});
+await page.waitForFunction(() => window.__obs.drill.phase === 'over', null, { timeout: 10000 });
+await page.waitForTimeout(5000);
+await page.screenshot({ path: '/tmp/claude-0/shots/36/report.png' });
+const r = await page.evaluate(() => window.__obs.drill.result);
+check(r?.kind === 'attack' && r.outcome === 'sunk' && r.sunk[0]?.cls === 'collier', `the report: ${JSON.stringify(r)}`);
+await page.evaluate(() => window.__save());
+await tap(await keyAt());
+await page.waitForEvent('load', { timeout: 15000 });
+await page.waitForFunction(() => window.__hull && window.__hull.scenes.every(Boolean), null, { timeout: 60000 });
+await page.waitForTimeout(1500);
+const d = await page.evaluate(() => ({ d: window.__obs.drill, t: window.__sim.state.world.n, sunk: window.__sim.state.world.ships.filter((s) => s.hit).length, coach: window.__hull.coach.probe() }));
+check(d.d.kind === 'attack' && d.d.phase === 'brief' && d.sunk === 0 && d.t < 3600 + 600, `AGAIN: a fresh engagement on its orders card (${JSON.stringify(d)})`);
+check(errs.length === 0, `no page errors (${errs.join('; ')})`);
+console.log(fails ? `${fails} FAILED` : 'ALL PASS');
+await browser.close();
