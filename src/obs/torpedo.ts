@@ -61,11 +61,36 @@ export interface TubeObs {
 }
 
 /** The torpedo gang's reload in progress (chunk 3.5). */
-export interface ReloadObs {
-  job: { tube: number; type: TorpType; step: number; steps: number; name: string; k: number; drawn: boolean; eta: number } | null;
-  queue: { tube: number; type: TorpType }[];
-  /** Hands on the job, of the gang. */
+export interface ReloadJobObs {
+  tube: number;
+  type: TorpType;
+  step: number;
+  steps: number;
+  name: string;
+  /** The step in a word, for a narrow slip (chunk 5.3). */
+  short: string;
+  k: number;
+  drawn: boolean;
+  /** Seconds left at the gang's present rate. */
+  eta: number;
+}
+
+/** Chunk 5.3: a torpedo gang: its job, the hands on it, why it has stopped, the men (crew ids). */
+export interface GangObs {
+  job: ReloadJobObs | null;
   hands: number;
+  stalled: string | null;
+  men: number[];
+}
+
+export interface ReloadObs {
+  /** Chunk 5.3: the two gangs. */
+  gangs: GangObs[];
+  /** The first gang's job, hands and stall (as before chunk 5.3). */
+  job: ReloadJobObs | null;
+  queue: { tube: number; type: TorpType }[];
+  hands: number;
+  /** Most hands one gang can use. */
   gang: number;
   /** Why it has stopped ('hands': nobody on it), or null. */
   stalled: string | null;
@@ -98,7 +123,7 @@ export const freshTubes = (): TubesObs => ({
   fired: 0,
   running: 0,
   racks: { S: 4, E: 2 },
-  reload: { job: null, queue: [], hands: 6, gang: 6, stalled: null },
+  reload: { gangs: [{ job: null, hands: 6, stalled: null, men: [] }, { job: null, hands: 0, stalled: null, men: [] }], job: null, queue: [], hands: 6, gang: 6, stalled: null },
 });
 
 /** The war's phases, which decide how far the fish can be trusted. */

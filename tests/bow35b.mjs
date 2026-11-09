@@ -45,7 +45,7 @@ t3 = await page.evaluate(() => window.__obs.tubes.tubes[2]);
 const said = await page.evaluate(() => window.__voices.filter((v) => /BOW ROOM/.test(v)));
 check(t3.door >= 1 && said.length === 0, `the outer door opened by hand (${t3.door}); no reports up the pipe for work done at the tube`);
 // The pegs: two men on the job (tap the second hole).
-const pegs = await page.evaluate(() => { const sc = window.__hull.scenes[0]; const o = window.__hull.root.getGlobalPosition(); const s = window.__hull.root.worldTransform.a; return sc.pegHits.map((h) => { const p = h.getGlobalPosition(); return { x: (p.x - o.x) / s + 17, y: (p.y - o.y) / s + 14 }; }); });
+const pegs = await page.evaluate(() => { const sc = window.__hull.scenes[0]; const o = window.__hull.root.getGlobalPosition(); const s = window.__hull.root.worldTransform.a; return sc.pegHits[0].map((h) => { const p = h.getGlobalPosition(); return { x: (p.x - o.x) / s + 15, y: (p.y - o.y) / s + 11 }; }); });
 await tapArt(pegs[1].x, pegs[1].y);
 await page.waitForTimeout(900);
 const hands = await page.evaluate(() => window.__obs.tubes.reload.hands);
@@ -56,13 +56,15 @@ await tapArt(K2.x, K2.y);
 const RL = await ctl('bReload');
 await tapArt(RL.x, RL.y);
 await stepS(1);
+// Chunk 5.3: the time is the gang's own (its men's skill and fatigue): the eta the room shows at the start.
+const eta2 = await page.evaluate(() => window.__obs.tubes.reload.job?.eta ?? 0);
 let t = 0;
 for (; t < 3600; t += 60) {
   if (await page.evaluate(() => window.__obs.tubes.tubes[1].type)) break;
   await stepS(60);
 }
 const two = await page.evaluate(() => ({ tube: window.__obs.tubes.tubes[1], racks: window.__obs.tubes.racks }));
-check(two.tube.type === 'S' && t >= 22 * 60 && t <= 26 * 60, `tube two reloaded by two hands in about ${Math.round(t / 60)} min (racks steam ${two.racks.S})`);
+check(two.tube.type === 'S' && Math.abs(t - eta2) <= 90 && t >= 15 * 60 && t <= 26 * 60, `tube two reloaded by two hands in about ${Math.round(t / 60)} min, as the room said (${Math.round(eta2 / 60)}) (racks steam ${two.racks.S})`);
 await page.screenshot({ path: '/tmp/claude-0/shots/bow35b.png' });
 // Six hands on the next: about ten minutes.
 await tapArt(pegs[5].x, pegs[5].y);
@@ -71,12 +73,13 @@ const K1 = await ctl('bSel1');
 await tapArt(K1.x, K1.y);
 await tapArt(RL.x, RL.y);
 await stepS(1);
+const eta6 = await page.evaluate(() => window.__obs.tubes.reload.job?.eta ?? 0);
 t = 0;
 for (; t < 3600; t += 30) {
   if (await page.evaluate(() => window.__obs.tubes.tubes[0].type)) break;
   await stepS(30);
 }
-check(await page.evaluate(() => window.__obs.tubes.reload.hands) === 6 && t <= 10 * 60 && t >= 8 * 60, `all six pegs in: tube one (dry, door shut) reloaded in about ${(t / 60).toFixed(1)} min`);
+check(await page.evaluate(() => window.__obs.tubes.reload.hands) === 6 && Math.abs(t - eta6) <= 45 && t <= 10 * 60 && t >= 6 * 60, `all six pegs in: tube one (dry, door shut) reloaded in about ${(t / 60).toFixed(1)} min, as the room said (${(eta6 / 60).toFixed(1)})`);
 const v = await page.evaluate(() => window.__voices.filter((x) => /TORPEDO MATE/.test(x)));
 check(v.some((x) => /TUBE TWO LOADED, STEAM/.test(x)), `the torpedo mate: ${v.slice(-3).join(' | ')}`);
 check(errs.length === 0, `no page errors (${errs.join('; ')})`);

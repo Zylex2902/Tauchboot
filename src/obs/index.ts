@@ -22,7 +22,7 @@ export { freshBridge, type BridgeObs, type BridgeSight, type BridgeView, type Ou
 export { ALPHA, dayLabel, decipher, encipher, groups, keyDay, MORSE, pad5, parsePlain, plainOf, shiftOf, type ConvoyReport, type KeyDay } from './cipher';
 export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
-export { BOW_TUBES, DEPTH_MAX, DEPTH_MIN, eraOf, freshTubes, NO_SET, RUN, TORPEDOES, turnOut, type Era, type Pistol, type TorpSet, type TorpSpec, type TorpType, type TubeObs, type TubesObs, type ReloadObs } from './torpedo';
+export { BOW_TUBES, DEPTH_MAX, DEPTH_MIN, eraOf, freshTubes, NO_SET, RUN, TORPEDOES, turnOut, type Era, type Pistol, type TorpSet, type TorpSpec, type TorpType, type TubeObs, type TubesObs, type ReloadObs, type GangObs, type ReloadJobObs } from './torpedo';
 export { DUTY_WORD, freshRoster, freshWatch, ROLES, SECTION, type Duty, type FaceObs, type ManObs, type Role, type RosterObs, type WatchManObs, type WatchObs } from './crew';
 export { freshDamage, type CompDamageObs, type CrewObs, type DamageObs, type PumpObs, type SysDamageObs } from './damage';
 
@@ -380,7 +380,7 @@ export type Command =
   /** The torpedo gang: reload tubes from the racks, take one off the list, how many hands on it. */
   | { type: 'reload'; tube: number | number[] | 'all'; torp: TorpType }
   | { type: 'reloadCancel'; tube: number }
-  | { type: 'reloadHands'; hands: number }
+  | { type: 'reloadHands'; hands: number; gang?: number }
   /** Chunk 4.5, the damage control board: a team's peg ('comp:<id>', 'sys:<id>', null = the chief's). */
   | { type: 'dcPost'; team: number; post: string | null }
   /** The drain pump's switch, or one bilge suction valve on its manifold. */

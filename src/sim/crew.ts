@@ -37,6 +37,8 @@ export interface CrewState {
   rev: number;
   /** Chunk 5.2: the watch bill, battle stations. */
   watch: WatchState;
+  /** Chunk 5.3: the gangs each department has at its jobs (crew ids per gang, by role). */
+  gangs: Record<string, number[][]>;
 }
 
 /** Rating ranks, senior first; officers have their own. */
@@ -237,7 +239,7 @@ export function newCrew(seed: number, dateMs: number): CrewState {
     m.story = storyFor(m, r, year, port);
     return m;
   });
-  return { men, rev: 1, watch: newWatch() };
+  return { men, rev: 1, watch: newWatch(), gangs: {} };
 }
 
 /** The one line under his name: where he comes from, or what he was, or how long he has been at it. */

@@ -72,12 +72,12 @@ export const SECTION = ['I', 'II', 'III'] as const;
 /**
  * Chunk 5.2: what a man is doing now. watch: standing his watch; below: turned in, asleep;
  * awake: off watch but kept awake (charges, an alarm, the boat hunted); stations: at his
- * battle station; day: a day man at work.
+ * battle station; day: a day man at work; work: on a gang at a job (chunk 5.3).
  */
-export type Duty = 'watch' | 'below' | 'awake' | 'stations' | 'day';
+export type Duty = 'watch' | 'below' | 'awake' | 'stations' | 'day' | 'work';
 
 /** As the roster writes it. */
-export const DUTY_WORD: Record<Duty, string> = { watch: 'ON WATCH', below: 'TURNED IN', awake: 'AWAKE', stations: 'AT STATIONS', day: 'DAY WORK' };
+export const DUTY_WORD: Record<Duty, string> = { watch: 'ON WATCH', below: 'TURNED IN', awake: 'AWAKE', stations: 'AT STATIONS', day: 'DAY WORK', work: 'AT WORK' };
 
 export interface WatchManObs {
   id: number;

@@ -44,6 +44,8 @@ export interface WatchCtx {
   clear: boolean;
   /** Ships sunk in the world so far. */
   sunk: number;
+  /** Chunk 5.3: men on a gang at work (crew ids). */
+  working?: ReadonlySet<number>;
 }
 
 export interface WatchHost {
@@ -53,7 +55,7 @@ export interface WatchHost {
 
 const H = 3600;
 /** Fatigue per hour by duty (before the man's endurance). */
-const RATE: Record<Duty, number> = { watch: 0.035, day: 0.025, awake: 0.02, stations: 0.16, below: -0.05 };
+const RATE: Record<Duty, number> = { watch: 0.035, day: 0.025, awake: 0.02, stations: 0.16, work: 0.12, below: -0.05 };
 /** Extra per hour for every man awake while the boat is hunted, or holed or burning. */
 const HUNTED = 0.12;
 const EMERGENCY = 0.08;
@@ -81,7 +83,8 @@ const dayHours = (clock: number) => {
 /** How a man takes it: seasoned hands tire slower, the older ones a little faster. */
 const endurance = (m: Man, year: number) => (1.25 - 0.5 * m.skill) * (year - m.born > 32 ? 1.1 : 1);
 
-function dutyOf(m: Man, w: WatchState, on: number, clock: number, t: number): Duty {
+function dutyOf(m: Man, w: WatchState, on: number, clock: number, t: number, working?: ReadonlySet<number>): Duty {
+  if (working?.has(m.id)) return 'work';
   if (w.battle) return 'stations';
   if (m.section === null) return dayHours(clock) ? 'day' : t < w.rouse ? 'awake' : 'below';
   if (m.section === on) return 'watch';
@@ -106,7 +109,7 @@ export function stepWatch(c: CrewState, w: WatchState, host: WatchHost, x: Watch
   const year = new Date(x.clock).getUTCFullYear();
   const stress = (x.hunted ? HUNTED : 0) + (x.emergency ? EMERGENCY : 0);
   for (const m of c.men) {
-    const d = dutyOf(m, w, on, x.clock, x.t);
+    const d = dutyOf(m, w, on, x.clock, x.t, x.working);
     m.duty = d;
     let r = RATE[d];
     if (d !== 'below') r = (r + stress) * endurance(m, year);
@@ -194,7 +197,7 @@ export function watchObs(c: CrewState, w: WatchState, clock: number, t: number):
   };
 }
 
-const DUTY_N: Record<Duty, number> = { watch: 1, below: 2, awake: 3, stations: 4, day: 5 };
+const DUTY_N: Record<Duty, number> = { watch: 1, below: 2, awake: 3, stations: 4, day: 5, work: 6 };
 
 /** A number that changes when anything the roster shows has moved (duties, or fatigue/morale by half a percent). */
 export function watchKey(c: CrewState, w: WatchState, clock: number): number {

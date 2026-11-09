@@ -38,8 +38,8 @@ check(rows[0].seconds / rows[5].seconds > 3 && rows[0].seconds / rows[5].seconds
   T.reloads.order(tw, host, 2, 'E');
   said.length = 0;
   step(tw, 3600);
-  const stuck = tw.reload.job && tw.reload.job.step <= 2 && tw.tubes[1].type === null;
-  check(stuck && said.some((s) => /NO HANDS/.test(s)) && tw.obs !== null, `no hands on it: after an hour tube two is still empty (step ${tw.reload.job?.step}), "${said.find((s) => /NO HANDS/.test(s))}"`);
+  const stuck = tw.reload.gangs[0].job && tw.reload.gangs[0].job.step <= 2 && tw.tubes[1].type === null;
+  check(stuck && said.some((s) => /NO HANDS/.test(s)) && tw.obs !== null, `no hands on it: after an hour tube two is still empty (step ${tw.reload.gangs[0].job?.step}), "${said.find((s) => /NO HANDS/.test(s))}"`);
   T.reloads.hands(tw, 4);
   let t = 0;
   while (tw.tubes[1].type === null && t < 7200) { step(tw, 1); t++; }
@@ -89,7 +89,7 @@ check(rows[0].seconds / rows[5].seconds > 3 && rows[0].seconds / rows[5].seconds
   step(tw, 300);
   w.n = n0;
   step(copy, 300);
-  check(JSON.stringify(copy) === JSON.stringify(tw), `a save mid-reload (step ${tw.reload.job?.step ?? 'done'}) resumes identically`);
+  check(JSON.stringify(copy) === JSON.stringify(tw), `a save mid-reload (step ${tw.reload.gangs[0].job?.step ?? 'done'}) resumes identically`);
 }
 
 // By hand at the tube: the valve floods, shuts, drains; the door will not open on a dry tube.

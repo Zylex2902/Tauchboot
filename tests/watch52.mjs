@@ -13,7 +13,7 @@ const voices = [], hulls = [];
 obs.on((e) => { if (e.type === 'voice') voices.push(e.line.text); if (e.type === 'hull') hulls.push(e.kind); });
 const run = (sim, s) => { for (let i = 0; i < s * 10; i++) sim.step(); };
 
-check(SAVE_VERSION === 22, `save version 22 (${SAVE_VERSION})`);
+check(SAVE_VERSION >= 22, `save version 22 or later (${SAVE_VERSION})`);
 check(sectionAt(Date.UTC(1941, 6, 10, 1)) === 0 && sectionAt(Date.UTC(1941, 6, 10, 5)) === 1 && sectionAt(Date.UTC(1941, 6, 10, 9)) === 2 && sectionAt(Date.UTC(1941, 6, 10, 13)) === 0 && sectionAt(Date.UTC(1941, 6, 10, 23, 59)) === 2, 'sections by the clock: 00 I, 04 II, 08 III, 12 I, 20 III');
 check(reliefAt(Date.UTC(1941, 6, 10, 9, 30)) === Date.UTC(1941, 6, 10, 12), 'relieved at the next four-hour mark');
 
@@ -147,7 +147,7 @@ for (let seed = 1; seed <= 12 && tired < 3; seed++) {
     old.v = 21; old.sim.v = 21; delete old.sim.crew.watch;
     for (const m of old.sim.crew.men) delete m.duty;
     const mig = Sim.load(old);
-    check(!!mig && mig.state.crew.watch && mig.state.crew.watch.battle === false && mig.state.v === 22, 'v21 save migrates with a watch bill');
+    check(!!mig && mig.state.crew.watch && mig.state.crew.watch.battle === false && mig.state.v === SAVE_VERSION, 'v21 save migrates with a watch bill');
     if (mig) { for (let i = 0; i < 20; i++) mig.step(); check(mig.state.crew.men.every((m) => m.duty), 'migrated crew get duties'); }
   }
 }

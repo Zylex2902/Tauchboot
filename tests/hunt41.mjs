@@ -85,9 +85,9 @@ const base = (layer, extra = {}) => ({ startMs: Date.UTC(1941, 6, 10, 10, 0), la
   const tw = sim.state.torp;
   const noisy = radiated(b, tw);
   sim.command({ type: 'order', order: 'silent', station: 3 }); run(5);
-  const d0 = tw.reload.job?.done, s0 = tw.reload.job?.step;
+  const d0 = tw.reload.gangs[0].job?.done, s0 = tw.reload.gangs[0].job?.step;
   run(120);
-  check(tw.reload.job && tw.reload.job.done === d0 && tw.reload.job.step === s0 && tw.reload.stalled === 'silent', 'the reload stands still in silent running');
+  check(tw.reload.gangs[0].job && tw.reload.gangs[0].job.done === d0 && tw.reload.gangs[0].job.step === s0 && tw.reload.gangs[0].stalled === 'silent', 'the reload stands still in silent running');
   const still = radiated(b, tw);
   console.log('reloading:', JSON.stringify(noisy.parts), noisy.db.toFixed(1), '-> silent:', JSON.stringify(still.parts), still.db.toFixed(1));
   check(still.db < noisy.db - 4, 'a reload under way is loud; stopped for silent running, it is not');

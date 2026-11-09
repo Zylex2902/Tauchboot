@@ -17,26 +17,24 @@ The project folder was called `tiefgang-a`; the repo is `Tauchboot`. Directions 
 | Code map | `docs/CODEMAP.md` (read the section for the files you touch) |
 | Player-facing how-to per chunk | `README.md` |
 | Tests | `tests/` (see `tests/README.md`) |
-| Playtest build | https://claude.ai/artifact/Sss2vfG49S3UZXYkCwJ46K (v36 = chunk 5.2) |
+| Playtest build | https://claude.ai/artifact/Sss2vfG49S3UZXYkCwJ46K (v37 = chunk 5.3) |
 
 The live doc is the source of truth if it and `docs/*.md` differ; re-export when it changes.
 
 ## Status
 
-Done: chunks 0.1–0.5, 1.1–1.5, 2.1–2.6, 3.1–3.6, 4.1–4.6, 5.1, 5.2. Save version 22. Full regression (`tests/regress52.sh`) all green at 5.2.
+Done: chunks 0.1–0.5, 1.1–1.5, 2.1–2.6, 3.1–3.6, 4.1–4.6, 5.1–5.3. Save version 23. Full regression (`tests/regress53.sh`, builds every sim bundle first) all green at 5.3.
 
-Next: **chunk 5.3 Job queue**: durations, skill modifiers, peg-board UI. Done when two reload gangs finish faster than one.
+Next: **chunk 5.4 Orders**: voice-pipe standard orders, order chits for long jobs. Done when any standard order can be given from any station.
 
 Then the rest of phase 5:
-- 5.4 Orders: voice-pipe standard orders, order chits for long jobs. Done when any standard order can be given from any station.
 - 5.5 Station handover: crew run any station at their skill; assist slider per station. Done when the boat survives an attack with the player on two stations only.
 - 5.6 Losses and letters: permanent deaths, green replacements, letters home at the desk. Done when a death shows up in roster, morale and debrief.
 
-### Starting points for 5.3
+### Starting points for 5.4
 
-- `src/sim/watch.ts` (5.2) moves each man's `fatigue` and `morale` and sets `Man.duty` (watch/below/awake/stations/day) once a second; `obs.watch` carries them to the UI. Nothing reads fatigue yet: 5.3 should make work rates depend on the gang's skill and fatigue (GDD: tired men work slower and misreport).
-- The torpedo gang's reload (`src/sim/torpedo.ts`, RELOAD_STEPS, man-seconds at hands^0.85) and the damage teams (`src/sim/damage.ts`, two teams) are the existing timed jobs; the bow room's peg board (`src/stations/bow-room.ts`) and the damage board's pegs are the existing peg UIs.
-- Men are not yet named on jobs: picking which men (by section, on watch or called up) is part of 5.3/5.5.
+- The voice pipe (`src/hull/voice-pipe.ts`, ORDERS) already gives eight standard orders from any station; the sim answers them in `core.apply` case 'order'. 5.4 is mostly the order chits on the desk for long jobs (re-stow torpedoes, repair the starboard diesel, ration food: GDD "Orders"), running in the background.
+- Long jobs can reuse `src/sim/jobs.ts` (5.3): effort/gangRate/assignGangs give a gang's rate from named men; `Duty 'work'` shows them AT WORK on the roster. Only the torpedo gangs use it so far; the damage party's two teams (`src/sim/damage.ts`) still work at fixed rates without named men.
 - Bump SAVE_VERSION and add a migration in `src/sim/core.ts` for any new saved state.
 
 ## How Matthew works

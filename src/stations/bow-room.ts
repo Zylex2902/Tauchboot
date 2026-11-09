@@ -21,13 +21,20 @@ import { StationScene } from './station';
  * spindles. The reload board: the racks, the loading rail and chain hoist with the gang at
  * work, the job and what is next on the list, and the peg board that puts hands on it.
  * The more hands, the quicker the reload (six about ten minutes, one man alone over forty).
+ * Chunk 5.3: two gangs, each with its row of pegs, its line on the slip and its minutes; the
+ * second takes the next tube off the list while the first is busy. How fast a gang goes is
+ * its men's skill and how tired they are (the torpedo chief picks them).
  */
 
 const DEPTH_PER_TURN = 7;
 const VALVE = ['flood', 'shut', 'drain'] as const;
 const PISTOLS = ['contact', 'magnetic'] as const;
 const DIAG = { w: 214, h: 64 };
-const PEG_DX = 34;
+const PEG_DX = 30;
+/** Chunk 5.3: two gangs, a row of pegs each. */
+const ROW_H = 23;
+const PEGS_X = 16;
+const GANG_NAME = ['I', 'II'];
 
 export const BOW_ROOM: ControlSpec[] = [
   ...Array.from({ length: BOW_TUBES }, (_, i): ControlSpec => ({ kind: 'key', id: `bSel${i + 1}`, text: `${i + 1}`, w: 34, h: 20, x: 0, y: 0 })),
@@ -92,27 +99,26 @@ export class BowRoom extends StationScene {
   private tagShown: string[] = [];
   private water: Column;
   private depthDrum: Odometer;
-  private etaDrum: Odometer;
+  private etaDrums: Odometer[] = [];
   private diag = new Sprite(Texture.EMPTY);
   private diagKey = '';
   private frame = 0;
   private frameAcc = 0;
-  private jobSlip = new Container();
-  private jobText = '';
-  private nextSlip = new Container();
-  private nextText = '';
-  private bar = new Sprite(Texture.EMPTY);
-  private barK = -1;
-  private pegs: Sprite[] = [];
-  private pegHits: Container[] = [];
-  private hands = 6;
+  /** The slip's lines: gang I, gang II, what is next on the list. */
+  private lines = [new Container(), new Container(), new Container()];
+  private lineText = ['', '', ''];
+  private bars = [new Sprite(Texture.EMPTY), new Sprite(Texture.EMPTY)];
+  private barK = [-1, -1];
+  private pegs: Sprite[][] = [[], []];
+  private pegHits: Container[][] = [[], []];
+  private hands = [6, 0];
   private live = false;
   private here = false;
   private handAt = 0;
   private wet: LoopHandle | null = null;
   private busyWas: (string | null)[] = [];
-  private workAcc = 0;
-  private stepWas = -1;
+  private workAcc = [0, 0];
+  private stepWas = [-1, -1];
 
   constructor(index: number, ctx: KitContext) {
     super(index, 'BOW TORPEDO ROOM', ctx);
@@ -164,59 +170,76 @@ export class BowRoom extends StationScene {
 
     // RELOAD: the room as the gang works it.
     this.pin('reload', this.diag, 0.5, 0, -DIAG.w / 2, 0, { spread: false });
+    const SW = 142;
     const slip = new Container();
-    slip.addChild(art(166, 22, (p) => {
-      p.rect(1, 1, 165, 21, C.black);
-      p.rect(0, 0, 165, 21, C.paper0);
-      p.frame(0, 0, 165, 21, C.paper2);
+    slip.addChild(art(SW + 1, 31, (p) => {
+      p.rect(1, 1, SW, 30, C.black);
+      p.rect(0, 0, SW, 30, C.paper0);
+      p.frame(0, 0, SW, 30, C.paper2);
     }));
-    this.jobSlip.position.set(3, 2);
-    this.nextSlip.position.set(3, 11);
-    this.bar.position.set(0, 23);
-    slip.addChild(this.jobSlip, this.nextSlip, this.bar);
-    this.etaDrum = new Odometer(2, 0, tk);
-    const ed = new Container();
-    ed.addChild(art(22, 18, (p) => {
-      plate(p, 0, 0, 22, 18);
-      p.rect(4, 4, 14, 10, C.black);
-    }));
-    this.etaDrum.root.position.set(5, 4);
-    ed.addChild(this.etaDrum.root);
-    this.pin('reload', group([slip, 0, 0], [ed, 172, 0], [cap('MIN'), 183, 20]), 0.5, 0, -107, 68, { spread: false });
+    // Gang I's line and its bar, gang II's and its bar, then the list.
+    this.lines.forEach((l, i) => l.position.set(3, 2 + i * 9));
+    this.bars.forEach((b, i) => b.position.set(3, 9 + i * 9));
+    slip.addChild(...this.lines, ...this.bars);
+    const drums: [Container, number, number][] = [];
+    for (let g = 0; g < 2; g++) {
+      const od = new Odometer(2, 0, tk);
+      this.etaDrums.push(od);
+      const ed = new Container();
+      ed.addChild(art(22, 18, (p) => {
+        plate(p, 0, 0, 22, 18);
+        p.rect(4, 4, 14, 10, C.black);
+      }));
+      od.root.position.set(5, 4);
+      ed.addChild(od.root);
+      drums.push([ed, SW + 5 + g * 30, 0], [cap(`MIN ${GANG_NAME[g]}`), SW + 16 + g * 30, 20]);
+    }
+    this.pin('reload', group([slip, 0, 0], ...drums), 0.5, 0, -(SW + 62) / 2, 67, { spread: false });
     this.pin(
       'reload',
       group([this.ctl('bType'), 0, 0], [this.ctl('bReload'), 70, -10], [this.ctl('bCancel'), 130, -11]),
-      0.5, 0, -88, 114, { spread: true },
+      0.5, 0, -88, 110, { spread: true },
     );
-    // The peg board: a peg in a hole is a man on the job.
+    // The peg board: a row a gang, a peg in a hole is a man on the job.
+    const BW = PEGS_X + PEG_DX * 6 + 4;
+    const BH = ROW_H * 2 + 2;
     const board = new Container();
-    board.addChild(art(PEG_DX * 6 + 8, 30, (p) => {
-      p.rect(1, 1, PEG_DX * 6 + 7, 29, C.black);
-      p.rect(0, 0, PEG_DX * 6 + 7, 28, C.rust1);
-      p.rect(0, 0, PEG_DX * 6 + 7, 1, C.rust2);
-      for (let i = 0; i < 6; i++) {
-        p.disc(4 + PEG_DX / 2 + i * PEG_DX, 14, 4, C.rust0);
-        p.disc(4 + PEG_DX / 2 + i * PEG_DX, 14, 2, C.black);
+    board.addChild(art(BW + 1, BH + 1, (p) => {
+      p.rect(1, 1, BW, BH, C.black);
+      p.rect(0, 0, BW, BH - 1, C.rust1);
+      p.rect(0, 0, BW, 1, C.rust2);
+      p.rect(2, ROW_H, BW - 4, 1, C.rust0);
+      for (let g = 0; g < 2; g++) {
+        const cy = g * ROW_H + Math.floor(ROW_H / 2);
+        drawText(p, GANG_NAME[g], 4, cy - 3, C.paper1, C.rust0);
+        for (let i = 0; i < 6; i++) {
+          p.disc(PEGS_X + PEG_DX / 2 + i * PEG_DX, cy, 4, C.rust0);
+          p.disc(PEGS_X + PEG_DX / 2 + i * PEG_DX, cy, 2, C.black);
+        }
       }
     }));
-    for (let i = 0; i < 6; i++) {
-      const pg = new Pix(8, 12);
-      pg.rect(2, 4, 4, 8, C.brass0);
-      pg.disc(3, 3, 3, C.brass1);
-      pg.set(2, 2, C.brass2);
-      const s = new Sprite(pg.toTexture());
-      s.position.set(PEG_DX / 2 + i * PEG_DX, 6);
-      this.pegs.push(s);
-      const hit = new Container();
-      hit.eventMode = 'static';
-      hit.cursor = 'pointer';
-      hit.position.set(4 + i * PEG_DX, 0);
-      hit.on('pointertap', () => this.setHands(this.hands === i + 1 ? i : i + 1));
-      this.pegHits.push(hit);
-      board.addChild(s, hit);
+    for (let g = 0; g < 2; g++) {
+      for (let i = 0; i < 6; i++) {
+        const pg = new Pix(8, 12);
+        pg.rect(2, 4, 4, 8, C.brass0);
+        pg.disc(3, 3, 3, C.brass1);
+        pg.set(2, 2, C.brass2);
+        const sp = new Sprite(pg.toTexture());
+        sp.position.set(PEGS_X + PEG_DX / 2 - 4 + i * PEG_DX, g * ROW_H + Math.floor(ROW_H / 2) - 8);
+        this.pegs[g].push(sp);
+        const hit = new Container();
+        hit.eventMode = 'static';
+        hit.cursor = 'pointer';
+        hit.position.set(PEGS_X + i * PEG_DX, g * ROW_H);
+        hit.hitArea = new Rectangle(0, 0, PEG_DX, ROW_H);
+        hit.on('pointertap', () => this.setHands(g, this.hands[g] === i + 1 ? i : i + 1));
+        this.pegHits[g].push(hit);
+        board.addChild(sp, hit);
+      }
     }
-    hitPolicy.watch((m) => this.pegHits.forEach((h) => (h.hitArea = new Rectangle(0, Math.min(0, 14 - m / 2), PEG_DX, Math.max(28, m)))));
-    this.pin('reload', group([board, 0, 0], [cap('TORPEDO GANG: A PEG A MAN ON THE JOB'), (PEG_DX * 6 + 8) / 2, 32]), 0.5, 1, -(PEG_DX * 6 + 8) / 2, -46, { spread: false });
+    // Wide enough for a thumb; the two rows never take each other's touches.
+    hitPolicy.watch((m) => this.pegHits.flat().forEach((h) => (h.hitArea = new Rectangle(Math.min(0, (PEG_DX - m) / 2), 0, Math.max(PEG_DX, m), ROW_H))));
+    this.pin('reload', group([board, 0, 0], [cap('TORPEDO GANGS: A PEG A MAN ON THE JOB'), BW / 2, BH + 3]), 0.5, 1, -BW / 2, -(BH + 14), { spread: false });
 
     const c = (id: string) => this.controls.get(id)!;
     for (let n = 1; n <= BOW_TUBES; n++) c(`bSel${n}`).onChange(() => this.pick(n));
@@ -279,34 +302,48 @@ export class BowRoom extends StationScene {
     (this.controls.get('bPistol') as Lever).set(PISTOLS.indexOf(tu.set.pistol));
   }
 
-  private setHands(k: number): void {
-    k = Math.max(0, Math.min(6, k));
-    if (k === this.hands) return;
-    const from = this.hands;
-    this.hands = k;
-    send({ type: 'reloadHands', hands: k });
-    this.showPegs(from);
+  /** The torpedo room's men: no more pegs in than that, both rows together. */
+  private get men(): number {
+    const n = obs.roster.men.filter((m) => m.role === 'torpedo').length;
+    return n || 10;
+  }
+
+  private setHands(g: number, k: number): void {
+    const cap = Math.min(6, this.men - this.hands[1 - g]);
+    const want = Math.max(0, Math.min(6, k));
+    k = Math.min(want, Math.max(0, cap));
+    if (want > k) {
+      // No more men to put on it: the peg will not go in.
+      mixer.play(SFX.endStop, 'ui', { gain: 0.45, rate: 1.2 });
+      haptic('tick');
+    }
+    if (k === this.hands[g]) return;
+    const from = this.hands[g];
+    this.hands[g] = k;
+    this.handAt = performance.now();
+    send({ type: 'reloadHands', hands: k, gang: g });
+    this.showPegs(g, from);
   }
 
   /** Pegs into the holes (or out to the rail beside), one after another, each seated with a knock. */
-  private showPegs(from: number, animate = true): void {
-    this.pegs.forEach((pg, i) => {
-      const inHole = i < this.hands;
-      const y = inHole ? 6 : -12;
+  private showPegs(g: number, from: number, animate = true): void {
+    const y0 = g * ROW_H + Math.floor(ROW_H / 2) - 8;
+    this.pegs[g].forEach((pg, i) => {
+      const inHole = i < this.hands[g];
+      const y = inHole ? y0 : y0 - 18;
       if (!animate) {
         pg.y = y;
         pg.visible = inHole;
         return;
       }
-      const changed = (i < this.hands) !== (i < from);
+      const changed = (i < this.hands[g]) !== (i < from);
       if (!changed) return;
       const order = inHole ? i - from : from - 1 - i;
       pg.visible = true;
-      const start = inHole ? -12 : 6;
-      pg.y = start;
+      pg.y = inHole ? y0 - 18 : y0;
       void this.ctx.tw.to(pg, { y }, { duration: 160, delay: order * 70, ease: inHole ? ease.outBack : ease.inOutSine }).then(() => {
         if (!inHole) pg.visible = false;
-        mixer.play(SFX.peg, 'ui', { gain: 0.5, rate: 0.9 + i * 0.04 });
+        mixer.play(SFX.peg, 'ui', { gain: 0.5, rate: 0.9 + i * 0.04 + g * 0.05 });
         haptic('tick');
       });
     });
@@ -314,7 +351,7 @@ export class BowRoom extends StationScene {
 
   override enter(): void {
     this.here = true;
-    this.stepWas = -1;
+    this.stepWas = [-1, -1];
   }
 
   override leave(): void {
@@ -327,23 +364,27 @@ export class BowRoom extends StationScene {
     const T = obs.tubes;
     if (!this.live) {
       // First frame after a load: the panel shows the tubes as they are; from now on a hand on it is an order.
-      this.hands = T.reload.hands;
-      this.showPegs(this.hands, false);
+      T.reload.gangs.forEach((g, i) => {
+        this.hands[i] = g.hands;
+        this.showPegs(i, g.hands, false);
+      });
       this.follow(true);
       this.live = true;
     }
-    if (T.reload.hands !== this.hands && performance.now() - this.handAt > 1200) {
-      const from = this.hands;
-      this.hands = T.reload.hands;
-      this.showPegs(from);
-    }
+    if (performance.now() - this.handAt > 1200)
+      T.reload.gangs.forEach((g, i) => {
+        if (g.hands === this.hands[i]) return;
+        const from = this.hands[i];
+        this.hands[i] = g.hands;
+        this.showPegs(i, from);
+      });
     const visible = this.root.parent !== null;
     T.tubes.forEach((tu, i) => this.showTube(i, tu, visible));
     const tu = T.tubes[this.sel - 1];
     if (tu) this.water.set(tu.flood);
     this.follow();
     // Water moving in any tube: the rush of it, while you are here.
-    const moving = T.tubes.some((t) => t.busy === 'flood' || t.busy === 'drain' || (t.busy === 'reload' && T.reload.job?.step === 1));
+    const moving = T.tubes.some((t) => t.busy === 'flood' || t.busy === 'drain') || T.reload.gangs.some((g) => g.job?.step === 1 && !g.stalled);
     if (moving && this.here && !this.wet) mixer.whenRunning(() => {
       if (!this.wet && this.here) this.wet = mixer.loop(SFX.flood, 'machinery', { gain: 0.3, rate: 0.85, fadeMs: 250 });
     });
@@ -384,53 +425,61 @@ export class BowRoom extends StationScene {
 
   private showReload(dt: number, visible: boolean): void {
     const R = obs.tubes.reload;
-    const j = R.job;
-    const working = !!j && R.hands > 0 && !R.stalled;
+    const working = R.gangs.map((g) => !!g.job && g.hands > 0 && !g.stalled);
     this.frameAcc += dt;
     if (this.frameAcc > 320) {
       this.frameAcc = 0;
-      if (working) this.frame ^= 1;
+      if (working.some(Boolean)) this.frame ^= 1;
     }
     this.drawRoom();
-    const line1 = j ? `${j.tube} ${j.type === 'S' ? 'STEAM' : 'ELEC'}: ${R.stalled === 'hands' ? 'STOPPED, NO HANDS ON IT' : R.stalled === 'silent' ? 'STOPPED, SILENT RUNNING' : j.name}` : 'NO RELOAD UNDER WAY';
-    const line2 = R.queue.length ? `NEXT: ${R.queue.map((q) => `${q.tube} ${q.type === 'S' ? 'STEAM' : 'ELEC'}`).join(', ')}` : '';
-    this.slip(this.jobSlip, line1, 'jobText', R.stalled ? C.red1 : C.ink0, visible);
-    this.slip(this.nextSlip, line2, 'nextText', C.ink1, visible);
-    // The whole job's progress along the bar.
-    const k = j ? (j.step + j.k) / j.steps : 0;
-    const kk = Math.round(k * 160);
-    if (kk !== this.barK) {
-      this.barK = kk;
-      const p = new Pix(166, 3);
-      p.rect(0, 0, 166, 3, C.iron1);
-      p.rect(1, 1, kk, 1, j ? C.amber0 : C.iron2);
-      const old = this.bar.texture;
-      this.bar.texture = p.toTexture();
-      if (old !== Texture.EMPTY) old.destroy(true);
-    }
-    this.etaDrum.set(j && Number.isFinite(j.eta) ? Math.min(99, Math.ceil(j.eta / 60)) : 0);
+    R.gangs.forEach((g, i) => {
+      const j = g.job;
+      const what = j
+        ? `${j.tube} ${j.type === 'S' ? 'STEAM' : 'ELEC'} ${g.stalled === 'hands' ? 'STOPPED, NO HANDS' : g.stalled === 'silent' ? 'STOPPED, SILENT' : j.short}`
+        : g.hands > 0 ? (R.queue.length ? 'WAITING' : 'READY') : 'STOOD DOWN';
+      const text = `${GANG_NAME[i].padEnd(3)}${what}`;
+      this.slip(this.lines[i], text, i, g.stalled ? C.red1 : j ? C.ink0 : C.ink1, visible);
+      // The whole job's progress along the bar.
+      const k = j ? (j.step + j.k) / j.steps : 0;
+      const kk = Math.round(k * 136);
+      if (kk !== this.barK[i]) {
+        this.barK[i] = kk;
+        const p = new Pix(136, 1);
+        p.rect(0, 0, kk, 1, C.amber0);
+        const old = this.bars[i].texture;
+        this.bars[i].texture = kk > 0 ? p.toTexture() : Texture.EMPTY;
+        if (old !== Texture.EMPTY) old.destroy(true);
+      }
+      this.etaDrums[i].set(j && Number.isFinite(j.eta) ? Math.min(99, Math.ceil(j.eta / 60)) : 0);
+    });
+    const next = R.queue.length ? `NEXT ${R.queue.map((q) => `${q.tube} ${q.type === 'S' ? 'STEAM' : 'ELEC'}`).join(', ')}` : '';
+    this.slip(this.lines[2], next, 2, C.ink1, visible);
     // The work heard: the breech swinging, the chain hoist's pawl, the fish rammed home in heaves.
-    if (!this.here || !j) {
-      this.stepWas = j?.step ?? -1;
-      return;
-    }
-    if (j.step !== this.stepWas) {
-      if (j.step === 2 || j.step === 5) mixer.play(SFX.hatch, 'machinery', { gain: 0.5, rate: 1.2 });
-      this.stepWas = j.step;
-    }
-    if (!working) return;
-    this.workAcc += dt;
-    const every = j.step === 3 ? 520 : j.step === 4 ? 1100 : 0;
-    if (every && this.workAcc > every) {
-      this.workAcc = 0;
-      if (j.step === 3) mixer.play(SFX.ratchet, 'machinery', { gain: 0.45, rate: 0.8 + Math.random() * 0.1 });
-      else mixer.play(SFX.plate, 'machinery', { gain: 0.5, rate: 0.6 + Math.random() * 0.1 });
-    }
+    R.gangs.forEach((g, i) => {
+      const j = g.job;
+      if (!this.here || !j) {
+        this.stepWas[i] = j?.step ?? -1;
+        return;
+      }
+      if (j.step !== this.stepWas[i]) {
+        if (j.step === 2 || j.step === 5) mixer.play(SFX.hatch, 'machinery', { gain: 0.5, rate: 1.2 + i * 0.06 });
+        this.stepWas[i] = j.step;
+      }
+      if (!working[i]) return;
+      this.workAcc[i] += dt;
+      const every = j.step === 3 ? 520 : j.step === 4 ? 1100 : 0;
+      if (every && this.workAcc[i] > every) {
+        this.workAcc[i] = 0;
+        const pan = i ? 0.35 : -0.35;
+        if (j.step === 3) mixer.play(SFX.ratchet, 'machinery', { gain: 0.45, rate: 0.8 + Math.random() * 0.1, pan });
+        else mixer.play(SFX.plate, 'machinery', { gain: 0.5, rate: 0.6 + Math.random() * 0.1, pan });
+      }
+    });
   }
 
-  private slip(box: Container, text: string, field: 'jobText' | 'nextText', color: ColorIndex, visible: boolean): void {
-    if (this[field] === text) return;
-    this[field] = text;
+  private slip(box: Container, text: string, i: number, color: ColorIndex, visible: boolean): void {
+    if (this.lineText[i] === text) return;
+    this.lineText[i] = text;
     box.removeChildren().forEach((ch) => ch.destroy({ children: true }));
     if (!text) return;
     const t = new TypedText([{ text, color }]);
@@ -443,8 +492,8 @@ export class BowRoom extends StationScene {
   private drawRoom(): void {
     const T = obs.tubes;
     const R = T.reload;
-    const j = R.job;
-    const key = `${T.racks.S}:${T.racks.E}:${j ? `${j.tube}${j.type}${j.step}:${Math.round(j.k * 40)}:${j.drawn}` : '-'}:${R.hands}:${this.frame}:${T.tubes.map((t) => (t.type ?? '-') + (t.busy === 'reload' ? 'r' : '')).join('')}`;
+    const G = R.gangs;
+    const key = `${T.racks.S}:${T.racks.E}:${G.map((g) => (g.job ? `${g.job.tube}${g.job.type}${g.job.step}:${Math.round(g.job.k * 40)}:${g.job.drawn}:${g.hands}` : '-')).join('/')}:${this.frame}:${T.tubes.map((t) => (t.type ?? '-') + (t.busy === 'reload' ? 'r' : '')).join('')}`;
     if (key === this.diagKey) return;
     this.diagKey = key;
     const { w: W, h: H } = DIAG;
@@ -458,7 +507,7 @@ export class BowRoom extends StationScene {
     p.rect(rackX - 2, 8, 2, 46, C.iron3);
     for (let i = 0; i < 4; i++) {
       p.rect(rackX, 13 + i * 6, 64, 1, C.iron3);
-      if (i < T.racks.S - (j && !j.drawn && j.type === 'S' && j.step >= 3 ? 1 : 0)) fish(p, rackX + 2, 9 + i * 6, 60, 'S', true);
+      if (i < T.racks.S - G.filter((g) => g.job && !g.job.drawn && g.job.type === 'S' && g.job.step >= 3).length) fish(p, rackX + 2, 9 + i * 6, 60, 'S', true);
     }
     for (let i = 0; i < 2; i++) {
       p.rect(rackX, 43 + i * 6, 64, 1, C.iron3);
@@ -474,21 +523,25 @@ export class BowRoom extends StationScene {
     p.rect(86, railY + 6, W - 120, 1, C.iron2);
     for (let n = 1; n <= BOW_TUBES; n++) {
       const tu = T.tubes[n - 1];
-      const open = j?.tube === n && (j.step === 3 || j.step === 4 || (j.step === 2 && j.k > 0.5) || (j.step === 5 && j.k < 0.5));
+      const j = G.find((g) => g.job?.tube === n)?.job;
+      const open = !!j && (j.step === 3 || j.step === 4 || (j.step === 2 && j.k > 0.5) || (j.step === 5 && j.k < 0.5));
       p.disc(bx(n), by(n), 6, C.iron1);
       p.disc(bx(n), by(n), 5, open ? C.black : tu?.type ? C.iron5 : C.iron4);
       if (!open) p.rect(bx(n) - 1, by(n) - 4, 2, 8, C.iron2); // the breech door's locking bar
       drawText(p, `${n}`, bx(n) - 2, by(n) + 7, C.paper2);
     }
-    // The fish on its way: off the rack, up on the chains, along the rail, home.
-    if (j) {
+    // The fish on their way: off the rack, up on the chains, along the rail, home; a gang round each.
+    G.forEach((g, gi) => {
+      const j = g.job;
+      if (!j) return;
+      const lift = gi * 8; // the second gang's chains hang a little lower
       let fx = rackX + 2;
-      let fy = 9;
+      let fy = 9 + lift;
       const tx = bx(j.tube) - 70;
-      const ty = railY;
+      const ty = railY + lift;
       if (j.step === 3) {
         fx = rackX + 2 + (90 - rackX) * j.k;
-        fy = 9 + (ty - 9) * j.k - Math.sin(j.k * Math.PI) * 6;
+        fy = 9 + lift + (ty - 9 - lift) * j.k - Math.sin(j.k * Math.PI) * 6;
       } else if (j.step === 4) {
         fx = 90 + (tx - 90) * j.k;
         fy = ty;
@@ -504,13 +557,12 @@ export class BowRoom extends StationScene {
         p.rect(cx - 3, 3, 7, 3, C.iron5);
         for (let y = 6; y < fy; y += 2) p.set(cx, y, C.iron6);
       }
-      // The gang round her.
-      const n = Math.min(6, R.hands);
+      const n = Math.min(6, g.hands);
       for (let i = 0; i < n; i++) {
-        const mx = Math.round((shown ? fx : 70) + 4 + i * 9);
-        man(p, Math.min(W - 44, mx), H - 15, (this.frame + i) % 2);
+        const mx = Math.round((shown ? fx : 70 + gi * 40) + 4 + i * 9);
+        man(p, Math.min(W - 44, mx), H - 15, (this.frame + i + gi) % 2);
       }
-    }
+    });
     const old = this.diag.texture;
     this.diag.texture = p.toTexture();
     if (old !== Texture.EMPTY) old.destroy(true);

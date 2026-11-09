@@ -134,8 +134,13 @@ export function kitAt(ms: number): Kit {
 export function radiated(b: BoatState, tw: TorpWorld): { db: number; parts: Partial<Record<keyof typeof NOISES | 'machinery', number>> } {
   const parts: Partial<Record<keyof typeof NOISES | 'machinery', number>> = { machinery: b.power.noise };
   if (!b.silent) parts.crew = NOISES.crew;
-  const job = tw.reload.job;
-  if (job && !tw.reload.stalled) parts.reload = job.step === 0 ? NOISES.door : job.step === 1 ? NOISES.drain : NOISES.reload;
+  // The gangs at work (chunk 5.3: two can be; the loudest step heard).
+  for (const g of tw.reload.gangs) {
+    const job = g.job;
+    if (!job || g.stalled) continue;
+    const n = job.step === 0 ? NOISES.door : job.step === 1 ? NOISES.drain : NOISES.reload;
+    parts.reload = Math.max(parts.reload ?? -Infinity, n);
+  }
   for (const tu of tw.tubes) {
     const k = tu.busy?.kind;
     if (k === 'flood') parts.flood = NOISES.flood;

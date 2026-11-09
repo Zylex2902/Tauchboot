@@ -13,6 +13,7 @@ import { DECOYS_CARRIED, DECOYS_FROM, warMs } from './doctrine';
 import { churned, newEscortWorld, stepEscorts, type EscortHost, type EscortWorld } from './escort';
 import { Rng } from './rng';
 import { newCrew, rosterOf, type CrewState } from './crew';
+import { assignGangs, gangMen, gangRate } from './jobs';
 import { feelCharge, newWatch, ring, rouse, standDown, stepWatch, watchKey, watchObs, type WatchHost } from './watch';
 import { clearWeather } from './weather';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
@@ -22,7 +23,7 @@ import { newAirWorld } from './air';
 import { defaultLandmarks, newWorld, stepWorld, type WorldOpts, type WorldState } from './world';
 import { engage, ENGAGE_PREROLL, ENGAGE_WORLD, newEngage, type EngageState } from './engage';
 import { cannotDive, deepLoss, lossReport, scuttleOrder, stepLoss, UP_DEPTH, type LossHost } from './loss';
-import { fire, GANG, newTorp, RACKS, reloads, valve, runningFish, scopeTorps, setFailures, setGyro, stepTorp, tubes, type TorpHost, type TorpWorld } from './torpedo';
+import { fire, migrateReload, newReload, newTorp, RACKS, reloads, valve, runningFish, scopeTorps, setFailures, setGyro, stepTorp, tubes, type TorpHost, type TorpWorld } from './torpedo';
 
 /**
  * The sim core (chunk 1.1): a fixed 10 Hz tick, seeded RNG, time compression with an
@@ -37,9 +38,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 22;
+export const SAVE_VERSION = 23;
 /** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1), the escorts' hunts and depth charges (4.2). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -166,6 +167,8 @@ export class Sim {
     this.torpHost = {
       rng: this.rngTorp,
       say: (from, text, delay) => (delay > 0 ? this.s.sched.push({ at: this.s.tick + Math.round(delay / TICK_S), fx: [{ kind: 'voice', from, text }] }) : this.effect({ kind: 'voice', from, text })),
+      rate: (g) => this.gangRates[g] ?? 0,
+      men: (g) => this.s.crew.gangs.torpedo?.[g] ?? [],
     };
     this.detectHost = {
       rng: this.rngSpot,
@@ -218,6 +221,7 @@ export class Sim {
       lose: (kind) => this.lost(kind),
     };
     this.keepPrev();
+    this.crewGangs(); // chunk 5.3: the gangs' rates from the start
   }
 
   /** The engagement (chunk 3.6): the slice's fixed convoy, its orders on the card. */
@@ -301,7 +305,7 @@ export class Sim {
     s.rng.spot ??= (s.seed ^ 0x51ed27f3) >>> 0 || 13;
     s.torp ??= newTorp();
     s.torp.racks ??= { ...RACKS };
-    s.torp.reload ??= { queue: [], job: null, hands: GANG, stalled: null };
+    s.torp.reload ??= newReload();
     s.rng.torp ??= (s.seed ^ 0x7f4a7c15) >>> 0 || 19;
     s.engage ??= newEngage();
     s.boat.silent ??= false;
@@ -324,6 +328,8 @@ export class Sim {
     s.loss ??= null;
     s.crew ??= newCrew(s.seed, s.world.t0);
     s.crew.watch ??= newWatch(); // chunk 5.2
+    s.crew.gangs ??= {}; // chunk 5.3
+    migrateReload(s.torp);
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -365,6 +371,19 @@ export class Sim {
     obs.publish({ type: 'watch', watch: watchObs(c, c.watch, this.clockMs, this.s.world.n * TICK_S) });
   }
 
+  /**
+   * Chunk 5.3: the torpedo gangs: the chief puts men on them (the best he has, a gang at work
+   * keeping its own) and their rates follow the men's skill and fatigue.
+   */
+  private gangRates: number[] = [0, 0];
+  private crewGangs(): number[][] {
+    const c = this.s.crew;
+    const G = this.s.torp.reload.gangs;
+    const ids = assignGangs(c, 'torpedo', G.map((g) => g.hands), G.map((g) => !!g.job));
+    this.gangRates = ids.map((g) => gangRate(gangMen(c, g)));
+    return ids;
+  }
+
   /** Chunk 5.2: the watches turn over, the men tire and rest, once a second. */
   private stepCrew(): void {
     const s = this.s;
@@ -375,7 +394,9 @@ export class Sim {
     const emergency = D.leaks.length > 0 || b.bilge > 1 || s.esc.charges.length > 0 || !!b.scuttle || COMPS.some((c) => D.comps[c.id].fire > 0 || D.comps[c.id].gas > 0);
     const near = s.world.ships.some((q) => !q.gone && !q.sunk && Math.hypot(q.x - s.world.own.x, q.y - s.world.own.y) < 12000);
     const sunk = s.world.ships.reduce((n, q) => n + (q.sunk ? 1 : 0), 0);
-    stepWatch(s.crew, s.crew.watch, this.watchHost, { clock: this.clockMs, t, hunted, emergency, clear: !hunted && !emergency && !near, sunk }, 1);
+    const gangs = this.crewGangs();
+    const working = new Set(gangs.flatMap((g, i) => (s.torp.reload.gangs[i]?.job && !s.torp.reload.gangs[i].stalled ? g : [])));
+    stepWatch(s.crew, s.crew.watch, this.watchHost, { clock: this.clockMs, t, hunted, emergency, clear: !hunted && !emergency && !near, sunk, working }, 1);
     if (watchKey(s.crew, s.crew.watch, this.clockMs) !== this.watchSent) this.publishWatch();
   }
 
@@ -542,8 +563,8 @@ export class Sim {
         if (c.order === 'reload') {
           // Every empty tube: steam while the racks hold it, then electric.
           const T = this.s.torp;
-          const free = T.tubes.filter((tu) => !tu.type && T.reload.job?.tube !== tu.n && !T.reload.queue.some((q) => q.tube === tu.n)).map((tu) => tu.n);
-          const steam = Math.max(0, T.racks.S - T.reload.queue.filter((q) => q.type === 'S').length - (T.reload.job && !T.reload.job.drawn && T.reload.job.type === 'S' ? 1 : 0));
+          const free = T.tubes.filter((tu) => !tu.type && !T.reload.gangs.some((g) => g.job?.tube === tu.n) && !T.reload.queue.some((q) => q.tube === tu.n)).map((tu) => tu.n);
+          const steam = Math.max(0, T.racks.S - T.reload.queue.filter((q) => q.type === 'S').length - T.reload.gangs.filter((g) => g.job && !g.job.drawn && g.job.type === 'S').length);
           const s1 = free.slice(0, steam);
           if (s1.length) reloads.order(T, this.torpHost, s1, 'S');
           if (free.length > s1.length) reloads.order(T, this.torpHost, free.slice(s1.length), 'E');
@@ -687,7 +708,9 @@ export class Sim {
         reloads.cancel(this.s.torp, this.torpHost, c.tube);
         break;
       case 'reloadHands':
-        reloads.hands(this.s.torp, c.hands);
+        // Chunk 5.3: either gang; no more hands than the torpedo room has men.
+        reloads.hands(this.s.torp, c.hands, c.gang ?? 0, this.s.crew.men.filter((m) => m.role === 'torpedo').length);
+        this.crewGangs();
         break;
       case 'tubeFlood':
         tubes.flood(this.s.torp, this.torpHost, c.tube);

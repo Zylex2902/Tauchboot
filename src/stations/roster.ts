@@ -55,8 +55,8 @@ const DUTY_W = 54;
 /** The head's crew-fatigue bar; a row's runs from after the duty word to the edge. */
 const BAR_W = 40;
 /** Working, he is up: the stamp is inked solid. */
-const UP: Record<Duty, boolean> = { watch: true, stations: true, day: true, awake: false, below: false };
-const DUTY_INK: Record<Duty, ColorIndex> = { watch: C.ink0, stations: C.red0, day: C.ink0, awake: C.rust2, below: C.ink1 };
+const UP: Record<Duty, boolean> = { watch: true, stations: true, day: true, work: true, awake: false, below: false };
+const DUTY_INK: Record<Duty, ColorIndex> = { watch: C.ink0, stations: C.red0, day: C.ink0, work: C.rust1, awake: C.rust2, below: C.ink1 };
 
 function tagPix(sec: string, up: boolean): Pix {
   const p = new Pix(TAG_W, 10);
