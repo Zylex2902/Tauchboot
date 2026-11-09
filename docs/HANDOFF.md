@@ -17,27 +17,26 @@ The project folder was called `tiefgang-a`; the repo is `Tauchboot`. Directions 
 | Code map | `docs/CODEMAP.md` (read the section for the files you touch) |
 | Player-facing how-to per chunk | `README.md` |
 | Tests | `tests/` (see `tests/README.md`) |
-| Playtest build | https://claude.ai/artifact/Sss2vfG49S3UZXYkCwJ46K (v35 = chunk 5.1) |
+| Playtest build | https://claude.ai/artifact/Sss2vfG49S3UZXYkCwJ46K (v36 = chunk 5.2) |
 
 The live doc is the source of truth if it and `docs/*.md` differ; re-export when it changes.
 
 ## Status
 
-Done: chunks 0.1–0.5, 1.1–1.5, 2.1–2.6, 3.1–3.6, 4.1–4.6, 5.1. Save version 21. Full regression (`tests/regress51.sh`) all green at 5.1.
+Done: chunks 0.1–0.5, 1.1–1.5, 2.1–2.6, 3.1–3.6, 4.1–4.6, 5.1, 5.2. Save version 22. Full regression (`tests/regress52.sh`) all green at 5.2.
 
-Next: **chunk 5.2 Watches**: three watch sections, battle stations, fatigue over time. Done when a long attack visibly tires the crew.
+Next: **chunk 5.3 Job queue**: durations, skill modifiers, peg-board UI. Done when two reload gangs finish faster than one.
 
 Then the rest of phase 5:
-- 5.3 Job queue: durations, skill modifiers, peg-board UI. Done when two reload gangs finish faster than one.
 - 5.4 Orders: voice-pipe standard orders, order chits for long jobs. Done when any standard order can be given from any station.
 - 5.5 Station handover: crew run any station at their skill; assist slider per station. Done when the boat survives an attack with the player on two stations only.
 - 5.6 Losses and letters: permanent deaths, green replacements, letters home at the desk. Done when a death shows up in roster, morale and debrief.
 
-### Starting points for 5.2
+### Starting points for 5.3
 
-- `src/sim/crew.ts` holds the 44 men (`Man`, `CrewState {men, rev}`) with `skill`, `fatigue` and `morale` already in place but static. Each man has `section` 0/1/2 (watch I/II/III, assigned round-robin) or `null` for day men (chief engineer, cook). The first officer has watch I, the second officer watch II and the navigator watch III.
-- `rosterOf()` publishes a `RosterObs` (src/obs/crew.ts) when `crew.rev` changes (checked once a second) and on announce. The UI reads only that.
-- The roster (`src/stations/roster.ts`) already shows each man's watch tag (I/II/III/DAY) and red FATIGUE/MORALE bars past 0.6 fatigue or under 0.35 morale. 5.2 makes those numbers move.
+- `src/sim/watch.ts` (5.2) moves each man's `fatigue` and `morale` and sets `Man.duty` (watch/below/awake/stations/day) once a second; `obs.watch` carries them to the UI. Nothing reads fatigue yet: 5.3 should make work rates depend on the gang's skill and fatigue (GDD: tired men work slower and misreport).
+- The torpedo gang's reload (`src/sim/torpedo.ts`, RELOAD_STEPS, man-seconds at hands^0.85) and the damage teams (`src/sim/damage.ts`, two teams) are the existing timed jobs; the bow room's peg board (`src/stations/bow-room.ts`) and the damage board's pegs are the existing peg UIs.
+- Men are not yet named on jobs: picking which men (by section, on watch or called up) is part of 5.3/5.5.
 - Bump SAVE_VERSION and add a migration in `src/sim/core.ts` for any new saved state.
 
 ## How Matthew works

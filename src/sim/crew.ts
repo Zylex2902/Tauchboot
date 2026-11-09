@@ -1,12 +1,12 @@
-import type { FaceObs, ManObs, Role, RosterObs } from '../obs/crew';
+import type { Duty, FaceObs, ManObs, Role, RosterObs } from '../obs/crew';
 import { Rng } from './rng';
+import { newWatch, type WatchState } from './watch';
 
 /**
  * The crew (chunk 5.1): 44 men drawn up for the boat from her seed when she is put to sea.
  * Each has a role and a post, a rank, a watch section (or day work), one skill value, fatigue
  * and morale, a home town and trade, patrols behind him and a few lines of history, and what
- * the photographer saw for his card. Fatigue and morale are held here; watches (5.2) and the
- * patrol's events move them later.
+ * the photographer saw for his card. Fatigue and morale are held here; watch.ts (5.2) moves them.
  */
 
 export interface Man {
@@ -27,12 +27,16 @@ export interface Man {
   line: string;
   story: string[];
   face: FaceObs;
+  /** Chunk 5.2: what he is doing now (set by the watch step). */
+  duty?: Duty;
 }
 
 export interface CrewState {
   men: Man[];
-  /** Bumped on any change (the roster is published again). */
+  /** Bumped when the roster itself changes (published again); fatigue and morale go out on the watch bill. */
   rev: number;
+  /** Chunk 5.2: the watch bill, battle stations. */
+  watch: WatchState;
 }
 
 /** Rating ranks, senior first; officers have their own. */
@@ -233,7 +237,7 @@ export function newCrew(seed: number, dateMs: number): CrewState {
     m.story = storyFor(m, r, year, port);
     return m;
   });
-  return { men, rev: 1 };
+  return { men, rev: 1, watch: newWatch() };
 }
 
 /** The one line under his name: where he comes from, or what he was, or how long he has been at it. */

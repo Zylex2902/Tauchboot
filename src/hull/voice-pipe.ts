@@ -16,6 +16,8 @@ import { plate } from '../stations/panel-art';
  * Standard orders on the voice-pipe board. SILENT RUNNING stays down in its well while the
  * boat is rigged for it (chunk 4.1); pressed again, it secures from silent running. DECOY
  * CANISTER lets one go from the ejector aft (chunk 4.3); its count is chalked beside it.
+ * BATTLE STATIONS stays down while the men are at their stations (chunk 5.2); pressed again,
+ * it stands them down.
  */
 export const ORDERS: { id: string; text: [string, string]; say: string; station: number }[] = [
   { id: 'periscope', text: ['PERISCOPE', 'DEPTH'], say: 'PERISCOPE DEPTH.', station: 3 },
@@ -85,6 +87,7 @@ export class VoicePipe {
   private speaking = false;
   onOrder: (o: { id: string; station: number }) => void = () => {};
   private silentKey: Key | null = null;
+  private battleKey: Key | null = null;
   /** The decoy key's tally: one brass stud per canister aboard, dulling as each goes (chunk 4.3). */
   private pips: Sprite[] = [];
   private pipShown = -1;
@@ -136,6 +139,7 @@ export class VoicePipe {
       );
       c.onChange(() => this.order(o));
       if (o.id === 'silent') this.silentKey = c as unknown as Key;
+      if (o.id === 'battle') this.battleKey = c as unknown as Key;
       if (o.id === 'decoy') this.tally(8 + (i % 4) * (KEY_W + 5), 24 + Math.floor(i / 4) * (KEY_H + 8) + KEY_H + 2);
       return c.root;
     });
@@ -185,7 +189,8 @@ export class VoicePipe {
   private order(o: (typeof ORDERS)[number] | typeof SCUTTLE): void {
     this.close();
     // The silent-running key is down while she is rigged: pressing it secures.
-    const p = o.id === 'silent' && obs.boat.silent ? { ...o, id: 'secure', say: 'SECURE FROM SILENT RUNNING.' } : o;
+    const p = o.id === 'silent' && obs.boat.silent ? { ...o, id: 'secure', say: 'SECURE FROM SILENT RUNNING.' }
+      : o.id === 'battle' && obs.watch.battle ? { ...o, id: 'standdown', say: 'SECURE FROM BATTLE STATIONS.' } : o;
     this.say({ from: 'CAPTAIN', text: p.say });
     this.onOrder(p);
   }
@@ -214,6 +219,7 @@ export class VoicePipe {
   /** Each frame: keys that show the boat's state. */
   update(): void {
     this.silentKey?.latch(obs.boat.silent);
+    this.battleKey?.latch(obs.watch.battle);
     const n = obs.boat.canisters;
     if (n !== this.pipShown && this.pips.length) {
       const was = this.pipShown;

@@ -394,6 +394,17 @@ export class BoatSound {
         for (let k = 0; k < 3; k++) setTimeout(() => mixer.play(SFX.bell, 'machinery', { gain: 0.55, rate: 0.82 }), k * 520);
         haptic('impact');
         break;
+      case 'eightBells':
+        // The change of watch (chunk 5.2): eight bells on the control room's brass bell, struck in pairs.
+        for (let k = 0; k < 8; k++) setTimeout(() => mixer.play(SFX.bell, 'machinery', { gain: 0.26, rate: 1.18 + (k % 2) * 0.01 }), Math.floor(k / 2) * 900 + (k % 2) * 300);
+        haptic('tick');
+        break;
+      case 'standDown':
+        // Secured from battle stations: the gong once, and the watch below going forward and aft to their bunks.
+        mixer.play(SFX.bell, 'machinery', { gain: 0.35, rate: 0.82 });
+        for (let k = 0; k < 6; k++) setTimeout(() => mixer.play(SFX.step, 'machinery', { gain: 0.18 + Math.random() * 0.1, rate: 0.85 + Math.random() * 0.3, pan: (Math.random() - 0.5) * 1.2 }), 500 + k * 230 + Math.random() * 120);
+        haptic('press');
+        break;
     }
   }
 }

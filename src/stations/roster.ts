@@ -8,11 +8,14 @@ import { SFX } from '../core/sfx';
 import { ease } from '../core/tween';
 import { TypedText, wrap } from '../core/typed';
 import type { KitContext } from '../controls';
-import { obs, ROLES, SECTION, type ManObs, type RosterObs } from '../obs';
+import { DUTY_WORD, obs, ROLES, SECTION, type Duty, type ManObs, type RosterObs, type WatchObs } from '../obs';
+import { DitherSwap, LiveBar } from './live-ink';
 import { FACE, photoCard } from './portrait';
 
-const HEAD = 16;
-const ROW = 34;
+/** The page head: title, then the watch bill's line (chunk 5.2). */
+const HEAD = 34;
+/** A man's row: name, post, his line, and (chunk 5.2) what he is doing with his fatigue. */
+const ROW = 42;
 const DEPT = 12;
 /** Inertia: the list coasts and slows (per second), and stops dead at either end. */
 const FRICTION = 5;
@@ -41,15 +44,44 @@ function paper(w: number, h: number, spineLeft: boolean, seed: number): Pix {
   return p;
 }
 
-/** When the finger did it (the input event's own time: frames can lag behind the hand). */
-const when = (e: FederatedPointerEvent): number => (e.nativeEvent as { timeStamp?: number } | undefined)?.timeStamp ?? performance.now();
-
-/** A sprite showing the first `w` px of a texture (bars filling, without masks). */
-function showW(s: Sprite, full: Texture, w: number): void {
-  if (s.texture !== Texture.EMPTY && s.texture !== full) s.texture.destroy(false);
-  w = Math.max(0, Math.min(full.width, Math.round(w)));
-  s.texture = w <= 0 ? Texture.EMPTY : w >= full.width ? full : new Texture({ source: full.source, frame: new Rectangle(0, 0, w, full.height) });
+/** Chunk 5.2: a man's row's live ink: his watch stamp (solid while he is up and working), what he is doing, his fatigue. */
+interface Live {
+  tag: DitherSwap;
+  duty: DitherSwap;
+  bar: LiveBar;
 }
+const TAG_W = 20;
+const DUTY_W = 54;
+/** The head's crew-fatigue bar; a row's runs from after the duty word to the edge. */
+const BAR_W = 40;
+/** Working, he is up: the stamp is inked solid. */
+const UP: Record<Duty, boolean> = { watch: true, stations: true, day: true, awake: false, below: false };
+const DUTY_INK: Record<Duty, ColorIndex> = { watch: C.ink0, stations: C.red0, day: C.ink0, awake: C.rust2, below: C.ink1 };
+
+function tagPix(sec: string, up: boolean): Pix {
+  const p = new Pix(TAG_W, 10);
+  const tw = measure(sec) + 4;
+  const x = TAG_W - tw;
+  if (up) p.rect(x, 0, tw, 10, C.ink1);
+  else p.frame(x, 0, tw, 10, C.ink1);
+  drawText(p, sec, x + 2, 2, up ? C.paper0 : C.ink1);
+  return p;
+}
+
+function dutyPix(d: Duty): Pix {
+  const p = new Pix(DUTY_W, 8);
+  const t = DUTY_WORD[d];
+  drawText(p, t, 0, 0, DUTY_INK[d]);
+  return p;
+}
+
+/** When the finger did it (the input event's own time: frames can lag behind the hand). */
+const hhmm = (ms: number) => {
+  const d = new Date(ms);
+  return `${String(d.getUTCHours()).padStart(2, '0')}${String(d.getUTCMinutes()).padStart(2, '0')}`;
+};
+
+const when = (e: FederatedPointerEvent): number => (e.nativeEvent as { timeStamp?: number } | undefined)?.timeStamp ?? performance.now();
 
 /**
  * The crew roster (chunk 5.1), a ledger open on the captain's desk. Left page: every man,
@@ -71,7 +103,14 @@ export class CrewRoster {
   private thumb = new Sprite(Texture.EMPTY);
   private dossier = new Container();
   private photo = new Sprite(Texture.EMPTY);
-  private bars: { fill: Sprite; full: Texture | null }[] = [];
+  private bars: LiveBar[] = [];
+  /** Chunk 5.2: the live ink on each man's row, the watch bill's line and the crew's fatigue in the head. */
+  private live = new Map<number, Live>();
+  private bill = new DitherSwap();
+  private meanBar = new LiveBar(BAR_W, 4, 0.6);
+  private rowBarW = 30;
+  private watch: WatchObs = obs.watch;
+  private scratchAt = 0;
   private typed: TypedText[] = [];
   private pw = 0;
   private ph = 0;
@@ -96,25 +135,24 @@ export class CrewRoster {
     this.list.addChild(this.listSprite);
     this.view.mask = this.mask;
     this.dossier.addChild(this.photo);
-    for (let i = 0; i < 3; i++) {
-      const fill = new Sprite(Texture.EMPTY);
-      this.bars.push({ fill, full: null });
-      this.dossier.addChild(fill);
-    }
-    this.root.addChild(this.left, this.right, this.view, this.mask, this.thumb, this.dossier);
+    this.root.addChild(this.left, this.right, this.view, this.mask, this.thumb, this.dossier, this.bill.sprite, this.meanBar.sprite);
     this.root.eventMode = 'static';
     this.root.on('pointerdown', (e) => this.down(e));
     this.root.on('globalpointermove', (e) => this.move(e));
     this.root.on('pointerup', (e) => this.up(e));
     this.root.on('pointerupoutside', (e) => this.up(e));
-    ticker.add((t) => this.step(t.deltaMS));
-    obs.on((e) => e.type === 'roster' && this.load(e.roster));
+    ticker.add((t) => this.tick(t.deltaMS));
+    obs.on((e) => {
+      if (e.type === 'roster') this.load(e.roster);
+      if (e.type === 'watch') this.onWatch(e.watch);
+    });
   }
 
   /** Shown on the desk (a hidden roster neither rebuilds nor coasts). */
   setActive(on: boolean): void {
     this.active = on;
     if (on && obs.roster.rev !== this.rev) this.load(obs.roster);
+    if (on) this.onWatch(obs.watch, false);
   }
 
   /** Page size in art px; the spread is centred on its root. */
@@ -168,7 +206,10 @@ export class CrewRoster {
     const vr = this.viewRect;
     this.view.position.set(vr.x, vr.y);
     this.mask.clear().rect(vr.x, vr.y, vr.width, vr.height).fill(0xffffff);
+    this.bill.sprite.position.set(this.left.x + 6, this.left.y + 14);
+    this.meanBar.sprite.position.set(this.left.x + this.pw - 10 - BAR_W, this.left.y + 24);
     this.buildList(vr.width);
+    this.onWatch(this.watch, false);
     this.clampScroll();
     this.place();
     this.showDossier(false);
@@ -185,7 +226,11 @@ export class CrewRoster {
     drawText(p, 'CREW ROSTER', 6, 4, C.ink0);
     const n = `${this.men.length} MEN`;
     drawText(p, n, this.pw - 10 - measure(n), 4, C.ink1);
-    p.rect(5, 12, this.pw - 13, 1, C.paper2);
+    // Chunk 5.2: the watch bill's line under the title, the crew's fatigue beside it.
+    const fl = 'CREW FATIGUE';
+    drawText(p, fl, 6, 23, C.ink1);
+    p.frame(this.pw - 10 - BAR_W - 1, 23, BAR_W + 2, 6, C.ink1);
+    p.rect(5, 31, this.pw - 13, 1, C.paper2);
     // The scroll track down the outer edge.
     p.rect(this.pw - 6, HEAD, 1, this.ph - HEAD - 3, C.paper2);
     return p;
@@ -219,16 +264,15 @@ export class CrewRoster {
       p.blit(card, 1, r.y + 1);
       const tx = card.w + 4;
       drawText(p, m.short, tx, r.y + 3, C.ink0);
-      // His watch, as a stamped tag: I, II, III, or DAY for the day men.
-      const sec = m.section === null ? 'DAY' : SECTION[m.section];
-      const tw = measure(sec) + 4;
-      p.frame(w - 2 - tw, r.y + 1, tw, 10, C.ink1);
-      drawText(p, sec, w - tw, r.y + 3, C.ink1);
+      // His watch stamp, what he is doing and his fatigue are live ink over the sheet (chunk 5.2); the bar's rule is printed.
+      this.rowBarW = Math.max(16, w - 3 - (tx + DUTY_W + 3));
+      p.frame(w - 3 - this.rowBarW, r.y + 30, this.rowBarW + 2, 6, C.paper2);
       drawText(p, m.post, tx, r.y + 12, C.ink1);
       drawText(p, m.line, tx, r.y + 21, C.rust2);
       for (let x = tx; x < w - 2; x += 3) p.set(x, r.y + ROW - 1, C.paper2);
     }
     this.setTex(this.listSprite, p);
+    this.buildLive(w);
     // The pencil band behind the man picked.
     const b = new Pix(w, ROW, -1);
     for (let yy = 0; yy < ROW; yy++) for (let x = 0; x < w; x++) if (BAYER4[yy & 3][x & 3] < 6) b.set(x, yy, C.paper1);
@@ -237,6 +281,80 @@ export class CrewRoster {
     const sr = this.rowOf(this.selected);
     this.band.y = sr ? sr.y : 0;
     this.band.visible = !!sr;
+  }
+
+  /** Chunk 5.2: fresh live ink for every row (the sheet was drawn again). */
+  private buildLive(w: number): void {
+    for (const l of this.live.values()) {
+      l.tag.destroy();
+      l.duty.destroy();
+      l.bar.destroy();
+    }
+    this.live.clear();
+    for (const r of this.rows) {
+      if (r.id === null) continue;
+      const l: Live = { tag: new DitherSwap(), duty: new DitherSwap(), bar: new LiveBar(this.rowBarW, 4, 0.6) };
+      const tx = FACE.w + 6; // as the sheet: right of the photo card
+      l.tag.sprite.position.set(w - 2 - TAG_W, r.y + 1);
+      l.duty.sprite.position.set(tx, r.y + 30);
+      l.bar.sprite.position.set(w - 2 - this.rowBarW, r.y + 31);
+      this.list.addChild(l.tag.sprite, l.duty.sprite, l.bar.sprite);
+      this.live.set(r.id, l);
+    }
+  }
+
+  /**
+   * Chunk 5.2: the watch bill has moved: stamps inked or cleared as men come on and go below,
+   * what each is doing, fatigue bars easing, the head's line and the crew's fatigue, and the
+   * open dossier's bars.
+   */
+  private onWatch(wb: WatchObs, animate = this.active): void {
+    this.watch = wb;
+    if (!this.pw || !this.men.length) return;
+    const by = new Map(wb.men.map((m) => [m.id, m]));
+    for (const m of this.men) {
+      const l = this.live.get(m.id);
+      if (!l) continue;
+      const w = by.get(m.id);
+      const duty: Duty = w?.duty ?? 'below';
+      const sec = m.section === null ? 'DAY' : SECTION[m.section];
+      const up = UP[duty];
+      const tk = `${sec}${up}`;
+      if (l.tag.key !== tk) l.tag.set(tagPix(sec, up), tk, animate);
+      if (l.duty.key !== duty) l.duty.set(dutyPix(duty), duty, animate);
+      l.bar.set(w?.fatigue ?? m.fatigue, !animate);
+    }
+    const t = wb.battle ? `BATTLE STATIONS ${hhmm(wb.since)}` : wb.until ? `WATCH ${SECTION[wb.on]} ON TILL ${hhmm(wb.until)}` : '';
+    if (this.bill.key !== t || !this.bill.sprite.texture.width) {
+      const p = new Pix(Math.max(1, this.pw - 14), 8);
+      drawText(p, t, 0, 0, wb.battle ? C.red0 : C.ink0);
+      this.bill.set(p, t, animate);
+    }
+    this.meanBar.set(wb.men.length ? wb.fatigue : 0, !animate);
+    const sel = by.get(this.selected);
+    if (sel && this.bars.length === 3) {
+      const [, bf, bm] = this.bars;
+      const moved = Math.abs(bf.value - sel.fatigue) * bf.w >= 1 || Math.abs(bm.value - sel.morale) * bm.w >= 1;
+      bf.set(sel.fatigue, !animate);
+      bm.set(sel.morale, !animate);
+      // The first officer's pencil going over the open dossier.
+      const now = performance.now();
+      if (moved && animate && now - this.scratchAt > 1500) {
+        this.scratchAt = now;
+        mixer.play(SFX.pencil, 'ui', { gain: 0.08, rate: 1.4 });
+      }
+    }
+  }
+
+  /** The man's live line from the watch bill (tests). */
+  liveOf(id: number): { tag: string; duty: string; bar: number } | null {
+    const l = this.live.get(id);
+    return l ? { tag: l.tag.key, duty: l.duty.key, bar: l.bar.width } : null;
+  }
+
+  /** The dossier's bars, px showing: skill, fatigue, morale (tests). */
+  get barPx(): number[] {
+    return this.bars.map((b) => b.width);
   }
 
   private rowOf(id: number): Row | undefined {
@@ -319,6 +437,20 @@ export class CrewRoster {
     const b = s[s.length - 1];
     const dt = (b.t - a.t) / 1000;
     this.vel = s.length > 1 && dt > 0.01 ? Math.max(-2400, Math.min(2400, -(b.y - a.y) / dt)) : 0;
+  }
+
+  private tick(ms: number): void {
+    if (!this.active) return;
+    // Chunk 5.2: live ink settling.
+    for (const l of this.live.values()) {
+      l.tag.step(ms);
+      l.duty.step(ms);
+      l.bar.step(ms);
+    }
+    this.bill.step(ms);
+    this.meanBar.step(ms);
+    for (const b of this.bars) b.step(ms);
+    this.step(ms);
   }
 
   private step(ms: number): void {
@@ -460,25 +592,20 @@ export class CrewRoster {
     const ry = by - oy + 3 * 9 + 2;
     for (let x = 6; x < this.pw - 6; x += 2) page.set(x, ry, C.paper2);
     this.setTex(this.right, page);
-    this.bars.forEach((b, i) => {
-      const full = new Pix(bw - 2, 4);
-      const v = vals[i];
-      const c = i === 1 ? (v > 0.6 ? C.red0 : C.ink1) : i === 2 ? (v < 0.35 ? C.red0 : C.ink1) : C.ink0;
-      for (let y = 0; y < 4; y++) for (let x = 0; x < full.w; x++) if ((x + y) % 2 === 0 || y === 0) full.set(x, y, c);
-      if (b.full) {
-        if (b.fill.texture !== b.full && b.fill.texture !== Texture.EMPTY) b.fill.texture.destroy(false);
-        b.fill.texture = Texture.EMPTY;
-        b.full.destroy(true);
-      }
-      b.full = full.toTexture();
-      b.fill.position.set(ox + 6 + lw + 1, by + i * 9 + 1);
-      const target = Math.round((bw - 2) * Math.max(0, Math.min(1, v)));
-      if (!animate) showW(b.fill, b.full, target);
-      else {
-        const f = b.full;
-        showW(b.fill, f, 0);
-        void this.ctx.tw.frames(target + 1, 380 + i * 60, (j) => tok === this.selTok && b.full === f && showW(b.fill, f, j), ease.outCubic);
-      }
+    // Chunk 5.2: fatigue and morale are live (the watch bill), easing as they move.
+    for (const b of this.bars) b.destroy();
+    const live = this.watch.men.find((q) => q.id === m.id);
+    if (live) {
+      vals[1] = live.fatigue;
+      vals[2] = live.morale;
+    }
+    this.bars = vals.map((v, i) => {
+      const b = new LiveBar(bw - 2, 4, i === 1 ? 0.6 : i === 2 ? 0.35 : null, i !== 2, i === 0 ? C.ink0 : C.ink1);
+      b.sprite.position.set(ox + 6 + lw + 1, by + i * 9 + 1);
+      this.dossier.addChild(b.sprite);
+      if (animate) b.set(v, false, 0);
+      else b.set(v, true);
+      return b;
     });
 
     // His history.

@@ -3,7 +3,7 @@
  */
 
 import { freshDamage, type DamageObs } from './damage';
-import { freshRoster, type RosterObs } from './crew';
+import { freshRoster, freshWatch, type RosterObs, type WatchObs } from './crew';
 import { freshBoatObs, type BoatObs, type BoatSet } from './boat';
 import { freshEnv, freshNav, freshSound, type EnvObs, type LookoutReport, type NavObs, type Signal, type Signature, type SoundObs } from './sense';
 import type { NeutralKey, ShipClassKey } from './ships';
@@ -23,7 +23,7 @@ export { ALPHA, dayLabel, decipher, encipher, groups, keyDay, MORSE, pad5, parse
 export { BIG, gridCentre, gridName, gridOf, gridRect, GRID_ORIGIN, NM, SQ, SUB, type GridSquare } from './grid';
 export { BOAT, DIVE_DRILL, TELEGRAPH, TELEGRAPH_STOP, type BoatObs, type BoatSet } from './boat';
 export { BOW_TUBES, DEPTH_MAX, DEPTH_MIN, eraOf, freshTubes, NO_SET, RUN, TORPEDOES, turnOut, type Era, type Pistol, type TorpSet, type TorpSpec, type TorpType, type TubeObs, type TubesObs, type ReloadObs } from './torpedo';
-export { freshRoster, ROLES, SECTION, type FaceObs, type ManObs, type Role, type RosterObs } from './crew';
+export { DUTY_WORD, freshRoster, freshWatch, ROLES, SECTION, type Duty, type FaceObs, type ManObs, type Role, type RosterObs, type WatchManObs, type WatchObs } from './crew';
 export { freshDamage, type CompDamageObs, type CrewObs, type DamageObs, type PumpObs, type SysDamageObs } from './damage';
 
 /** 0 quiet, 1 caution (amber), 2 alarm (red, blinking). */
@@ -291,9 +291,9 @@ export interface DrillObs {
 /** Heard all over the boat. */
 /** alarm: the dive alarm bell, rung through the boat. bomb / bombFar: aircraft bombs close aboard or off. */
 /** launch: a torpedo leaving the tube. detonation(Far): a torpedo going off. clang: a dud striking. breakup: a ship going down. */
-/** battle: battle stations rung through the boat (the engagement begins, chunk 3.6). quiet / unquiet: rigged for silent running, or secured (4.1). splash: depth charges going in near enough to hear (4.2). */
+/** battle: battle stations rung through the boat (the engagement begins, chunk 3.6). quiet / unquiet: rigged for silent running, or secured (4.1). splash: depth charges going in near enough to hear (4.2). eightBells: the change of watch struck on the bell; standDown: secured from battle stations (5.2). */
 /** Chunk 4.6: inrush: the sea taking her; ram: an escort's stem through the hull; shell / shellSplash: a shell striking, or falling close; abandon: the crew going up the ladders; scuttle: the scuttling charges. */
-export type HullSound = 'inrush' | 'ram' | 'shell' | 'shellSplash' | 'abandon' | 'scuttle' | 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle' | 'quiet' | 'unquiet' | 'splash' | 'eject' | 'trip' | 'reset' | 'fire' | 'extinguish' | 'gas';
+export type HullSound = 'inrush' | 'ram' | 'shell' | 'shellSplash' | 'abandon' | 'scuttle' | 'rivet' | 'crush' | 'surface' | 'under' | 'groan' | 'alarm' | 'bomb' | 'bombFar' | 'launch' | 'detonation' | 'detonationFar' | 'clang' | 'breakup' | 'battle' | 'quiet' | 'unquiet' | 'eightBells' | 'standDown' | 'splash' | 'eject' | 'trip' | 'reset' | 'fire' | 'extinguish' | 'gas';
 
 export type ObsEvent =
   | { type: 'alarm'; station: number; obs: AlarmObs }
@@ -318,7 +318,9 @@ export type ObsEvent =
   /** Chunk 4.6: the boat is lost (or scuttled): how, and the crew's last report. */
   | { type: 'lost'; loss: LossObs }
   /** Chunk 5.1: the crew roster, whenever it changes. */
-  | { type: 'roster'; roster: RosterObs };
+  | { type: 'roster'; roster: RosterObs }
+  /** Chunk 5.2: the watch bill, when a duty changes or anyone's fatigue or morale moves visibly. */
+  | { type: 'watch'; watch: WatchObs };
 
 /**
  * How the boat was lost (chunk 4.6). crushed: driven past where the hull gives way; flooded: so
@@ -415,6 +417,8 @@ class Observation {
   loss: LossObs | null = null;
   /** Chunk 5.1: the crew roster. */
   roster: RosterObs = freshRoster();
+  /** Chunk 5.2: the watch bill, duties, fatigue and morale. */
+  watch: WatchObs = freshWatch();
   /** Navigator's dead reckoning, compass, log and watch clock (every tick). */
   readonly nav: NavObs = freshNav();
   /** Weather as last seen from the bridge or scope, and the hull thermometer. */
@@ -443,6 +447,7 @@ class Observation {
     if (e.type === 'timeScale') this.timeScale = e.scale;
     if (e.type === 'lost') this.loss = e.loss;
     if (e.type === 'roster') this.roster = e.roster;
+    if (e.type === 'watch') this.watch = e.watch;
     if (e.type === 'lookout') keep(this.lookouts, e.report);
     if (e.type === 'signal') {
       // A repeat fills in what was lost: it replaces the copy taken down before.

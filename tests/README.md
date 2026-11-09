@@ -39,6 +39,6 @@ Screenshots go to `/tmp/claude-0/shots/<chunk>/`. `check.py <png> <scale> <ox> <
 
 ## Full regression
 
-`regressNN.sh` chains the previous one and adds chunk NN's tests. The latest is `sh tests/regress51.sh` (all green at 5.1; takes about an hour). Perf gates: hydro23, air24 and world must exceed 10240 ticks/s (1024x time compression at 10 Hz); at 5.1 they ran 17179, 16540 and 42595.
+`regressNN.sh` chains the previous one and adds chunk NN's tests. The latest is `sh tests/regress52.sh` (all green at 5.2; takes about an hour). Perf gates: hydro23, air24 and world must exceed 10240 ticks/s (1024x time compression at 10 Hz); at 5.1 they ran 17179, 16540 and 42595.
 
 Each new chunk adds `<name><chunk>.mjs` (sim), `<name><chunk>ui.mjs` (browser) and `regress<chunk>.sh`.

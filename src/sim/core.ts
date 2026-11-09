@@ -13,6 +13,7 @@ import { DECOYS_CARRIED, DECOYS_FROM, warMs } from './doctrine';
 import { churned, newEscortWorld, stepEscorts, type EscortHost, type EscortWorld } from './escort';
 import { Rng } from './rng';
 import { newCrew, rosterOf, type CrewState } from './crew';
+import { feelCharge, newWatch, ring, rouse, standDown, stepWatch, watchKey, watchObs, type WatchHost } from './watch';
 import { clearWeather } from './weather';
 import { newOperator, stepOperator, type OperatorHost, type OperatorState } from './operator';
 import { beam, newNav, newSense, orderFix, scopeWorld, stepSense, type SenseHost, type SenseState } from './sense';
@@ -36,9 +37,9 @@ const TICK_S = TICK_MS / 1000;
 const MAX_TICKS_PER_FRAME = 400;
 /** Real-time frame gaps longer than this (a backgrounded tab) are not caught up. */
 const MAX_FRAME_MS = 250;
-export const SAVE_VERSION = 21;
+export const SAVE_VERSION = 22;
 /** Older saves load with what they lack added fresh: the world (chunk 2.1), the senses (2.2), the hydrophone operator (2.3), aircraft and the air drill (2.4), the helm, landmarks and the navigator (2.5), the W/T room (2.6), being seen (3.2), the torpedoes (3.4), the racks and the torpedo gang (3.5), the engagement (3.6), silent running and the escorts' senses (4.1), the escorts' hunts and depth charges (4.2). */
-const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+const MIGRATES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
 const KN = 0.5144;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const wrap = (d: number) => norm(d + 180) - 180;
@@ -135,6 +136,7 @@ export class Sim {
   private rngTorp: Rng;
   private rngHunt: Rng;
   private lossHost: LossHost;
+  private watchHost: WatchHost;
   private huntHost: HuntHost;
   private escortHost: EscortHost;
   private torpHost: TorpHost;
@@ -205,6 +207,10 @@ export class Sim {
       hull: (kind) => obs.publish({ type: 'hull', kind }),
     };
     this.silentHost = { ...this.boatHost, say: () => {} };
+    this.watchHost = {
+      say: (from, text, keep) => this.effect({ kind: 'voice', from, text, keep }),
+      hull: (kind) => obs.publish({ type: 'hull', kind }),
+    };
     this.lossHost = {
       say: (from, text, delay = 0) => (delay > 0 ? this.s.sched.push({ at: this.s.tick + Math.round(delay / TICK_S), fx: [{ kind: 'voice', from, text }] }) : this.effect({ kind: 'voice', from, text })),
       alarm: this.host.alarm,
@@ -317,6 +323,7 @@ export class Sim {
     migrateDamage(s.boat.dmg);
     s.loss ??= null;
     s.crew ??= newCrew(s.seed, s.world.t0);
+    s.crew.watch ??= newWatch(); // chunk 5.2
     s.v = SAVE_VERSION;
     return new Sim(s);
   }
@@ -333,6 +340,7 @@ export class Sim {
     obs.publish({ type: 'paused', paused: this.s.paused });
     if (this.s.loss) obs.publish({ type: 'lost', loss: { ...this.s.loss } });
     this.publishRoster();
+    this.publishWatch();
     this.hydroTick(false);
     this.present(1);
   }
@@ -341,7 +349,34 @@ export class Sim {
   private rosterRev = -1;
   private publishRoster(): void {
     this.rosterRev = this.s.crew.rev;
-    obs.publish({ type: 'roster', roster: rosterOf(this.s.crew, this.s.world.t0 + this.s.world.n * TICK_S * 1000) });
+    obs.publish({ type: 'roster', roster: rosterOf(this.s.crew, this.clockMs) });
+  }
+
+  /** Watch clock, UTC ms. */
+  private get clockMs(): number {
+    return this.s.world.t0 + this.s.world.n * TICK_S * 1000;
+  }
+
+  /** The watch bill (chunk 5.2), published whenever a duty changes or a bar would move. */
+  private watchSent = '';
+  private publishWatch(): void {
+    const c = this.s.crew;
+    this.watchSent = watchKey(c, c.watch, this.clockMs);
+    obs.publish({ type: 'watch', watch: watchObs(c, c.watch, this.clockMs, this.s.world.n * TICK_S) });
+  }
+
+  /** Chunk 5.2: the watches turn over, the men tire and rest, once a second. */
+  private stepCrew(): void {
+    const s = this.s;
+    const b = s.boat;
+    const D = b.dmg;
+    const t = s.world.n * TICK_S;
+    const hunted = this.hunted;
+    const emergency = D.leaks.length > 0 || b.bilge > 1 || s.esc.charges.length > 0 || !!b.scuttle || COMPS.some((c) => D.comps[c.id].fire > 0 || D.comps[c.id].gas > 0);
+    const near = s.world.ships.some((q) => !q.gone && !q.sunk && Math.hypot(q.x - s.world.own.x, q.y - s.world.own.y) < 12000);
+    const sunk = s.world.ships.reduce((n, q) => n + (q.sunk ? 1 : 0), 0);
+    stepWatch(s.crew, s.crew.watch, this.watchHost, { clock: this.clockMs, t, hunted, emergency, clear: !hunted && !emergency && !near, sunk }, 1);
+    if (watchKey(s.crew, s.crew.watch, this.clockMs) !== this.watchSent) this.publishWatch();
   }
 
   private get drillObs() {
@@ -429,6 +464,7 @@ export class Sim {
     // The compartments (chunk 4.4): fires, gas, breakers, the damage party, once a second.
     // Loss states (chunk 4.6): abandoning ship, and the first officer's warnings when she is forced up.
     if (this.s.world.n % 10 === 0 && this.s.crew.rev !== this.rosterRev) this.publishRoster();
+    if (this.s.world.n % 10 === 0 && !b.lost) this.stepCrew();
     if (this.s.world.n % 10 === 0 && !b.lost) stepLoss(b, this.lossHost, this.s.world, this.s.world.n * TICK_S, this.s.world.ships.some((q) => q.ai?.mode === 'gun'));
     if (this.s.world.n % 10 === 0 && !b.lost) {
       stepDamage(b.dmg, this.boatHost, { fans: !b.silent && power.pumpsLive(b.power) });
@@ -494,7 +530,12 @@ export class Sim {
         const b = this.s.boat;
         // Silent running (chunk 4.1): rigged, or secured; the control room says if it already is.
         const same = (c.order === 'silent' && b.silent) || (c.order === 'secure' && !b.silent);
-        const r: [string, string] | undefined = same ? ['CONTROL ROOM', b.silent ? 'WE ARE RIGGED FOR SILENT RUNNING, CAPTAIN.' : 'WE ARE NOT RIGGED FOR SILENT RUNNING, CAPTAIN.'] : REPLIES[c.order];
+        let r: [string, string] | undefined = same ? ['CONTROL ROOM', b.silent ? 'WE ARE RIGGED FOR SILENT RUNNING, CAPTAIN.' : 'WE ARE NOT RIGGED FOR SILENT RUNNING, CAPTAIN.'] : REPLIES[c.order];
+        // Battle stations (chunk 5.2): rung through the boat, or stood down; the control room says if they already are.
+        const W = this.s.crew.watch;
+        if (c.order === 'battle' && !b.lost && !ring(W, this.watchHost, this.s.world.n * TICK_S)) r = ['CONTROL ROOM', 'WE ARE AT BATTLE STATIONS, CAPTAIN.'];
+        if (c.order === 'standdown' && !b.lost && !standDown(W, this.watchHost, this.clockMs)) r = ['CONTROL ROOM', 'WE ARE NOT AT BATTLE STATIONS, CAPTAIN.'];
+        if (c.order === 'battle' || c.order === 'standdown') this.publishWatch();
         if (r) this.host.later(0.9, [{ kind: 'voice', from: r[0], text: r[1] }]);
         // The control room acts on depth orders: the chief takes the boat.
         if (c.order === 'alarm') this.crashDive();
@@ -585,6 +626,14 @@ export class Sim {
         if (kind === 'attack') this.newEngagement();
         // A new boat (chunk 4.6): whatever became of the last one is behind us.
         this.s.loss = null;
+        // Chunk 5.2: the same men, rested as they came aboard, and nobody at battle stations yet.
+        const rested = newCrew(this.s.seed, this.s.world.t0).men;
+        this.s.crew.men.forEach((m, i) => {
+          m.fatigue = rested[i]?.fatigue ?? 0.05;
+          m.morale = rested[i]?.morale ?? 0.7;
+          m.duty = undefined;
+        });
+        this.s.crew.watch = newWatch();
         obs.loss = null;
         this.s.drill = newDrillState(this.rngDrill, d.clock, d);
         this.s.dive = newDiveState();
@@ -603,7 +652,8 @@ export class Sim {
         else if (this.s.kind === 'air') airDrill.begin(this.s.air, this.s.world.air, this.s.world, this.rngAir, this.host, TICK_S);
         else if (this.s.kind === 'attack') {
           if (this.s.engage.obs.phase === 'brief') {
-            obs.publish({ type: 'hull', kind: 'battle' });
+            ring(this.s.crew.watch, this.watchHost, this.s.world.n * TICK_S);
+            this.publishWatch();
             this.host.later(0.8, [{ kind: 'voice', from: 'CONTROL ROOM', text: 'BATTLE STATIONS. ALL HANDS AT THEIR STATIONS, CAPTAIN.' }]);
           }
           engage.begin(this.s.engage, this.host, this.s.torp, (o) => obs.publish({ type: 'drill', drill: o }));
@@ -735,6 +785,7 @@ export class Sim {
     const b = this.s.boat;
     if (b.lost) return;
     obs.publish({ type: 'hull', kind: 'alarm' });
+    rouse(this.s.crew.watch, this.s.world.n * TICK_S);
     const up = b.depth < 9;
     this.effect({ kind: 'voice', from: up ? 'BRIDGE' : 'CONTROL ROOM', text: up ? 'ALARM! CLEAR THE BRIDGE!' : 'ALARM! TAKING HER DOWN!' });
     if (this.s.kind === 'air') airDrill.alarm(this.s.air);
@@ -904,6 +955,8 @@ export class Sim {
     const rel = ((Math.atan2(dx, dy) * 180) / Math.PI - w.own.course) * (Math.PI / 180);
     if (k > 0.02) obs.publish({ type: 'blast', k, pan: Math.max(-1, Math.min(1, Math.sin(rel))) });
     const t = w.n * TICK_S;
+    // Chunk 5.2: every man feels it.
+    feelCharge(this.s.crew, this.s.crew.watch, k, t, new Date(this.clockMs).getUTCFullYear());
     const said = this.s.esc.said;
     if (this.s.kind === 'attack') this.s.engage.charges = (this.s.engage.charges ?? 0) + 1;
     if (d < 6) {
@@ -934,6 +987,7 @@ export class Sim {
     // Bombs set shallow: a boat still up is hit, one going down is shaken, one past 18 m hears them overhead.
     const sev = d.dist < 70 && d.keel < 12 ? 'hit' : d.dist < 160 && d.keel < 18 ? 'shaken' : 'far';
     obs.publish({ type: 'hull', kind: sev === 'far' ? 'bombFar' : 'bomb' });
+    feelCharge(this.s.crew, this.s.crew.watch, sev === 'hit' ? 0.8 : sev === 'shaken' ? 0.6 : 0.3, this.s.world.n * TICK_S, new Date(this.clockMs).getUTCFullYear());
     if (sev === 'hit') {
       b.rivets += 3;
       this.boatHost.hull('rivet');

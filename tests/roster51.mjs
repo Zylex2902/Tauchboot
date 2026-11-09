@@ -61,7 +61,7 @@ const sim = Sim.fresh(4242);
 sim.announce();
 check(got && got.men.length === 44 && obs.roster.men.length === 44, 'the roster is published to obs on announce');
 const snap = sim.snapshot();
-check(SAVE_VERSION === 21 && snap.v === 21 && snap.sim.crew.men.length === 44, `kept in the save (v${snap.v})`);
+check(SAVE_VERSION >= 21 && snap.v === SAVE_VERSION && snap.sim.crew.men.length === 44, `kept in the save (v${snap.v})`);
 const back = Sim.load(JSON.parse(JSON.stringify(snap)));
 got = null; back.announce();
 check(got && got.men[7].last === obs.roster.men[7].last && got.men[7].last === sim.state.crew.men[7].last, `loaded: the same men (${got?.men[7].short})`);
